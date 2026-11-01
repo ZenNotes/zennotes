@@ -15,7 +15,7 @@
  * Each line contributes one minimal change (a single state character, or one
  * marker insertion), so cursors and selections map through naturally and the
  * whole toggle is a single undo step. The exception is checking off a
- * recurring task (#1036): its line is rewritten with the next occurrence
+ * recurring task (#1036): its block is rewritten with the next occurrence
  * above it, and a lone cursor on it stays on the open occurrence.
  */
 import type { ChangeSpec } from '@codemirror/state'
@@ -59,6 +59,11 @@ export function toggleCheckbox(view: EditorView): boolean {
   const changes: ChangeSpec[] = []
   const seen = new Set<number>()
   let stayOn: { from: number; column: number; length: number } | null = null
+  const selected = new Set<number>()
+  for (const range of state.selection.ranges) {
+    const last = state.doc.lineAt(range.to).number
+    for (let n = state.doc.lineAt(range.from).number; n <= last; n += 1) selected.add(n)
+  }
   for (const range of state.selection.ranges) {
     const firstLine = state.doc.lineAt(range.from).number
     const lastLine = state.doc.lineAt(range.to).number
@@ -68,9 +73,14 @@ export function toggleCheckbox(view: EditorView): boolean {
       const line = state.doc.line(n)
       const change = checkboxToggleChange(line.text, line.from)
       if (!change) continue
-      const recurring = isCheckOff(change) ? recurringCheckOff(state, n) : null
+      const recurring = isCheckOff(change)
+        ? recurringCheckOff(state, n, { ticked: (ln) => selected.has(ln) })
+        : null
       if (recurring) {
         changes.push(recurring.change)
+        // The change rewrites the task's whole subtree; a selected subtask
+        // inside it is already handled and must not add a second change.
+        for (let m = n + 1; m <= recurring.lastLine; m += 1) seen.add(m)
         if (state.selection.ranges.length === 1 && range.empty) {
           stayOn = { from: line.from, column: range.head - line.from, length: recurring.openLineLength }
         }

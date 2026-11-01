@@ -47,6 +47,19 @@ describe('completeRecurringTaskAtIndex (the shared case table)', () => {
     expect(result.insertedLines).toBe(1)
     expect(result.nextDue).toBe('2026-11-08')
   })
+
+  it('leaves only the fresh copies open on the Tasks list', () => {
+    const body = '- [ ] Review @repeat:weekly due:2026-11-01\n  - [x] Inbox\n  - [ ] Plan'
+    const result = completeRecurringTaskAtIndex(body, 0, { today: '2026-11-01' })!
+    const open = parseTasksFromBody(result.body, { path: 'a.md', title: 'a', folder: 'inbox' })
+      .filter((t) => !t.checked && !t.cancelled)
+      .map((t) => [t.content, t.lineNumber])
+    expect(open).toEqual([
+      ['Review', 0],
+      ['Inbox', 1],
+      ['Plan', 2]
+    ])
+  })
 })
 
 describe('parseRepeatRule', () => {
@@ -97,12 +110,20 @@ describe('nextRepeatDate', () => {
 })
 
 describe('planRecurringCompletion', () => {
-  it('reports the next occurrence and the record for an editor line', () => {
-    const plan = planRecurringCompletion(['- [ ] A @repeat:daily', '  - [x] child'], 0, {
-      today: '2026-11-01'
-    })
-    expect(plan?.next).toEqual(['- [ ] A @repeat:daily due:2026-11-02', '  - [ ] child'])
+  it('reports the next occurrence and the record block for an editor line', () => {
+    const plan = planRecurringCompletion(
+      ['- [ ] A @repeat:daily', '  - [x] done child', '  - [ ] open child', 'after'],
+      0,
+      { today: '2026-11-01' }
+    )
+    expect(plan?.next).toEqual([
+      '- [ ] A @repeat:daily due:2026-11-02',
+      '  - [ ] done child',
+      '  - [ ] open child'
+    ])
     expect(plan?.record).toBe('- [x] A')
+    expect(plan?.recordChildren).toEqual(['  - [x] done child', '  - [-] open child'])
+    expect(plan?.replaces).toBe(3)
   })
 })
 

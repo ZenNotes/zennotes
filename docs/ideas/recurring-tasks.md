@@ -94,8 +94,10 @@ onto the same rule model.
    `@waiting` and `@status:` drop, so the next one starts in the board's first
    column.
 3. **Subtasks repeat too.** The task's subtree is copied under the new line
-   with every checkbox reset to `[ ]`. The finished line keeps its subtree as it
-   was, as the record of that week.
+   with every checkbox reset to `[ ]`. The finished line keeps its subtree as
+   the record of that week, ticks and all, and cancels (`[-]`) the subtasks
+   left open, so only the fresh copies read as live work. Subtasks selected
+   along with the task (`Vjj` then `Mod+L`) are written done instead.
 4. **The finished line is a record.** It drops `@repeat` and `@remind`, the two
    tokens that only mean something on open work. Obsidian Tasks keeps the rule;
    we drop it so unchecking the record, or dragging a Done card back and forth,
@@ -228,7 +230,6 @@ tests both run, so the two implementations cannot drift.
 - `x` in the Tasks list does not linger a recurring task's row: the row is the
   next occurrence by then, and a second `x` would check that one off. The
   toast's Undo is the way back.
-- Open question left from the build: a finished occurrence keeps its unticked
-  subtasks open, so they stay on the Tasks list beside the next occurrence's
-  fresh copies. Flipping them to `[-]` in the record would clear that up.
+- The record cancels the subtasks left open (Adib, 2026-11-01), so they no
+  longer stand on the Tasks list beside the next occurrence's fresh copies.
 

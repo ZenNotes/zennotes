@@ -16,7 +16,9 @@
  * and the list cursor stay on open work. The finished line is a record: it
  * drops `@repeat` and `@remind`, the tokens that only mean something on open
  * work, so unchecking it (or dragging a Done card back) never spawns a copy.
- * A task's subtree repeats with it, every checkbox reset to open.
+ * A task's subtree repeats with it, every checkbox reset to open, and the
+ * record cancels (`[-]`) the subtasks it left open: they were not done, and
+ * left open they would stand beside their fresh copies on every Tasks list.
  *
  * Dates are whole days in `YYYY-MM-DD`, computed on UTC calendar fields so a
  * daylight-saving change can never shift a date. The zn CLI mirrors this edit
@@ -231,13 +233,18 @@ export interface RecurringLinePlan {
   next: string[]
   /** The finished task's own line, rewritten as the record. */
   record: string
+  /** Its subtree as the record keeps it: the subtasks still open (`[ ]`,
+   *  `[/]`) cancelled, everything else as it was. */
+  recordChildren: string[]
+  /** How many lines the plan replaces: the task's line and its subtree. */
+  replaces: number
   nextDue: string
   rule: RepeatRule
 }
 
 /**
  * Plan checking off the recurring task on line `at` of `lines` (bare lines,
- * no `\r`): the occurrence that goes above it and what its own line becomes.
+ * no `\r`): the occurrence that goes above it and what its own block becomes.
  * Null when the line is not an OPEN task (`[ ]` or `[/]`) carrying a rule
  * this module understands; the caller then toggles it like any other task.
  */
@@ -271,16 +278,21 @@ export function planRecurringCompletion(
 
   // The subtree comes along with every checkbox open again: a weekly review's
   // checklist starts each week unticked. Notes under it copy verbatim.
+  // The record cancels the subtasks it left open, so only the fresh copies
+  // above read as live work; ticked, cancelled and forwarded ones stay.
   const end = taskBlockEnd(lines.map(bare), at, leadingIndentWidth(bare(line)))
+  const recordChildren: string[] = []
   for (let i = at + 1; i < end; i++) {
     const child = bare(lines[i])
     const childMatch = child.match(TASK_LINE_RE)
     next.push(childMatch ? `${childMatch[1]} ${childMatch[3]}` : child)
+    const open = childMatch && (childMatch[2] === ' ' || childMatch[2] === '/')
+    recordChildren.push(open ? `${childMatch[1]}-${childMatch[3]}` : child)
   }
 
   const recordRest = tidy(rest.replace(REPEAT_TOKEN_RE, '$1').replace(REMIND_TOKEN_RE, '$1'))
   const record = `${match[1]}${opts.skip ? '-' : 'x'}]${recordRest}`
-  return { next, record, nextDue, rule }
+  return { next, record, recordChildren, replaces: end - at, nextDue, rule }
 }
 
 export interface RecurringCompletion {
@@ -313,7 +325,14 @@ export function completeRecurringTaskAtIndex(
   const plan = planRecurringCompletion(lines, at, { ...opts, fallbackDue })
   if (!plan) return null
   const ending = lines[at].endsWith('\r') ? '\r' : ''
-  lines.splice(at, 1, ...plan.next.map((l) => l + ending), plan.record + ending)
+  const endingOf = (i: number): string => (lines[i].endsWith('\r') ? '\r' : '')
+  lines.splice(
+    at,
+    plan.replaces,
+    ...plan.next.map((l) => l + ending),
+    plan.record + ending,
+    ...plan.recordChildren.map((l, k) => l + endingOf(at + 1 + k))
+  )
   return {
     body: lines.join('\n'),
     nextDue: plan.nextDue,

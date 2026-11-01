@@ -36,6 +36,28 @@ describe('checking off a recurring task in the editor (#1036)', () => {
     expect(view.state.selection.main.head).toBe(10)
   })
 
+  it('the record cancels the subtasks left open, the copy starts them fresh', () => {
+    const doc = '- [ ] Review @repeat:weekly due:2026-11-01\n  - [x] Inbox\n  - [ ] Plan\n- [ ] other'
+    const view = viewOf(doc, 4)
+    toggleCheckbox(view)
+    expect(view.state.doc.toString()).toBe(
+      '- [ ] Review @repeat:weekly due:2026-11-08\n  - [ ] Inbox\n  - [ ] Plan\n' +
+        '- [x] Review due:2026-11-01\n  - [x] Inbox\n  - [-] Plan\n- [ ] other'
+    )
+  })
+
+  it('subtasks selected with the task are checked off in the record, in one change', () => {
+    const doc = '- [ ] Review @repeat:weekly due:2026-11-01\n  - [ ] Inbox\n  - [ ] Plan\n- [ ] other'
+    const view = new EditorView({
+      state: EditorState.create({ doc, selection: EditorSelection.range(0, doc.indexOf('Inbox') + 2) })
+    })
+    toggleCheckbox(view)
+    expect(view.state.doc.toString()).toBe(
+      '- [ ] Review @repeat:weekly due:2026-11-08\n  - [ ] Inbox\n  - [ ] Plan\n' +
+        '- [x] Review due:2026-11-01\n  - [x] Inbox\n  - [-] Plan\n- [ ] other'
+    )
+  })
+
   it('one undo step: the whole edit is a single transaction', () => {
     const view = viewOf('- [ ] A @repeat:daily due:2026-11-01', 0)
     let transactions = 0

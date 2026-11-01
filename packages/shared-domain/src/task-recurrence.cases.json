@@ -81,11 +81,11 @@
       "expected": "- [ ] Water the fern @repeat:after-3d due:2026-11-04\n- [x] Water the fern due:2026-10-20"
     },
     {
-      "name": "the subtree repeats unticked, the record keeps its ticks",
-      "body": "## Chores\n- [ ] Weekly review @repeat:fri due:2026-10-30\n  - [x] Inbox zero\n  - [-] Calendar\n  notes stay\n- [ ] Other",
+      "name": "the subtree repeats unticked; the record keeps its ticks and cancels what was left open",
+      "body": "## Chores\n- [ ] Weekly review @repeat:fri due:2026-10-30\n  - [x] Inbox zero\n  - [ ] Plan the week\n  - [/] Draft the update\n    - [ ] Nested open\n  - [-] Calendar\n  - [>] Moved [[Elsewhere]]\n  notes stay\n- [ ] Other",
       "taskIndex": 0,
       "today": "2026-10-30",
-      "expected": "## Chores\n- [ ] Weekly review @repeat:fri due:2026-11-06\n  - [ ] Inbox zero\n  - [ ] Calendar\n  notes stay\n- [x] Weekly review due:2026-10-30\n  - [x] Inbox zero\n  - [-] Calendar\n  notes stay\n- [ ] Other"
+      "expected": "## Chores\n- [ ] Weekly review @repeat:fri due:2026-11-06\n  - [ ] Inbox zero\n  - [ ] Plan the week\n  - [ ] Draft the update\n    - [ ] Nested open\n  - [ ] Calendar\n  - [ ] Moved [[Elsewhere]]\n  notes stay\n- [x] Weekly review due:2026-10-30\n  - [x] Inbox zero\n  - [-] Plan the week\n  - [-] Draft the update\n    - [-] Nested open\n  - [-] Calendar\n  - [>] Moved [[Elsewhere]]\n  notes stay\n- [ ] Other"
     },
     {
       "name": "in progress finishes, the next one starts open; @waiting and @status do not carry",
@@ -96,11 +96,11 @@
     },
     {
       "name": "skip writes a cancelled record",
-      "body": "- [ ] Water the plants @repeat:weekly due:2026-11-01",
+      "body": "- [ ] Water the plants @repeat:weekly due:2026-11-01\n  - [ ] Check the soil",
       "taskIndex": 0,
       "today": "2026-11-01",
       "skip": true,
-      "expected": "- [ ] Water the plants @repeat:weekly due:2026-11-08\n- [-] Water the plants due:2026-11-01"
+      "expected": "- [ ] Water the plants @repeat:weekly due:2026-11-08\n  - [ ] Check the soil\n- [-] Water the plants due:2026-11-01\n  - [-] Check the soil"
     },
     {
       "name": "numbered, quoted and indented tasks keep their prefix",
@@ -125,10 +125,10 @@
     },
     {
       "name": "CRLF notes keep their endings",
-      "body": "- [ ] Win @repeat:daily due:2026-11-01\r\n- [ ] after\r\n",
+      "body": "- [ ] Win @repeat:daily due:2026-11-01\r\n  - [ ] sub\r\n- [ ] after\r\n",
       "taskIndex": 0,
       "today": "2026-11-01",
-      "expected": "- [ ] Win @repeat:daily due:2026-11-02\r\n- [x] Win due:2026-11-01\r\n- [ ] after\r\n"
+      "expected": "- [ ] Win @repeat:daily due:2026-11-02\r\n  - [ ] sub\r\n- [x] Win due:2026-11-01\r\n  - [-] sub\r\n- [ ] after\r\n"
     },
     {
       "name": "the rule is case-insensitive",
