@@ -160,6 +160,7 @@ function kanbanGroups({ vimMode, dndEnabled, lanes, laneMoves }: TasksKeySheetOp
         title: 'Columns',
         rows: [
           { keys: '< / >', label: 'reorder' },
+          { keys: 'C', label: 'color' },
           { keys: 'W', label: 'WIP limit' },
           { keys: 'Enter', label: 'rename (header)' }
         ]

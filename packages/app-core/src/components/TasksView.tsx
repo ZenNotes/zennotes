@@ -9,6 +9,7 @@ import { TasksCalendar } from './TasksCalendar'
 import { TasksKanban, parseWipLimitInput, type KanbanControl } from './TasksKanban'
 import { TasksKeysButton, TasksViewOptions, tasksToolbarOwnsKey } from './TasksToolbar'
 import { laneFieldLabel, parseLanesArg } from '../lib/kanban-lanes'
+import { kanbanColumnColorLabel, parseKanbanColumnColor } from '../lib/kanban-column-colors'
 import { isEmptyTask, withoutEmptyTasks } from '../lib/empty-tasks'
 import { CalendarIcon, CheckSquareIcon, KanbanIcon, ListIcon } from './icons'
 import { advanceSequence, getKeymapBinding, matchesSequenceToken, type KeymapId } from '../lib/keymaps'
@@ -133,7 +134,8 @@ export function TasksView(): JSX.Element {
     () => filterTasks(shownTasks, filter, noteTags),
     [shownTasks, filter, noteTags]
   )
-  // The board's handle for `:wip`, which needs the column under its cursor.
+  // The board's handle for `:wip` and `:color`, which need the column under
+  // its cursor.
   const kanbanControlRef = useRef<KanbanControl | null>(null)
   const keymapOverrides = useStore((s) => s.keymapOverrides)
   const vimMode = useStore((s) => s.vimMode)
@@ -569,6 +571,24 @@ export function TasksView(): JSX.Element {
         const label = control.setFocusedColumnWipLimit(parsed.limit)
         if (label === null) return
         toast(parsed.limit === null ? `${label}: no WIP limit` : `${label}: WIP limit ${parsed.limit}`)
+        return
+      }
+      // `:color blue` colours the focused column; bare `:color` clears it,
+      // like the colour menu's No color. (#1037)
+      if (head === 'color' || head === 'colour') {
+        const control = kanbanControlRef.current
+        if (viewMode !== 'kanban' || !control) {
+          toast(':color works on the board')
+          return
+        }
+        const color = arg ? parseKanbanColumnColor(arg) : null
+        if (arg && color === null) {
+          toast('Usage: :color gray, red, yellow, green, teal, blue or purple')
+          return
+        }
+        const label = control.setFocusedColumnColor(color)
+        if (label === null) return
+        toast(color === null ? `${label}: no color` : `${label}: ${kanbanColumnColorLabel(color)}`)
         return
       }
       // `:lanes priority` splits the board into lanes by a second field

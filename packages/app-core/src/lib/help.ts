@@ -400,6 +400,11 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
       'A WIP limit caps how many cards a column should hold. Right-click a column header and choose **Set WIP limit…**. The header then reads `2 / 3`; past the limit the column turns red, as in `4 / 3`. From the keyboard, `↑` on a column’s first card reaches its header, where `Shift+F10` opens the menu and `Enter` renames the column. In Vim mode, `W` sets the focused column’s limit, `:wip 3` does too, and a bare `:wip` clears it. Limits are kept per board and column, in config.toml’s `[kanban_wip_limits]` table, such as `"status:in-progress" = 3`. The count ignores the filter and the hidden empty tasks.'
   },
   {
+    title: 'Kanban column colors',
+    body:
+      'Give a column a color: right-click its header and choose **Color…**, then pick Gray, Red, Yellow, Green, Teal, Blue or Purple (No color takes it off). The header gets a dot and a colored top edge, and the cards’ `@field:value` chips for that column take the same color. Each color comes from the active theme, so it fits light and dark themes alike. From the keyboard, `Shift+F10` on a column’s header opens its menu; in Vim mode, `C` opens the colors for the focused column, `:color blue` sets one, and a bare `:color` clears it. Colors are kept per board and column, in config.toml’s `[kanban_column_colors]` table, such as `"status:in-progress" = "blue"`.'
+  },
+  {
     title: 'Swimlanes on the Kanban board',
     body:
       'Split the board into horizontal lanes by a second field: in the **View** menu (`v` in Vim mode), pick Lanes: Priority, Folder, Tag, or any `@field` you use. Each lane is a row across the same columns, with its own count. Drag a card into another lane to change that field on its task line, the way a column drop changes the column’s: a priority lane writes `!high`, an `@sprint` lane `@sprint:24`, and a tag lane makes its tag the task’s first (a task sits in the lane of its first tag; No tag removes them). Folder lanes are read-only, like folder columns. Click a lane’s header to collapse it; collapsed lanes are kept per board. WIP limits still count the whole column. In Vim mode, `S` steps through the lane fields, `{` / `}` hop between lanes, `Shift+J` / `Shift+K` move the card a lane down or up, `za` collapses or expands a lane, and `zM` / `zR` do all of them. With Vim mode off, the arrows reach each lane’s header, where Enter or Space collapses it. On the ex line, `:lanes tag` (a bare `:lanes` turns them off). Config key: `kanban_lanes` under `[view]`.'
@@ -826,6 +831,7 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
       { keys: 'v', action: 'View menu', detail: 'Tasks view: open the View menu (Hide empty tasks, and the board\'s Lanes).' },
       { keys: '?', action: 'Keys', detail: 'Tasks view: list the current view’s keys. Esc closes it.' },
       { keys: 'W', action: 'Set a WIP limit', detail: 'Tasks board only: set the focused column’s WIP limit. Same as `:wip <limit>`.' },
+      { keys: 'C', action: 'Color a column', detail: 'Tasks board only: pick the focused column’s color. Same as Color… in the column menu, or `:color <name>`.' },
       { keys: 'S', action: 'Pick the board\'s lanes', detail: 'Tasks board only: step the lanes through None, Priority, Folder, Tag and your @fields. Same as Lanes in the View menu, or `:lanes <field>`.' },
       { keys: 'za / zM / zR', action: 'Collapse lanes', detail: 'Tasks board with lanes: `za` collapses or expands the lane under the cursor, `zM` collapses every lane, `zR` expands them all. Enter on a lane\'s header does what `za` does.' },
       { keys: ':', action: 'Open local ex prompt', detail: 'Run the view-specific command line inside Tasks or Tags.' },
@@ -960,6 +966,11 @@ export const HELP_VIM_COMMANDS: HelpExCommand[] = [
     command: ':wip <limit>',
     summary: 'Set the focused Kanban column’s WIP limit',
     detail: 'On the board, `:wip 3` caps the focused column at three cards; past that it turns red. A bare `:wip` clears it. Same as Set WIP limit… in the column menu, or `W`.'
+  },
+  {
+    command: ':color <name>',
+    summary: 'Color the focused Kanban column',
+    detail: 'On the board, `:color blue` gives the focused column a blue dot and top edge; gray, red, yellow, green, teal and purple work too. A bare `:color` clears it. Same as Color… in the column menu, or `C`.'
   },
   {
     command: ':lanes <field>',

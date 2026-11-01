@@ -2218,6 +2218,62 @@ describe('kanbanWipLimits (#1025)', () => {
   })
 })
 
+describe('kanbanColumnColors (#1037)', () => {
+  it('keeps a colour per board and column, through a restart', async () => {
+    installZen()
+    const { useStore } = await loadStore()
+    expect(useStore.getState().kanbanColumnColors).toEqual({})
+
+    useStore.getState().setKanbanColumnColor('status', 'in-progress', 'blue')
+    useStore.getState().setKanbanColumnColor('field:status', 'done', 'green')
+    expect(useStore.getState().kanbanColumnColors).toEqual({
+      'status:in-progress': 'blue',
+      'field:status:done': 'green'
+    })
+    const saved = JSON.parse(localStorage.getItem('zen:prefs:v2') ?? '{}')
+    expect(saved.kanbanColumnColors).toEqual({ 'status:in-progress': 'blue', 'field:status:done': 'green' })
+
+    vi.resetModules()
+    const reloaded = await import('./store')
+    expect(reloaded.useStore.getState().kanbanColumnColors['status:in-progress']).toBe('blue')
+  })
+
+  it('clears a colour with null and leaves the other columns alone', async () => {
+    installZen()
+    const { useStore } = await loadStore()
+    useStore.getState().setKanbanColumnColor('status', 'in-progress', 'blue')
+    useStore.getState().setKanbanColumnColor('status', 'waiting', 'yellow')
+    useStore.getState().setKanbanColumnColor('status', 'in-progress', null)
+    expect(useStore.getState().kanbanColumnColors).toEqual({ 'status:waiting': 'yellow' })
+  })
+
+  it('reads the names a hand-edited config.toml can mean, and drops the rest', async () => {
+    installZen()
+    vi.resetModules()
+    localStorage.clear()
+    localStorage.setItem(
+      'zen:prefs:v2',
+      JSON.stringify({
+        kanbanColumnColors: {
+          'status:in-progress': 'Blue',
+          'status:waiting': 'grey',
+          'priority:high': '#ff0000',
+          'priority:med': 'orange',
+          'priority:low': 3,
+          'folder:Projects/alpha': 'aqua',
+          bogus: 'red'
+        }
+      })
+    )
+    const { useStore } = await import('./store')
+    expect(useStore.getState().kanbanColumnColors).toEqual({
+      'status:in-progress': 'blue',
+      'status:waiting': 'gray',
+      'folder:Projects/alpha': 'teal'
+    })
+  })
+})
+
 describe('kanbanCardSort (#889)', () => {
   it('defaults to the manual order and round-trips due-date ordering', async () => {
     installZen()
