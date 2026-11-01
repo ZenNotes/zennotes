@@ -4850,7 +4850,11 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             <GalleryView key={activeTab} tabPath={activeTab} isActive={isActive} />
           ) : activeTab && isAssetTabPath(activeTab) ? (
             isDatabaseCsvPath(assetPathFromTab(activeTab) ?? '') ? (
+              // Keyed like GalleryView: another database opened in this pane
+              // starts fresh instead of inheriting this one's scroll, raw-CSV
+              // mode and open menus.
               <DatabaseView
+                key={activeTab}
                 tabPath={databaseTabPath(assetPathFromTab(activeTab) as string)}
                 isActive={isActive}
               />
@@ -4860,7 +4864,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           ) : activeTab && isDiagramTabPath(activeTab) ? (
             <LazyDiagramTabView diagram={diagramFromTabPath(activeTab)} />
           ) : activeTab && isDatabaseTabPath(activeTab) ? (
-            <DatabaseView tabPath={activeTab} isActive={isActive} />
+            <DatabaseView key={activeTab} tabPath={activeTab} isActive={isActive} />
           ) : activeTab && isExcalidrawPath(activeTab) ? (
             <LazyExcalidrawView path={activeTab} />
           ) : activeTab &&
