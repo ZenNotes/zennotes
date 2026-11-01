@@ -178,7 +178,9 @@ export function DatabaseView({
 
   return (
     <div ref={rootRef} {...((deletingRows || locked) ? { inert: '' } : {})} aria-busy={deletingRows || locked} className="flex min-h-0 flex-1 flex-col bg-paper-100 text-ink-900">
-      <header className="glass-header flex h-12 shrink-0 items-center gap-2 px-4">
+      {/* Wraps like GalleryView's header: in a narrow pane the tools drop to a
+          second line whole, rather than squeezing the title to nothing. */}
+      <header className="glass-header flex min-h-12 shrink-0 flex-wrap items-center gap-x-2 gap-y-2 px-4 py-1.5">
         <DatabaseIcon className="h-4 w-4 shrink-0 text-ink-500" />
         {editingTitle && canRenameTitle ? (
           <input
