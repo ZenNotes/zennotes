@@ -5,6 +5,7 @@ import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import type { Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import { harperWasmAsset } from '../../tooling/vite/harper-wasm-asset'
+import { EXCALIDRAW_ASSET_PATH } from './src/renderer/excalidraw-asset-path'
 
 const INTERNAL_WORKSPACE_PACKAGES = [
   '@zennotes/app-core',
@@ -84,6 +85,29 @@ function onigurumaDataUrl(): Plugin {
       const bytes = readFileSync(wasmPath)
       const url = `data:application/wasm;base64,${bytes.toString('base64')}`
       return `export default ${JSON.stringify(url)}`
+    }
+  }
+}
+
+// Excalidraw lists a CDN fallback (esm.sh) after EXCALIDRAW_ASSET_PATH in every
+// FontFace it builds, and Chromium checks each listed source against the CSP
+// when the FontFace is constructed, not when it loads. font-src does not allow
+// esm.sh, so opening a drawing logged a CSP error for each of its 230 faces
+// although every font loaded from zen-excalidraw: (#324), and the noise read as
+// a font regression. Pointing the fallback at the same local base leaves every
+// source CSP-allowed and keeps the fonts offline even if the global were unset.
+// An Excalidraw upgrade that reshapes the fallback fails the build here rather
+// than quietly bringing the noise back.
+function excalidrawLocalFontFallback(base: string): Plugin {
+  const cdnFallback = /`https:\/\/esm\.sh\/\$\{.*?\}\/dist\/prod\/`/
+  return {
+    name: 'zennotes-excalidraw-local-font-fallback',
+    transform(code, id) {
+      if (!code.includes('ASSETS_FALLBACK_URL')) return null
+      if (!cdnFallback.test(code)) {
+        this.error(`Excalidraw's esm.sh font fallback changed shape in ${id}`)
+      }
+      return { code: code.replace(cdnFallback, JSON.stringify(base)), map: null }
     }
   }
 }
@@ -307,6 +331,11 @@ export default defineConfig({
         '@bridge-contract': resolve(__dirname, '../../packages/bridge-contract/src')
       }
     },
-    plugins: [onigurumaDataUrl(), harperWasmAsset(), react()]
+    plugins: [
+      onigurumaDataUrl(),
+      harperWasmAsset(),
+      excalidrawLocalFontFallback(EXCALIDRAW_ASSET_PATH),
+      react()
+    ]
   }
 })
