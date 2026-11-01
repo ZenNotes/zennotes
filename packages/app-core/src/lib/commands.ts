@@ -27,6 +27,7 @@ import { focusPaneInDirection } from './pane-nav'
 import { focusSidebarPanel } from './sidebar-focus'
 import { runSidebarNotePlan, sidebarCommandPlan } from './sidebar-note-actions'
 import { openContextGallery } from './folder-gallery-open'
+import { newContextKanban } from './kanban-create'
 import { findLeaf } from './pane-layout'
 import { getTabStepTarget, stepActiveTab } from './buffer-navigation'
 import { requestPaneMode } from './pane-mode'
@@ -234,6 +235,16 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       category: 'Note',
       keywords: 'database table csv records spreadsheet board kanban base',
       run: () => void getState().newDatabase()
+    },
+    {
+      id: 'database.new.kanban',
+      title: 'New Kanban',
+      category: 'Note',
+      shortcut: leaderShortcut('vim.leaderNewKanban'),
+      keywords: 'kanban board columns cards todo doing done project database base',
+      // The folder under the sidebar cursor while the sidebar has focus,
+      // otherwise where new databases go (lib/kanban-create.ts).
+      run: () => void newContextKanban()
     },
     {
       id: 'task.new',

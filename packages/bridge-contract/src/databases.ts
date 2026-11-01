@@ -144,6 +144,17 @@ export interface DatabaseSeed {
   headers: string[]
   rows: string[][]
   columnWidths?: Array<number | null>
+  /**
+   * Open on a Board grouped by the header named `groupBy`, which becomes a
+   * select field whose options are `columns` in order (New Kanban, #1038).
+   * A Table view of the same fields sits beside it.
+   */
+  board?: DatabaseSeedBoard
+}
+
+export interface DatabaseSeedBoard {
+  groupBy: string
+  columns: string[]
 }
 
 /** Cells are raw CSV strings keyed by DbField.id. */

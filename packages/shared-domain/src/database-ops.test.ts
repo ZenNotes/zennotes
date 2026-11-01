@@ -5,7 +5,7 @@ import {
   type DatabaseFileOps,
   type DatabaseVaultLayout
 } from './database-ops'
-import { parseCsv } from './database-csv'
+import { kanbanDatabaseSeed, KANBAN_DATABASE_TITLE, parseCsv } from './database-csv'
 import { resolveFolderPath } from './system-folder-paths'
 
 // The composition is transport-agnostic by design: these tests drive it over
@@ -117,6 +117,19 @@ describe('createDatabaseOps', () => {
 
     const reopened = await ops.openDatabase(doc.path)
     expect(reopened.rows).toEqual(doc.rows)
+  })
+
+  it('writes a Kanban the phones, the server and the web app all reopen on its Board (#1038)', async () => {
+    const vault = memVault()
+    const ops = createDatabaseOps(vault.io)
+    const doc = await ops.createDatabase('inbox', 'Biology', KANBAN_DATABASE_TITLE, kanbanDatabaseSeed())
+    expect(doc.path).toBe('inbox/Biology/Untitled Kanban.base/data.csv')
+    expect(vault.files.get(doc.path)).toBe('id,Name,Status\n')
+    const reopened = await ops.openDatabase(doc.path)
+    const board = reopened.views.find((v) => v.id === reopened.activeViewId)!
+    expect(board.type).toBe('board')
+    const status = reopened.fields.find((f) => f.id === board.groupByFieldId)!
+    expect(status.options?.map((o) => o.value)).toEqual(['To do', 'Doing', 'Done'])
   })
 
   it('adopts a bare CSV: infers a schema, persists the sidecar, canonicalizes ids', async () => {

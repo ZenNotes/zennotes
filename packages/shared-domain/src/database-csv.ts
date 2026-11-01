@@ -9,6 +9,7 @@
  */
 import type {
   DatabaseSeed,
+  DatabaseSeedBoard,
   DatabaseSidecar,
   DbField,
   DbRow,
@@ -277,7 +278,8 @@ export interface InitialDatabaseContents {
  * typed, blank or duplicate headers renamed, an existing all-unique `id`
  * column adopted as the row id and a hidden one synthesized otherwise. Rows
  * are keyed by the resulting field ids; a row without an id gets one minted,
- * as `parseRows` does on read.
+ * as `parseRows` does on read. A seed's `board` turns the column it names
+ * into a select of the board's columns and opens on a Board grouped by it.
  *
  * The seed crosses the bridge from the renderer, so its shape is normalized
  * here rather than trusted: cells and headers are coerced to strings and only
@@ -328,6 +330,75 @@ export function initialDatabaseContents(
     return { id, cells }
   })
 
-  const { views, activeViewId } = buildDefaultViews(fields, genId)
+  const groupField = boardGroupField(seed.board, headers, columnFields, idFieldId)
+  if (groupField) {
+    for (const row of rows) row.cells[groupField.id] = optionValue(row.cells[groupField.id])
+    groupField.type = 'select'
+    groupField.options = boardOptionValues(seed.board!.columns, rows.map((r) => r.cells[groupField.id])).map(
+      (value) => ({ id: genId(), value })
+    )
+  }
+  const { views, activeViewId } = groupField
+    ? buildBoardViews(fields, groupField.id, genId)
+    : buildDefaultViews(fields, genId)
   return { sidecar: { version: 1, idFieldId, fields, views, activeViewId }, rows }
+}
+
+/** The title New Kanban gives the database it creates (#1038). */
+export const KANBAN_DATABASE_TITLE = 'Untitled Kanban'
+
+/**
+ * What New Kanban creates (#1038): a card title, a Status select whose
+ * options are the board's columns, and no cards yet. It is an ordinary
+ * database, so the phones, the server, the web app and `zn base` read it
+ * with nothing new to learn.
+ */
+export function kanbanDatabaseSeed(): DatabaseSeed {
+  return {
+    headers: ['Name', 'Status'],
+    rows: [],
+    board: { groupBy: 'Status', columns: ['To do', 'Doing', 'Done'] }
+  }
+}
+
+/** The seed column a board groups by, when the seed asks for a board and
+ *  names one of its own columns other than the row id. */
+function boardGroupField(
+  board: DatabaseSeedBoard | undefined,
+  headers: string[],
+  columnFields: DbField[],
+  idFieldId: string
+): DbField | null {
+  if (!board || typeof board !== 'object' || typeof board.groupBy !== 'string') return null
+  const field = columnFields[headers.indexOf(board.groupBy)]
+  return field && field.id !== idFieldId ? field : null
+}
+
+/** Option values may not contain commas (multiSelect's cell encoding), so
+ *  they read as spaces, as an option added in the grid does. */
+function optionValue(raw: string): string {
+  return raw.trim().replace(/,/g, ' ')
+}
+
+/** A board's columns in order, then any other value its cards already hold,
+ *  each once. */
+function boardOptionValues(columns: unknown, cellValues: string[]): string[] {
+  const listed = Array.isArray(columns) ? columns.map((c) => optionValue(String(c ?? ''))) : []
+  const values: string[] = []
+  for (const value of [...listed, ...cellValues]) {
+    if (value && !values.includes(value)) values.push(value)
+  }
+  return values
+}
+
+/** A Board grouped by `groupFieldId` to open on, and the default Table
+ *  view beside it. */
+function buildBoardViews(
+  fields: DbField[],
+  groupFieldId: string,
+  genId: GenId
+): { views: DbView[]; activeViewId: string } {
+  const id = genId()
+  const board: DbView = { id, name: 'Board', type: 'board', filters: [], sorts: [], groupByFieldId: groupFieldId }
+  return { views: [board, ...buildDefaultViews(fields, genId).views], activeViewId: id }
 }

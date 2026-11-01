@@ -527,6 +527,8 @@ export function Sidebar(): JSX.Element {
   const toggleTasksIncludedFolder = useStore((s) => s.toggleTasksIncludedFolder);
   const setTemplateFolder = useStore((s) => s.setTemplateFolder);
   const createDatabase = useStore((s) => s.createDatabase);
+  const createKanban = useStore((s) => s.createKanban);
+  const newKanban = useStore((s) => s.newKanban);
   const createNoteInChosenFolder = useStore((s) => s.createNoteInChosenFolder);
   const openTemplatePaletteForFolder = useStore((s) => s.openTemplatePaletteForFolder);
   const quickNoteDateTitle = useStore((s) => s.quickNoteDateTitle);
@@ -1952,6 +1954,12 @@ export function Sidebar(): JSX.Element {
           await createDatabase(folder, subpath);
         },
       },
+      {
+        label: "New Kanban",
+        onSelect: async () => {
+          await createKanban(folder, subpath);
+        },
+      },
     );
     if (folder === "quick" && isTop) {
       items.push({
@@ -2201,6 +2209,7 @@ export function Sidebar(): JSX.Element {
     createAndOpen,
     createDrawingAndOpen,
     createDatabase,
+    createKanban,
     openTemplatePaletteForFolder,
     openArchiveView,
     openQuickNotesView,
@@ -2253,6 +2262,12 @@ export function Sidebar(): JSX.Element {
         label: "New database",
         onSelect: async () => {
           await newDatabase();
+        },
+      },
+      {
+        label: "New Kanban",
+        onSelect: async () => {
+          await newKanban();
         },
       },
       {

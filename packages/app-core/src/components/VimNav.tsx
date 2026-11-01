@@ -9,6 +9,7 @@ import {
   useStore
 } from '../store'
 import { openContextGallery } from '../lib/folder-gallery-open'
+import { newContextKanban } from '../lib/kanban-create'
 import { HintOverlay } from './HintOverlay'
 import { WhichKeyOverlay, type WhichKeyItem } from './WhichKeyOverlay'
 import {
@@ -421,6 +422,11 @@ export function VimNav(): JSX.Element | null {
         keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderFolderGallery'),
         label: 'Folder gallery',
         detail: 'This folder’s notes as cards, led by their covers.'
+      },
+      {
+        keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderNewKanban'),
+        label: 'New Kanban',
+        detail: 'A board of its own: To do, Doing, Done.'
       },
       ...(canSwitchVaults
         ? [
@@ -1150,6 +1156,13 @@ export function VimNav(): JSX.Element | null {
           e.stopImmediatePropagation()
           resetLeader()
           void openContextGallery()
+          return
+        }
+        if (matchesSequenceToken(e, overrides, 'vim.leaderNewKanban')) {
+          e.preventDefault()
+          e.stopImmediatePropagation()
+          resetLeader()
+          void newContextKanban()
           return
         }
         if (canSwitchVaults && matchesSequenceToken(e, overrides, 'vim.leaderSwitchVault')) {

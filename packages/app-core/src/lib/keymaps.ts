@@ -84,6 +84,7 @@ export type KeymapId =
   | "vim.leaderTimeline"
   | "vim.leaderUnresolvedLinks"
   | "vim.leaderFolderGallery"
+  | "vim.leaderNewKanban"
   | "vim.panePrefix"
   | "vim.paneFocusLeft"
   | "vim.paneFocusDown"
@@ -920,6 +921,18 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description:
       "Open the Gallery of the current folder: its notes as cards led by their covers. The folder under the sidebar cursor while the sidebar has focus, otherwise the open note's folder.",
     defaultBinding: "G",
+    vimOnly: true,
+    maxTokens: 1,
+  },
+  {
+    id: "vim.leaderNewKanban",
+    kind: "sequence",
+    scope: "leader",
+    group: "vim",
+    title: "Leader: new Kanban",
+    description:
+      "Create a Kanban board, a database with To do / Doing / Done columns, and open it. In the folder under the sidebar cursor while the sidebar has focus, otherwise where new databases go.",
+    defaultBinding: "k",
     vimOnly: true,
     maxTokens: 1,
   },

@@ -105,6 +105,7 @@ function resolveShortcutKeys(
     if (action === 'Toggle timeline') return leaderShortcut(overrides, 'vim.leaderTimeline')
     if (action === 'Unresolved links') return leaderShortcut(overrides, 'vim.leaderUnresolvedLinks')
     if (action === 'Folder gallery') return leaderShortcut(overrides, 'vim.leaderFolderGallery')
+    if (action === 'New Kanban') return leaderShortcut(overrides, 'vim.leaderNewKanban')
     if (action === 'Callout type') {
       return chord(
         leaderShortcut(overrides, 'vim.leaderNoteActions'),
