@@ -6403,6 +6403,23 @@ html[data-completed-task-style="gray-strikethrough"] .prose-zen li.task-list-ite
   color: rgb(var(--z-purple));
   background-color: rgb(var(--z-purple) / 0.12);
 }
+/* #1036: the recurring-task fields wear their own colors; a value the field
+   cannot mean anything with draws dimmed. */
+.cm-wysiwyg .cm-editor .cm-task-repeat,
+.prose-zen .zen-task-repeat {
+  color: rgb(var(--z-aqua));
+  background-color: rgb(var(--z-aqua) / 0.14);
+}
+.cm-wysiwyg .cm-editor .cm-task-remind,
+.prose-zen .zen-task-remind {
+  color: rgb(var(--z-yellow));
+  background-color: rgb(var(--z-yellow) / 0.15);
+}
+.cm-wysiwyg .cm-editor .cm-task-meta-invalid,
+.prose-zen .zen-task-meta-invalid {
+  opacity: 0.55;
+  text-decoration: underline dotted;
+}
 /* #512: derived subtask progress on a parent task line. Neutral until every
    child is done, then it borrows the green the done state already owns. */
 .cm-wysiwyg .cm-editor .cm-task-rollup,

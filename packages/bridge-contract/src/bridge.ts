@@ -87,7 +87,7 @@ import type {
   WorkflowUndoResult,
   WriteWorkflowInput
 } from './workflows.js'
-import type { VaultTask } from './tasks.js'
+import type { TaskReminder, TaskReminderTarget, VaultTask } from './tasks.js'
 import type {
   DatabaseDoc,
   DatabaseSeed,
@@ -551,6 +551,12 @@ export interface ZenBridge {
   hideWindowToTray?(): Promise<boolean>
   /** This window's Cloud sync state for the tray; null when there is none. */
   reportTraySyncStatus?(status: TraySyncStatus | null): void
+  /** The task reminders to fire (#1036), the whole schedule each time.
+   *  Desktop-only: the main process shows them as system notifications, the
+   *  window hidden in the tray included. */
+  setTaskReminders?(reminders: TaskReminder[]): void
+  /** A reminder notification was clicked. Desktop-only. */
+  onTaskReminderOpen?(cb: (target: TaskReminderTarget) => void): () => void
   /** Quit the app for real. Linux and Windows have no app menu, so with the
    *  tray holding the window this is the way out besides the icon's menu. */
   quitApp?(): void

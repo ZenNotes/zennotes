@@ -3,6 +3,7 @@ import type { VaultTask } from '@shared/tasks'
 import { ArrowUpRightIcon } from './icons'
 import { InlineMarkdown } from '../lib/inline-markdown'
 import { TaskStateBox } from './TaskStateBox'
+import { TaskRecurrenceBadges } from './TaskRecurrenceBadges'
 import { priorityClass, priorityLabel } from '../lib/task-priority'
 import { CloudTaskConflictIndicator } from './CloudTaskConflictIndicator'
 import { getCurrentDragPayload, readDragPayload, setDragPayload } from '../lib/dnd'
@@ -151,6 +152,7 @@ export function TasksRow({
             {priorityLabel(task.priority)}
           </span>
         )}
+        <TaskRecurrenceBadges task={task} />
         {task.due && (
           <span
             className={[

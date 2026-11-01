@@ -106,6 +106,8 @@ export const PORTABLE_PREF_KEYS = [
   'kanbanGroupBy',
   'kanbanCardSort',
   'hideEmptyTasks',
+  'taskReminders',
+  'taskReminderTime',
   'kanbanWipLimits',
   'kanbanColumnColors',
   'kanbanLanes',

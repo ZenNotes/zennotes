@@ -70,3 +70,24 @@ export interface VaultTask {
   /** ISO YYYY-MM-DD completion date (frontmatter `completedDate`). File-tasks. */
   completedDate?: string
 }
+
+/** One reminder a host should fire for a task with `@remind:` (#1036). The
+ *  app computes the schedule (`computeTaskReminders` in shared-domain) and
+ *  hands the whole of it to the host, which only times and shows them. */
+export interface TaskReminder {
+  /** Stable for one reminder of one task at one time; the host's "already
+   *  fired" ledger keys on it. */
+  key: string
+  /** Epoch milliseconds, local wall-clock time. */
+  fireAt: number
+  title: string
+  body: string
+  path: string
+  /** The task's index in its note when the schedule was computed. The note may
+   *  have changed since, so a host matches on `title` too before trusting it. */
+  taskIndex: number
+}
+
+/** What a clicked reminder asks the app to open: one task, or with `null`
+ *  (several reminders folded into one notification) the Tasks view. */
+export type TaskReminderTarget = Pick<TaskReminder, 'path' | 'title' | 'taskIndex'> | null

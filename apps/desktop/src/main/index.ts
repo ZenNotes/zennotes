@@ -7,6 +7,8 @@ import {
   ipcMain,
   Menu,
   nativeImage,
+  Notification,
+  powerMonitor,
   protocol,
   screen,
   session,
@@ -21,6 +23,11 @@ import { randomUUID } from "node:crypto";
 import { openAsBlob, promises as fsp, watch as watchPath } from "node:fs";
 import { homedir, hostname } from "node:os";
 import path from "node:path";
+import {
+  createTaskReminderScheduler,
+  type TaskReminderScheduler,
+} from "./task-reminders";
+import type { TaskReminderTarget } from "@zennotes/bridge-contract/tasks";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { IPC } from "@shared/ipc";
@@ -106,6 +113,7 @@ import {
   restoreFromTrash,
   searchVaultTextCapabilities,
   searchVaultText,
+  writeFileAtomic,
   setVaultSettings,
   rootContentHiddenByInboxMode,
   type PersistedRemoteWorkspaceConfig,
@@ -1072,6 +1080,58 @@ function revealTrayHiddenWindows(): void {
     return;
   }
   void ensureMainWindow();
+}
+
+// Task reminders (#1036): the renderer computes the schedule, this process
+// times it, so a window hidden in the tray still reminds. The notifications
+// are kept referenced until clicked or closed, or a collected one would
+// forget its click handler.
+let taskReminders: TaskReminderScheduler | null = null;
+const liveReminderNotifications = new Set<Notification>();
+
+/** A clicked reminder: bring the main window up and open the task (a folded
+ *  notification opens the Tasks view). Without a window ready for it, the
+ *  task's note opens the way a deep link would. */
+function openTaskReminder(target: TaskReminderTarget): void {
+  const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
+  if (win) {
+    trayHiddenWindowIds.delete(win.id);
+    focusWindow(win);
+    if (mainWindowReadyForAppEvents) {
+      win.webContents.send(IPC.TASK_REMINDER_OPEN, target);
+      return;
+    }
+  }
+  if (target) queueOpenNoteRequest(target.path);
+  else void ensureMainWindow();
+}
+
+function startTaskReminders(): void {
+  const statePath = path.join(app.getPath("userData"), "task-reminders.json");
+  taskReminders = createTaskReminderScheduler({
+    now: () => Date.now(),
+    notify: ({ title, body, target }) => {
+      if (!Notification.isSupported()) return;
+      const notification = new Notification({ title, body });
+      liveReminderNotifications.add(notification);
+      const release = (): void => {
+        liveReminderNotifications.delete(notification);
+      };
+      notification.on("click", () => {
+        release();
+        openTaskReminder(target);
+      });
+      notification.on("close", release);
+      notification.show();
+    },
+    readState: () => fsp.readFile(statePath, "utf8").catch(() => null),
+    writeState: (text) => writeFileAtomic(statePath, text),
+    setTimer: (fn, ms) => setTimeout(fn, ms),
+    clearTimer: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+  });
+  void taskReminders.start();
+  powerMonitor.on("resume", () => taskReminders?.check());
+  powerMonitor.on("unlock-screen", () => taskReminders?.check());
 }
 
 function applyKeepRunningInTray(enabled: boolean): void {
@@ -5331,6 +5391,13 @@ function registerIpc(): void {
     app.quit();
   });
 
+  // The whole reminder schedule of one window (#1036). Untrusted like any
+  // renderer payload: the scheduler keeps only well-formed, vault-relative
+  // items, and only ever shows their text and hands their path back.
+  on(IPC.TASK_REMINDERS_SET, (event, raw: unknown) => {
+    taskReminders?.setSchedule(event.sender.id, raw);
+  });
+
   on(IPC.APP_TRAY_SYNC_STATUS, (event, raw: unknown) => {
     // One line for one app: the main window speaks for the tray, and a
     // second window's vault does not overwrite it.
@@ -6396,6 +6463,7 @@ app.whenReady().then(async () => {
 
   installAppMenu();
   registerIpc();
+  startTaskReminders();
   initAppUpdater();
   watchInstalledBundle();
   registerAppDeepLinkProtocol();

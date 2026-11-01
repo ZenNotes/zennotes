@@ -1,0 +1,169 @@
+{
+  "about": "Check-off edits for recurring tasks (#1036). Run by task-recurrence.test.ts and, once mirrored, by the zn CLI's Go tests. `expected: null` means the task is not an open recurring one and the caller toggles it as usual.",
+  "cases": [
+    {
+      "name": "weekly from its due date, the record drops @repeat and @remind",
+      "body": "- [ ] Water the plants @repeat:weekly due:2026-11-01 @remind:9am",
+      "taskIndex": 0,
+      "today": "2026-11-01",
+      "expected": "- [ ] Water the plants @repeat:weekly due:2026-11-08 @remind:9am\n- [x] Water the plants due:2026-11-01"
+    },
+    {
+      "name": "a late finish skips the missed occurrences",
+      "body": "- [ ] Journal @repeat:daily due:2026-10-27",
+      "taskIndex": 0,
+      "today": "2026-11-01",
+      "expected": "- [ ] Journal @repeat:daily due:2026-11-02\n- [x] Journal due:2026-10-27"
+    },
+    {
+      "name": "an early finish goes one interval past the due date",
+      "body": "- [ ] Report @repeat:2w due:2026-11-10",
+      "taskIndex": 0,
+      "today": "2026-11-01",
+      "expected": "- [ ] Report @repeat:2w due:2026-11-24\n- [x] Report due:2026-11-10"
+    },
+    {
+      "name": "no due date counts from today and writes one",
+      "body": "- [ ] Stretch @repeat:3d",
+      "taskIndex": 0,
+      "today": "2026-11-01",
+      "expected": "- [ ] Stretch @repeat:3d due:2026-11-04\n- [x] Stretch"
+    },
+    {
+      "name": "a daily note's date stands in for a missing due",
+      "body": "- [ ] Review inbox @repeat:weekly",
+      "taskIndex": 0,
+      "today": "2026-11-01",
+      "fallbackDue": "2026-10-30",
+      "expected": "- [ ] Review inbox @repeat:weekly due:2026-11-06\n- [x] Review inbox"
+    },
+    {
+      "name": "frontmatter due beats the daily note's date",
+      "body": "---\ndue: 2026-10-31\n---\n- [ ] Pay invoice @repeat:monthly",
+      "taskIndex": 0,
+      "today": "2026-11-01",
+      "fallbackDue": "2026-10-01",
+      "expected": "---\ndue: 2026-10-31\n---\n- [ ] Pay invoice @repeat:monthly due:2026-11-30\n- [x] Pay invoice"
+    },
+    {
+      "name": "monthly clamps to the month's last day",
+      "body": "- [ ] Rent @repeat:monthly due:2027-01-31",
+      "taskIndex": 0,
+      "today": "2027-01-31",
+      "expected": "- [ ] Rent @repeat:monthly due:2027-02-28\n- [x] Rent due:2027-01-31"
+    },
+    {
+      "name": "yearly across a leap day",
+      "body": "- [ ] Renew passport @repeat:yearly due:2028-02-29",
+      "taskIndex": 0,
+      "today": "2028-02-29",
+      "expected": "- [ ] Renew passport @repeat:yearly due:2029-02-28\n- [x] Renew passport due:2028-02-29"
+    },
+    {
+      "name": "weekday lists pick the next listed day",
+      "body": "- [ ] Gym @repeat:mon/thu due:2026-11-02",
+      "taskIndex": 0,
+      "today": "2026-11-02",
+      "expected": "- [ ] Gym @repeat:mon/thu due:2026-11-05\n- [x] Gym due:2026-11-02"
+    },
+    {
+      "name": "weekdays skip the weekend",
+      "body": "- [ ] Stand-up @repeat:weekdays due:2026-11-06",
+      "taskIndex": 0,
+      "today": "2026-11-06",
+      "expected": "- [ ] Stand-up @repeat:weekdays due:2026-11-09\n- [x] Stand-up due:2026-11-06"
+    },
+    {
+      "name": "after- counts from the day it is finished",
+      "body": "- [ ] Water the fern @repeat:after-3d due:2026-10-20",
+      "taskIndex": 0,
+      "today": "2026-11-01",
+      "expected": "- [ ] Water the fern @repeat:after-3d due:2026-11-04\n- [x] Water the fern due:2026-10-20"
+    },
+    {
+      "name": "the subtree repeats unticked; the record keeps its ticks and cancels what was left open",
+      "body": "## Chores\n- [ ] Weekly review @repeat:fri due:2026-10-30\n  - [x] Inbox zero\n  - [ ] Plan the week\n  - [/] Draft the update\n    - [ ] Nested open\n  - [-] Calendar\n  - [>] Moved [[Elsewhere]]\n  notes stay\n- [ ] Other",
+      "taskIndex": 0,
+      "today": "2026-10-30",
+      "expected": "## Chores\n- [ ] Weekly review @repeat:fri due:2026-11-06\n  - [ ] Inbox zero\n  - [ ] Plan the week\n  - [ ] Draft the update\n    - [ ] Nested open\n  - [ ] Calendar\n  - [ ] Moved [[Elsewhere]]\n  notes stay\n- [x] Weekly review due:2026-10-30\n  - [x] Inbox zero\n  - [-] Plan the week\n  - [-] Draft the update\n    - [-] Nested open\n  - [-] Calendar\n  - [>] Moved [[Elsewhere]]\n  notes stay\n- [ ] Other"
+    },
+    {
+      "name": "in progress finishes, the next one starts open; @waiting and @status do not carry",
+      "body": "- [/] Ship it !high @repeat:weekly due:2026-11-01 @status:doing @waiting #work",
+      "taskIndex": 0,
+      "today": "2026-11-01",
+      "expected": "- [ ] Ship it !high @repeat:weekly due:2026-11-08 #work\n- [x] Ship it !high due:2026-11-01 @status:doing @waiting #work"
+    },
+    {
+      "name": "skip writes a cancelled record",
+      "body": "- [ ] Water the plants @repeat:weekly due:2026-11-01\n  - [ ] Check the soil",
+      "taskIndex": 0,
+      "today": "2026-11-01",
+      "skip": true,
+      "expected": "- [ ] Water the plants @repeat:weekly due:2026-11-08\n  - [ ] Check the soil\n- [-] Water the plants due:2026-11-01\n  - [-] Check the soil"
+    },
+    {
+      "name": "numbered, quoted and indented tasks keep their prefix",
+      "body": "> 1. [ ] Quoted @repeat:daily due:2026-11-01",
+      "taskIndex": 0,
+      "today": "2026-11-01",
+      "expected": "> 1. [ ] Quoted @repeat:daily due:2026-11-02\n> 1. [x] Quoted due:2026-11-01"
+    },
+    {
+      "name": "the index counts like the parser, past fenced code",
+      "body": "```\n- [ ] not a task @repeat:daily\n```\n- [ ] first\n- [ ] second @repeat:daily due:2026-11-01",
+      "taskIndex": 1,
+      "today": "2026-11-01",
+      "expected": "```\n- [ ] not a task @repeat:daily\n```\n- [ ] first\n- [ ] second @repeat:daily due:2026-11-02\n- [x] second due:2026-11-01"
+    },
+    {
+      "name": "a spaced due token is replaced as one",
+      "body": "- [ ] Spaced @repeat:daily due: 2026-11-01 tail",
+      "taskIndex": 0,
+      "today": "2026-11-01",
+      "expected": "- [ ] Spaced @repeat:daily due:2026-11-02 tail\n- [x] Spaced due: 2026-11-01 tail"
+    },
+    {
+      "name": "CRLF notes keep their endings",
+      "body": "- [ ] Win @repeat:daily due:2026-11-01\r\n  - [ ] sub\r\n- [ ] after\r\n",
+      "taskIndex": 0,
+      "today": "2026-11-01",
+      "expected": "- [ ] Win @repeat:daily due:2026-11-02\r\n  - [ ] sub\r\n- [x] Win due:2026-11-01\r\n  - [-] sub\r\n- [ ] after\r\n"
+    },
+    {
+      "name": "the rule is case-insensitive",
+      "body": "- [ ] Loud @Repeat:WEEKLY due:2026-11-01",
+      "taskIndex": 0,
+      "today": "2026-11-01",
+      "expected": "- [ ] Loud @Repeat:WEEKLY due:2026-11-08\n- [x] Loud due:2026-11-01"
+    },
+    {
+      "name": "an unknown rule is an ordinary task",
+      "body": "- [ ] Odd @repeat:fortnightly due:2026-11-01",
+      "taskIndex": 0,
+      "today": "2026-11-01",
+      "expected": null
+    },
+    {
+      "name": "a done task does not repeat again",
+      "body": "- [x] Done @repeat:daily due:2026-11-01",
+      "taskIndex": 0,
+      "today": "2026-11-01",
+      "expected": null
+    },
+    {
+      "name": "cancelled and forwarded tasks do not repeat",
+      "body": "- [-] Cancelled @repeat:daily\n- [>] Forwarded @repeat:daily",
+      "taskIndex": 1,
+      "today": "2026-11-01",
+      "expected": null
+    },
+    {
+      "name": "a task without a rule is ordinary",
+      "body": "- [ ] Plain due:2026-11-01",
+      "taskIndex": 0,
+      "today": "2026-11-01",
+      "expected": null
+    }
+  ]
+}

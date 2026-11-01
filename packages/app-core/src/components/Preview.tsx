@@ -31,6 +31,7 @@ import { listDatabaseLinkTargets, resolveDatabaseWikilink } from "../lib/databas
 import { externalLinkUrl, resolveInternalNoteHref } from "../lib/internal-links";
 import { copyableLink, linkMenuItems, type CopyableLink } from "../lib/link-copy";
 import { toggleTaskAtIndex } from "../lib/tasklists";
+import { checkOffTaskInMarkdown } from "../lib/task-check-off";
 import {
   enhanceLocalAssetNodes,
   hrefFragment,
@@ -449,10 +450,10 @@ export const Preview = memo(function Preview({
           10,
         );
         if (!Number.isFinite(taskIndex) || taskIndex < 0) return;
-        const nextMarkdown = toggleTaskAtIndex(
+        const nextMarkdown = checkOffTaskInMarkdown(
           markdownRef.current,
           taskIndex,
-          true,
+          notePathRef.current,
         );
         if (nextMarkdown === markdownRef.current) return;
         updateActiveBodyRef.current(nextMarkdown);
@@ -682,11 +683,10 @@ export const Preview = memo(function Preview({
       if (!input || input.type !== "checkbox") return;
       const taskIndex = Number.parseInt(input.dataset.taskIndex ?? "-1", 10);
       if (!Number.isFinite(taskIndex) || taskIndex < 0) return;
-      const nextMarkdown = toggleTaskAtIndex(
-        markdownRef.current,
-        taskIndex,
-        input.checked,
-      );
+      // Checking off a recurring task writes its next occurrence (#1036).
+      const nextMarkdown = input.checked
+        ? checkOffTaskInMarkdown(markdownRef.current, taskIndex, notePathRef.current)
+        : toggleTaskAtIndex(markdownRef.current, taskIndex, false);
       if (nextMarkdown === markdownRef.current) return;
       updateActiveBodyRef.current(nextMarkdown);
       void persistActiveRef.current();

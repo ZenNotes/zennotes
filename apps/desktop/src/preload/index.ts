@@ -57,6 +57,7 @@ import type {
   WriteWorkflowInput
 } from '@zennotes/bridge-contract/workflows'
 import { IPC } from '@shared/ipc'
+import type { TaskReminder, TaskReminderTarget } from '@zennotes/bridge-contract/tasks'
 import type { AppConfigPortable } from '@shared/app-config'
 import type { ExternalUrlResult } from '@shared/application-links'
 import type { CustomTheme } from '@shared/custom-themes'
@@ -779,6 +780,13 @@ const api: ZenBridge = {
     ipcRenderer.invoke(IPC.WINDOW_HIDE_TO_TRAY),
   reportTraySyncStatus: (status: TraySyncStatus | null): void =>
     ipcRenderer.send(IPC.APP_TRAY_SYNC_STATUS, status),
+  setTaskReminders: (reminders: TaskReminder[]): void =>
+    ipcRenderer.send(IPC.TASK_REMINDERS_SET, reminders),
+  onTaskReminderOpen: (cb: (target: TaskReminderTarget) => void): (() => void) => {
+    const listener = (_: unknown, target: TaskReminderTarget): void => cb(target)
+    ipcRenderer.on(IPC.TASK_REMINDER_OPEN, listener)
+    return () => ipcRenderer.removeListener(IPC.TASK_REMINDER_OPEN, listener)
+  },
   quitApp: (): void => ipcRenderer.send(IPC.APP_QUIT),
   renderTikz: (source: string): Promise<{ ok: boolean; svg?: string; error?: string }> =>
     ipcRenderer.invoke(IPC.TIKZ_RENDER, source),

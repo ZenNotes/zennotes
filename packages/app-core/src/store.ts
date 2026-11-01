@@ -66,6 +66,7 @@ import {
   isObsidianExcalidrawPath
 } from '@shared/excalidraw'
 import { TASKS_TAB_PATH, isTasksTabPath, parseTasksFromBody, toIsoDateLocal } from '@shared/tasks'
+import { completeRecurringTaskAtIndex, type RecurringCompletion } from '@shared/task-recurrence'
 import {
   TYPST_PREAMBLE_FOLDER,
   isTypstPreamblePath,
@@ -186,6 +187,7 @@ import {
   findWeeklyNoteForDate,
   findMonthlyNoteForDate,
   noteTitleForDate,
+  dailyNoteDueForPath,
   isPrimaryNotesAtRoot,
   removeFavoritesForFolder,
   removeFolderColors,
@@ -867,6 +869,12 @@ interface Prefs {
    *  list, calendar and Kanban board, the Calendar and Timeline panels and
    *  Home. On by default; portable as `hide_empty_tasks` under [view]. (#1026) */
   hideEmptyTasks: boolean
+  /** Notify for tasks with `@remind:` (#1036). On by default: only a task
+   *  someone gave a reminder ever notifies. Portable as `task_reminders`. */
+  taskReminders: boolean
+  /** `HH:MM`: when a reminder that names a day but no time fires
+   *  (`@remind:1d`). Portable as `task_reminder_time`. */
+  taskReminderTime: string
   /** Kanban WIP limits: the most cards a column should hold, keyed by
    *  `${groupBy}:${columnId}` like the column titles. Portable as the
    *  `[kanban_wip_limits]` table. (#1025) */
@@ -1084,6 +1092,14 @@ function normalizeKanbanWipLimit(raw: unknown): number | null {
   const value =
     typeof raw === 'number' ? raw : typeof raw === 'string' && /^\d+$/.test(raw.trim()) ? Number(raw.trim()) : NaN
   return Number.isInteger(value) && value >= 1 && value <= MAX_KANBAN_WIP_LIMIT ? value : null
+}
+
+/** A reminder time as Settings and config.toml keep it: `HH:MM`, 24-hour,
+ *  zero-padded. Anything else falls back to 09:00. */
+export function normalizeReminderTime(raw: unknown): string {
+  const m = typeof raw === 'string' ? /^(\d{1,2}):(\d{2})$/.exec(raw.trim()) : null
+  if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return '09:00'
+  return `${m[1].padStart(2, '0')}:${m[2]}`
 }
 
 // WIP limits per column (#1025): `{ "<groupBy>:<columnId>": <limit> }`, the
@@ -1443,6 +1459,8 @@ export const DEFAULT_PREFS: Prefs = {
   kanbanGroupBy: 'status',
   kanbanCardSort: 'manual',
   hideEmptyTasks: true,
+  taskReminders: true,
+  taskReminderTime: '09:00',
   kanbanWipLimits: {},
   kanbanColumnColors: {},
   kanbanLanes: 'none',
@@ -1834,6 +1852,9 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
     kanbanCardSort: p.kanbanCardSort === 'due' ? 'due' : 'manual',
     hideEmptyTasks:
       typeof p.hideEmptyTasks === 'boolean' ? p.hideEmptyTasks : DEFAULT_PREFS.hideEmptyTasks,
+    taskReminders:
+      typeof p.taskReminders === 'boolean' ? p.taskReminders : DEFAULT_PREFS.taskReminders,
+    taskReminderTime: normalizeReminderTime(p.taskReminderTime),
     kanbanWipLimits: normalizeKanbanWipLimits(p.kanbanWipLimits),
     kanbanColumnColors: normalizeKanbanColumnColors(p.kanbanColumnColors),
     kanbanLanes: normalizeKanbanLanes(p.kanbanLanes),
@@ -2401,6 +2422,121 @@ function withFileTaskStatus(task: VaultTask, status: FileTaskStatus): VaultTask 
   }
 }
 
+/** The check-off edit for `task` when it is an open recurring task (#1036),
+ *  computed on `body`; null for any other task, which toggles as usual. */
+function recurringCompletionFor(
+  task: VaultTask,
+  body: string,
+  skip = false
+): RecurringCompletion | null {
+  if (task.kind === 'file' || !/@repeat:/i.test(task.rawText)) return null
+  const state = useStore.getState()
+  return completeRecurringTaskAtIndex(body, task.taskIndex, {
+    today: toIsoDateLocal(new Date()),
+    fallbackDue: task.dueInferred
+      ? task.due
+      : dailyNoteDueForPath(state.notes, state.vaultSettings, task.sourcePath),
+    skip
+  })
+}
+
+/** Write a task's note: through the open buffer when there is one (it merges
+ *  with unsaved edits and autosaves), else straight to disk. */
+async function writeTaskNoteBody(path: string, nextBody: string): Promise<boolean> {
+  const state = useStore.getState()
+  if (state.noteContents[path]) {
+    state.updateNoteBody(path, nextBody)
+    return true
+  }
+  try {
+    await window.zen.writeNote(path, nextBody)
+    return true
+  } catch (err) {
+    console.error('writeNote (recurring task) failed', err)
+    return false
+  }
+}
+
+/** Re-read one note's inline tasks from `body`. A recurring check-off inserts
+ *  lines, so every index after it moves; patching one row would be wrong. */
+function replaceInlineTasksForNote(task: VaultTask, body: string): void {
+  const fresh = parseTasksFromBody(body, {
+    path: task.sourcePath,
+    title: task.noteTitle,
+    folder: task.noteFolder
+  })
+  useStore.setState((s) => ({
+    vaultTasks: [
+      ...s.vaultTasks.filter((t) => t.sourcePath !== task.sourcePath || t.kind === 'file'),
+      ...fresh
+    ]
+  }))
+}
+
+function shortDayLabel(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric'
+  })
+}
+
+/** "Next: Sun, Nov 8", with an Undo that restores the note as it was, as long
+ *  as nothing else has changed it since. */
+function announceRecurrence(
+  task: VaultTask,
+  done: RecurringCompletion,
+  before: string,
+  skip: boolean
+): void {
+  const label = `Next: ${shortDayLabel(done.nextDue)}`
+  useToastStore.getState().addToast(
+    skip ? `Skipped. ${label}` : label,
+    'info',
+    { label: 'Undo', onClick: () => void undoRecurrence(task, done.body, before) },
+    6000
+  )
+}
+
+const undoRecurrence = trackTaskWrite(async (task: VaultTask, written: string, before: string) => {
+  const path = task.sourcePath
+  let current: string
+  try {
+    current = useStore.getState().noteContents[path]?.body ?? (await window.zen.readNote(path)).body
+  } catch (err) {
+    console.error('readNote (undo recurring task) failed', err)
+    return
+  }
+  if (current !== written) {
+    useToastStore.getState().addToast('The note changed since, so nothing was undone.', 'info')
+    return
+  }
+  if (await writeTaskNoteBody(path, before)) replaceInlineTasksForNote(task, before)
+})
+
+/** Check off (or with `skip`, skip) a recurring task in its note: the next
+ *  occurrence above it, the task itself a record. False when `task` is not an
+ *  open recurring task, so the caller can toggle it as usual. */
+async function completeRecurringTaskInNote(task: VaultTask, skip: boolean): Promise<boolean> {
+  if (task.kind === 'file' || task.checked || !/@repeat:/i.test(task.rawText)) return false
+  const path = task.sourcePath
+  let body: string
+  try {
+    body = useStore.getState().noteContents[path]?.body ?? (await window.zen.readNote(path)).body
+  } catch (err) {
+    console.error('readNote (recurring task) failed', err)
+    return false
+  }
+  const done = recurringCompletionFor(task, body, skip)
+  if (!done) return false
+  if (await writeTaskNoteBody(path, done.body)) {
+    replaceInlineTasksForNote(task, done.body)
+    announceRecurrence(task, done, body, skip)
+  }
+  return true
+}
+
 function applyTaskMutationsToTask(task: VaultTask, mutations: TaskMutation[]): VaultTask {
   let next = task
   for (const m of mutations) {
@@ -2822,6 +2958,8 @@ function collectPrefs(s: {
   kanbanGroupBy: KanbanGroupBy
   kanbanCardSort: KanbanCardSort
   hideEmptyTasks: boolean
+  taskReminders: boolean
+  taskReminderTime: string
   kanbanWipLimits: Record<string, number>
   kanbanColumnColors: Record<string, KanbanColumnColor>
   kanbanLanes: KanbanLaneBy
@@ -2948,6 +3086,8 @@ function collectPrefs(s: {
     kanbanGroupBy: s.kanbanGroupBy,
     kanbanCardSort: s.kanbanCardSort,
     hideEmptyTasks: s.hideEmptyTasks,
+    taskReminders: s.taskReminders,
+    taskReminderTime: s.taskReminderTime,
     kanbanWipLimits: s.kanbanWipLimits,
     kanbanColumnColors: s.kanbanColumnColors,
     kanbanLanes: s.kanbanLanes,
@@ -3647,6 +3787,10 @@ interface Store {
   /** Tasks with no text stay off the Tasks views, the Calendar and Timeline
    *  panels and Home. (#1026) */
   hideEmptyTasks: boolean
+  /** Task reminders on (#1036). */
+  taskReminders: boolean
+  /** `HH:MM` for reminders that name a day but no time (#1036). */
+  taskReminderTime: string
   /** Per-column Kanban WIP limits, keyed `${groupBy}:${columnId}`. (#1025) */
   kanbanWipLimits: Record<string, number>
   /** Per-column Kanban colours, keyed `${groupBy}:${columnId}`. (#1037) */
@@ -3911,6 +4055,9 @@ interface Store {
   toggleTaskFromList: (task: VaultTask) => Promise<void>
   /** Toggle a task's cancelled state (`[-]` inline, `status: cancelled` for a
    *  file-task). Cancelled = intentionally abandoned, distinct from done. (#450) */
+  /** Skip one occurrence of a recurring task (#1036): the record is written
+   *  cancelled and the next occurrence goes above it. */
+  skipTaskOccurrence: (task: VaultTask) => Promise<void>
   cancelTaskFromList: (task: VaultTask) => Promise<void>
   /** Toggle a task's in-progress state (`[/]` inline, `status: in-progress` for
    *  a file-task). Still open work: it keeps its place in Today rather than
@@ -3948,6 +4095,8 @@ interface Store {
   setKanbanGroupBy: (group: KanbanGroupBy) => void
   setKanbanCardSort: (sort: KanbanCardSort) => void
   setHideEmptyTasks: (hide: boolean) => void
+  setTaskReminders: (on: boolean) => void
+  setTaskReminderTime: (time: string) => void
   /** Set one column's WIP limit, or clear it with null. (#1025) */
   setKanbanWipLimit: (group: KanbanGroupBy, columnId: string, limit: number | null) => void
   /** Set one column's colour, or clear it with null. (#1037) */
@@ -6566,6 +6715,8 @@ export const useStore = create<Store>((set, get) => {
   kanbanGroupBy: loadPrefs().kanbanGroupBy,
   kanbanCardSort: loadPrefs().kanbanCardSort,
   hideEmptyTasks: loadPrefs().hideEmptyTasks,
+  taskReminders: loadPrefs().taskReminders,
+  taskReminderTime: loadPrefs().taskReminderTime,
   kanbanWipLimits: loadPrefs().kanbanWipLimits,
   kanbanColumnColors: loadPrefs().kanbanColumnColors,
   kanbanLanes: loadPrefs().kanbanLanes,
@@ -7657,6 +7808,8 @@ export const useStore = create<Store>((set, get) => {
   },
 
   toggleTaskFromList: trackTaskWrite(async (task) => {
+    // Checking off a recurring task writes its next occurrence (#1036).
+    if (!task.checked && (await completeRecurringTaskInNote(task, false))) return
     const state = get()
     const path = task.sourcePath
     const openBuffer = state.noteContents[path]
@@ -7696,6 +7849,10 @@ export const useStore = create<Store>((set, get) => {
           : t
       )
     }))
+  }),
+
+  skipTaskOccurrence: trackTaskWrite(async (task) => {
+    await completeRecurringTaskInNote(task, true)
   }),
 
   cancelTaskFromList: trackTaskWrite(async (task) => {
@@ -7804,6 +7961,7 @@ export const useStore = create<Store>((set, get) => {
         }
 
         let nextBody = body
+        let recurring: RecurringCompletion | null = null
         if (task.kind === 'file') {
           // Whole-note task: every field lives in frontmatter, so apply the whole
           // batch as one frontmatter rewrite rather than per-line edits.
@@ -7812,10 +7970,14 @@ export const useStore = create<Store>((set, get) => {
             fileTaskMutationUpdates(mutations, toIsoDateLocal(new Date()))
           )
         } else {
+          // Checking off goes last: a recurring task's check-off copies the
+          // line as the other mutations left it into its next occurrence.
+          let checkOff = false
           for (const m of mutations) {
             switch (m.kind) {
               case 'set-checked':
-                nextBody = setTaskCheckedAtIndex(nextBody, task.taskIndex, m.checked)
+                if (m.checked) checkOff = true
+                else nextBody = setTaskCheckedAtIndex(nextBody, task.taskIndex, false)
                 break
               case 'set-waiting':
                 nextBody = setTaskWaitingAtIndex(nextBody, task.taskIndex, m.waiting)
@@ -7839,6 +8001,10 @@ export const useStore = create<Store>((set, get) => {
                 nextBody = setTaskTextAtIndex(nextBody, task.taskIndex, m.text)
                 break
             }
+          }
+          if (checkOff) {
+            recurring = recurringCompletionFor(task, nextBody)
+            nextBody = recurring?.body ?? setTaskCheckedAtIndex(nextBody, task.taskIndex, true)
           }
         }
         if (nextBody === body) {
@@ -7874,6 +8040,10 @@ export const useStore = create<Store>((set, get) => {
               return { noteContents: { ...s.noteContents, [path]: { ...cached, body: nextBody } } }
             })
           }
+        }
+        if (recurring) {
+          replaceInlineTasksForNote(task, nextBody)
+          announceRecurrence(task, recurring, body, false)
         }
       })
     })()
@@ -8132,6 +8302,14 @@ export const useStore = create<Store>((set, get) => {
   },
   setHideEmptyTasks: (hide) => {
     set({ hideEmptyTasks: hide })
+    savePrefs(collectPrefs(get()))
+  },
+  setTaskReminders: (on) => {
+    set({ taskReminders: on })
+    savePrefs(collectPrefs(get()))
+  },
+  setTaskReminderTime: (time) => {
+    set({ taskReminderTime: normalizeReminderTime(time) })
     savePrefs(collectPrefs(get()))
   },
   // Global and portable like the column titles, deliberately not a per-vault

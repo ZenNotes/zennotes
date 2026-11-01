@@ -34,6 +34,7 @@ import { attachImageResizeHandle, setImageWidthOnLine } from './image-resize'
 import { assetTabPath } from './asset-tabs'
 import { openVaultAssetExternally } from './external-file-link'
 import { canShowPdfInline } from './pdf-inline'
+import { checkOffTaskAtMarker } from './cm-task-recurrence'
 import {
   getExcalidrawPreview,
   parseEmbedSizeHint,
@@ -1188,12 +1189,13 @@ class TaskCheckboxWidget extends WidgetType {
       event.preventDefault()
       event.stopPropagation()
       // The state char sits at offset 1 inside the marker. Replace it in
-      // place — width stays 3, so no doc positions downstream shift.
-      const stateFrom = this.from + 1
-      const stateTo = this.from + 2
-      view.dispatch({
-        changes: { from: stateFrom, to: stateTo, insert: this.checked ? ' ' : 'x' }
-      })
+      // place: width stays 3, so no doc positions downstream shift. Checking
+      // off a recurring task instead writes its next occurrence (#1036).
+      if (!this.checked) {
+        checkOffTaskAtMarker(view, this.from)
+        return
+      }
+      view.dispatch({ changes: { from: this.from + 1, to: this.from + 2, insert: ' ' } })
     })
 
     wrap.append(input)
@@ -1280,8 +1282,7 @@ class InProgressMarkerWidget extends WidgetType {
     span.addEventListener('click', (event) => {
       event.preventDefault()
       event.stopPropagation()
-      const stateFrom = this.from + 1
-      view.dispatch({ changes: { from: stateFrom, to: stateFrom + 1, insert: 'x' } })
+      checkOffTaskAtMarker(view, this.from)
     })
     return span
   }
