@@ -221,6 +221,7 @@ host's stable vault token.
 ### Folder and database actions
 
 - `createBrowseDatabase(host, directory?)` creates and opens an untitled database. Omitting the directory uses the configured database location, including the active note's folder. Explicit `''` selects the primary root; any other explicit directory must be an existing ordinary Browse folder.
+- `createBrowseKanban(host, directory?)` is New Kanban: it creates and opens a database that opens on its Board, with To do, Doing and Done columns, placed exactly as `createBrowseDatabase` places one. With a directory it is the desktop folder menu's New Kanban.
 - `requestRenameBrowseDatabase(host, directory)` prompts for a database title and preserves host collision numbering. Names starting with a dot are rejected because vault scanners hide those directories. Case-only renames retain existing host behavior and can receive a numbered suffix on case-insensitive filesystems.
 - `requestCreateBrowseFolder(host, directory = '')` prompts for a child folder.
 - `requestCreateBrowseNote(host, directory = '')` creates a note in an ordinary Browse folder (`''` is the primary root) and opens it with its title focused, without a prompt. A missing folder or a database is refused with `unavailable`.

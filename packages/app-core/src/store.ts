@@ -4007,7 +4007,7 @@ interface Store {
   newDatabase: () => Promise<void>
   /** Create a Kanban (a database that opens on its Board, with To do / Doing
    *  / Done columns) under `folder`/`subpath` and open it. (#1038) */
-  createKanban: (folder: NoteFolder, subpath?: string) => Promise<void>
+  createKanban: (folder: NoteFolder, subpath?: string, isCurrent?: () => boolean) => Promise<void>
   /** Create a Kanban where new databases go and open it. (#1038) */
   newKanban: () => Promise<void>
   /** Rename a database (its `.base` folder); rehomes the open grid tab. */
@@ -7186,8 +7186,8 @@ export const useStore = create<Store>((set, get) => {
     )
     await get().createDatabase(folder, subpath)
   },
-  createKanban: async (folder, subpath = '') => {
-    await get().createDatabase(folder, subpath, KANBAN_DATABASE_TITLE, undefined, {
+  createKanban: async (folder, subpath = '', hostIsCurrent) => {
+    await get().createDatabase(folder, subpath, KANBAN_DATABASE_TITLE, hostIsCurrent, {
       seed: kanbanDatabaseSeed()
     })
   },

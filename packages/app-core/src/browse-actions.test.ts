@@ -20,6 +20,7 @@ async function setup() {
   const rename = vi.fn(async () => {})
   const remove = vi.fn(async () => {})
   const createDatabase = vi.fn(async () => undefined)
+  const createKanban = vi.fn(async () => {})
   const renameDatabase = vi.fn(async () => {})
   const refreshAssets = vi.fn(async () => {})
   const createAndOpen = vi.fn(async () => {})
@@ -34,6 +35,7 @@ async function setup() {
     renameFolder: rename,
     deleteFolder: remove,
     createDatabase,
+    createKanban,
     renameDatabase,
     refreshAssets,
     createAndOpen
@@ -58,6 +60,7 @@ async function setup() {
     rename,
     remove,
     createDatabase,
+    createKanban,
     renameDatabase,
     refreshAssets,
     createAndOpen,
@@ -255,6 +258,25 @@ describe('public Browse actions', () => {
     expect(s.getPromptRequest()).toBeNull()
     expect(await s.createBrowseDatabase(s.host, 'People.base')).toBe('unavailable')
     expect(await s.createBrowseDatabase(s.host, 'Missing')).toBe('unavailable')
+  })
+
+  it('creates a Kanban in a Browse folder or where new databases go, as a folder menu does (#1038)', async () => {
+    const s = await setup()
+    expect(await s.createBrowseKanban(s.host, 'Work')).toBe('completed')
+    expect(s.createKanban).toHaveBeenLastCalledWith('inbox', 'Work', expect.any(Function))
+    expect(s.getPromptRequest()).toBeNull()
+    s.useStore.setState({
+      vaultSettings: {
+        ...s.useStore.getState().vaultSettings,
+        databasesLocation: { mode: 'folder', folder: 'Databases' }
+      }
+    })
+    expect(await s.createBrowseKanban(s.host)).toBe('completed')
+    expect(s.createKanban).toHaveBeenLastCalledWith('inbox', 'Databases', expect.any(Function))
+    expect(await s.createBrowseKanban(s.host, 'People.base')).toBe('unavailable')
+    expect(await s.createBrowseKanban(s.host, 'Missing')).toBe('unavailable')
+    expect(s.createKanban).toHaveBeenCalledTimes(2)
+    expect(s.createDatabase).not.toHaveBeenCalled()
   })
 
   it.each([false, true])('renames a database with primary root mode %s', async (root) => {

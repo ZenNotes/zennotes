@@ -1,3 +1,4 @@
+import type { NoteFolder } from '@bridge-contract/ipc'
 import { isWorkspaceTransitionPending } from './workspace-transition'
 import {
   csvPathForFormDir,
@@ -270,6 +271,30 @@ export async function createBrowseDatabase(
   host: BrowseActionHost,
   directory?: string
 ): Promise<BrowseActionResult> {
+  return createDatabaseFromBrowse(host, directory, (folder, subpath, isCurrent) =>
+    useStore.getState().createDatabase(folder, subpath, undefined, isCurrent)
+  )
+}
+
+/**
+ * New Kanban (#1038) from Browse: a database that opens on its Board, placed
+ * like createBrowseDatabase. With a directory it is the desktop folder menu's
+ * New Kanban, which the phones' folder sheet offers.
+ */
+export async function createBrowseKanban(
+  host: BrowseActionHost,
+  directory?: string
+): Promise<BrowseActionResult> {
+  return createDatabaseFromBrowse(host, directory, (folder, subpath, isCurrent) =>
+    useStore.getState().createKanban(folder, subpath, isCurrent)
+  )
+}
+
+async function createDatabaseFromBrowse(
+  host: BrowseActionHost,
+  directory: string | undefined,
+  create: (folder: NoteFolder, subpath: string, isCurrent: () => boolean) => Promise<unknown>
+): Promise<BrowseActionResult> {
   const state = useStore.getState()
   const target =
     directory === undefined
@@ -283,9 +308,7 @@ export async function createBrowseDatabase(
   const context = start(host, directory ?? '', true)
   if (!context) return 'unavailable'
   try {
-    await useStore
-      .getState()
-      .createDatabase(target.folder, target.subpath, undefined, context.isCurrent)
+    await create(target.folder, target.subpath, context.isCurrent)
     return context.isCurrent() ? 'completed' : 'stale'
   } finally {
     pending = false
