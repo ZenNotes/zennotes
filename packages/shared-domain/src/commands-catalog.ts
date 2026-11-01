@@ -114,6 +114,8 @@ export const COMMAND_CATALOG: CommandCatalogEntry[] = [
   { id: "task.cancel", title: "Cancel Task", category: "Editor", keywords: "cancel task abandon drop dropped scrap wontfix strike" },
   { id: "editor.link-popover", title: "Open Link Popover", category: "Editor", keywords: "link popover hover preview edit create note wikilink peek floating in place" },
   { id: "task.toggle-checkbox", title: "Toggle Checkbox", category: "Editor", keywords: "toggle checkbox task check uncheck line todo checklist convert done" },
+  { id: "task.repeat", title: "Repeat Task…", category: "Editor", keywords: "repeat recurring recurrence every daily weekly monthly yearly task schedule" },
+  { id: "task.remind", title: "Remind Task…", category: "Editor", keywords: "remind reminder notification notify alarm alert task due" },
   { id: "editor.reflow-paragraph", title: "Reflow Paragraph", category: "Editor", keywords: "reflow join lines unwrap hard wrap word wrap format paragraph gq fill" },
   { id: "database.create-record-pages", title: "Create Pages for All Records", category: "Database", keywords: "database base records rows pages notes link wikilink bulk all csv" },
   { id: "database.columns", title: "Choose Database Columns", category: "Database", keywords: "database base table columns fields show hide visible choose pick view" },

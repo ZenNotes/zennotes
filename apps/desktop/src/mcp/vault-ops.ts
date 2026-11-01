@@ -22,7 +22,8 @@ import { retitleLeadingHeading } from '@shared/note-heading-sync'
 import { normalizeNoteComments } from '@shared/note-comments'
 import type { NoteComment, NoteCommentInput } from '@shared/ipc'
 export type { NoteComment, NoteCommentInput }
-import { inlineTaskField, noteTasksMode, type NoteTasksMode } from '@shared/tasks'
+import { inlineTaskField, noteTasksMode, toIsoDateLocal, type NoteTasksMode } from '@shared/tasks'
+import { completeRecurringTaskAtIndex } from '@shared/task-recurrence'
 import {
   isPathExcludedFromTasks,
   normalizeTasksExcludedFolders,
@@ -1998,8 +1999,9 @@ export async function toggleTask(root: string, taskId: string): Promise<VaultTas
   // line in a `.zennotes` file (a template) was toggled before the refusal.
   const { abs, folder } = await resolveNote(root, rel)
   const body = await fs.readFile(abs, 'utf8')
-  const newBody = toggleTaskInBody(body, targetIndex)
-  if (newBody == null) return null
+  const toggled = toggleTaskBody(body, targetIndex)
+  if (toggled == null) return null
+  const newBody = toggled.body
   await prepareNoteCreation(root, toPosix(path.relative(root, abs)))
   await fs.writeFile(abs, newBody, 'utf8')
   const parsed = parseTasksFromBody(
@@ -2013,7 +2015,24 @@ export async function toggleTask(root: string, taskId: string): Promise<VaultTas
     // toggled task, so it must see past a note-level `tasks:` opt-out.
     { includeExcluded: true }
   )
-  return parsed[targetIndex] ?? null
+  return parsed[toggled.index] ?? null
+}
+
+/**
+ * Toggle the task at `targetIndex` the way the app does, recurring tasks
+ * included: checking off an open `@repeat:` task writes its next occurrence
+ * above it (#1036), and `index` then points at the finished task, which moved
+ * down past it. Null when the body holds no task at that index.
+ */
+export function toggleTaskBody(
+  body: string,
+  targetIndex: number,
+  today: string = toIsoDateLocal(new Date())
+): { body: string; index: number } | null {
+  const recurring = completeRecurringTaskAtIndex(body, targetIndex, { today })
+  if (recurring) return { body: recurring.body, index: targetIndex + recurring.insertedTasks }
+  const toggled = toggleTaskInBody(body, targetIndex)
+  return toggled == null ? null : { body: toggled, index: targetIndex }
 }
 
 /** Split "<path>#<taskIndex>" into its halves. `indexStr` is the literal

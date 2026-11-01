@@ -22,7 +22,7 @@ import {
 } from '@codemirror/view'
 import { TASK_LINE_RE } from '@shared/tasklists'
 import { isTagSkippedContext } from './cm-hashtags'
-import { scanTaskMetadata, todayIso } from './task-metadata-tokens'
+import { fieldChip, scanTaskMetadata, todayIso } from './task-metadata-tokens'
 
 function buildDecorations(view: EditorView): DecorationSet {
   const { state } = view
@@ -49,6 +49,7 @@ function buildDecorations(view: EditorView): DecorationSet {
       // RangeSetBuilder needs ascending, non-overlapping ranges; `scanTaskMetadata`
       // already returns them in order and the token types never overlap.
       for (const token of tokens) {
+        const chip = fieldChip(token)
         const cls =
           token.kind === 'priority'
             ? `cm-task-prio cm-task-prio-${token.level}`
@@ -56,8 +57,14 @@ function buildDecorations(view: EditorView): DecorationSet {
               ? !closed && (token.date ?? '') < today
                 ? 'cm-task-meta cm-task-due-overdue'
                 : 'cm-task-meta cm-task-due'
-              : 'cm-task-meta cm-task-field'
-        builder.add(base + token.start, base + token.end, Decoration.mark({ class: cls }))
+              : chip.variant
+                ? `cm-task-meta cm-task-${chip.variant}${chip.invalid ? ' cm-task-meta-invalid' : ''}`
+                : 'cm-task-meta cm-task-field'
+        builder.add(
+          base + token.start,
+          base + token.end,
+          Decoration.mark({ class: cls, ...(chip.title ? { attributes: { title: chip.title } } : {}) })
+        )
       }
     }
   }

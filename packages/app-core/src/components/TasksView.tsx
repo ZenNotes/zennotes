@@ -20,6 +20,8 @@ import {
 } from '../lib/list-view-keys'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { buildTaskMenuItems, chooseTaskDueDate } from '../lib/task-context-menu'
+import { chooseTaskRemind, chooseTaskRepeat } from '../lib/task-recurrence-pickers'
+import { repeatRuleOfLine } from '@shared/task-recurrence'
 import { isImeComposing } from '../lib/ime'
 import { isOverlayOrDialogOpen } from '../lib/overlay-open'
 import { promptApp } from '../lib/prompt-requests'
@@ -398,6 +400,13 @@ export function TasksView(): JSX.Element {
   // deferred, so toggling again within the window simply reverts it in place.
   const lingerToggle = useCallback(
     (task: VaultTask) => {
+      // A recurring task checked off leaves its row to the next occurrence
+      // (#1036): lingering it would offer a second `x` that checks THAT one
+      // off. Its undo is the toast's Undo.
+      if (!task.checked && task.kind !== 'file' && repeatRuleOfLine(task.rawText)) {
+        void toggleTaskFromList(task)
+        return
+      }
       const key = task.id
       if (!lingerRef.current.has(key)) lingerRef.current.set(key, { groupChecked: task.checked })
       const prev = lingerTimers.current.get(key)
@@ -924,6 +933,12 @@ export function TasksView(): JSX.Element {
       if (vimMode && key === '@' && currentTask) {
         consume()
         void chooseTaskDueDate(currentTask)
+        return
+      }
+      // Repeat… and Remind… (#1036). Vim-gated single keys.
+      if (vimMode && (key === 'r' || key === 'R') && currentTask) {
+        consume()
+        void (key === 'r' ? chooseTaskRepeat(currentTask) : chooseTaskRemind(currentTask))
         return
       }
     }

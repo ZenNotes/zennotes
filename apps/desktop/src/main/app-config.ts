@@ -451,6 +451,16 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
     tomlKey: 'hide_empty_tasks',
     comment: 'leave blank checkboxes out of the Tasks views, the Calendar and Timeline panels and the home view'
   },
+  taskReminders: {
+    section: 'view',
+    tomlKey: 'task_reminders',
+    comment: 'true | false: notify for tasks with @remind (#1036)'
+  },
+  taskReminderTime: {
+    section: 'view',
+    tomlKey: 'task_reminder_time',
+    comment: 'HH:MM: when @remind:1d and other reminders without a time fire'
+  },
   tasksListOrder: {
     section: 'view',
     tomlKey: 'tasks_list_order',

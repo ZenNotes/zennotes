@@ -122,6 +122,12 @@ function parseNoteDefaults(body: string): { defaults: NoteDefaults; fmEndOffset:
   return { defaults, fmEndOffset: m[0].length }
 }
 
+/** The note-wide `due:` a frontmatter block gives every task without its own,
+ *  the date `parseTasksFromBody` falls back on. */
+export function noteFrontmatterDue(body: string): string | undefined {
+  return parseNoteDefaults(body.replace(/\r\n/g, '\n')).defaults.due
+}
+
 // ---------------------------------------------------------------------------
 // Inline token extraction
 // ---------------------------------------------------------------------------

@@ -768,6 +768,11 @@ export function SettingsModal(): JSX.Element {
   const setKanbanLanes = useStore((s) => s.setKanbanLanes);
   const hideEmptyTasks = useStore((s) => s.hideEmptyTasks);
   const setHideEmptyTasks = useStore((s) => s.setHideEmptyTasks);
+  const taskReminders = useStore((s) => s.taskReminders);
+  const setTaskReminders = useStore((s) => s.setTaskReminders);
+  const taskReminderTime = useStore((s) => s.taskReminderTime);
+  const setTaskReminderTime = useStore((s) => s.setTaskReminderTime);
+  const [reminderTimeIssue, setReminderTimeIssue] = useState<string | null>(null);
   const tasksListOrder = useStore((s) => s.tasksListOrder);
   const setTasksListOrder = useStore((s) => s.setTasksListOrder);
   const setShowArchivedTasks = useStore((s) => s.setShowArchivedTasks);
@@ -3737,6 +3742,28 @@ export function SettingsModal(): JSX.Element {
           ],
         },
         {
+          id: "task-reminders",
+          title: "Task reminders",
+          description: "Notify for tasks with @remind.",
+          keywords: [
+            "remind",
+            "reminder",
+            "notification",
+            "notify",
+            "alert",
+            "alarm",
+            "due",
+            "repeat",
+            "recurring",
+          ],
+        },
+        {
+          id: "task-reminder-time",
+          title: "Reminder time",
+          description: "For day-before reminders.",
+          keywords: ["remind", "reminder", "time", "morning", "default", "notification"],
+        },
+        {
           id: "hide-empty-tasks",
           title: "Hide empty tasks",
           description: "Leave blank checkboxes out of the Tasks views, Calendar, Timeline and home view.",
@@ -3863,6 +3890,30 @@ export function SettingsModal(): JSX.Element {
                 { value: "priority", label: "Priority" },
               ]}
               onChange={(next) => setTasksListOrder(next)}
+            />
+          </Section>
+          <Section title="Reminders">
+            <ToggleRow
+              label="Task reminders"
+              description="Notify for tasks with @remind."
+              value={taskReminders}
+              settingId="task-reminders"
+              onChange={setTaskReminders}
+            />
+            <TextInputRow
+              label="Reminder time"
+              description="For day-before reminders."
+              value={taskReminderTime}
+              placeholder="09:00"
+              settingId="task-reminder-time"
+              commitOnBlur
+              issue={reminderTimeIssue}
+              onChange={(next) => {
+                const m = /^(\d{1,2}):([0-5]\d)$/.exec(next ?? "");
+                const ok = m != null && Number(m[1]) <= 23;
+                setReminderTimeIssue(ok ? null : "Use HH:MM, like 09:00 or 18:30.");
+                if (ok) setTaskReminderTime(next ?? "");
+              }}
             />
           </Section>
           <Section title="Empty tasks">

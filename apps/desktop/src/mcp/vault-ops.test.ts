@@ -13,6 +13,8 @@ import {
   replaceInBody,
   scanAllTasks,
   searchText,
+  toggleTask,
+  toggleTaskBody,
   toggleTaskInBody
 } from './vault-ops'
 import { TASK_LINE_RE as SHARED_TASK_LINE_RE } from '@shared/tasklists'
@@ -140,6 +142,19 @@ describe('mcp task states', () => {
     const body = '1. [ ] first\n> - [ ] quoted\n'
     expect(toggleTaskInBody(body, 0)).toBe('1. [x] first\n> - [ ] quoted\n')
     expect(toggleTaskInBody(body, 1)).toBe('1. [ ] first\n> - [x] quoted\n')
+  })
+
+  it('toggle repeats a recurring task the way the app does (#1036)', async () => {
+    const body = '- [ ] first\n- [ ] Water @repeat:weekly due:2026-11-01\n'
+    expect(toggleTaskBody(body, 1, '2026-11-01')).toEqual({
+      body: '- [ ] first\n- [ ] Water @repeat:weekly due:2026-11-08\n- [x] Water due:2026-11-01\n',
+      index: 2
+    })
+    expect(toggleTaskBody(body, 0, '2026-11-01')?.index).toBe(0)
+    await writeFile(path.join(root, 'inbox', 'Chores.md'), body)
+    const done = await toggleTask(root, 'inbox/Chores.md#1')
+    expect(done?.checked).toBe(true)
+    expect(done?.content).toBe('Water')
   })
 
   it('toggle follows the app rules: [/] checks off, records stay (#599)', () => {

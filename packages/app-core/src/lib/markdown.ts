@@ -21,7 +21,7 @@ import { wikilinkDisplayLabel } from './wikilinks'
 import { classifyLocalAssetHref } from './local-assets'
 import { parseEmbedSizeHint, splitEmbedLabel } from './excalidraw-preview'
 import { parseColWidthsComment } from './markdown-table'
-import { scanTaskMetadata, type TaskMetaToken } from './task-metadata-tokens'
+import { fieldChip, scanTaskMetadata, type TaskMetaToken } from './task-metadata-tokens'
 import { rollupChildDone, rollupCountsChild, rollupLabel, type ChildTaskState } from './task-rollup'
 import {
   customCodeLanguageRegistry,
@@ -458,13 +458,17 @@ function remarkTaskMetadata() {
   const SKIP_TYPES = new Set(['list', 'link', 'linkReference', 'inlineCode', 'code', 'html'])
 
   const chipFor = (token: TaskMetaToken): AnyNode => {
+    const chip = fieldChip(token)
     const className =
       token.kind === 'priority'
         ? ['zen-task-prio', `zen-task-prio-${token.level}`]
         : token.kind === 'due'
           ? ['zen-task-meta', 'zen-task-due']
-          : ['zen-task-meta', 'zen-task-field']
+          : chip.variant
+            ? ['zen-task-meta', `zen-task-${chip.variant}`, ...(chip.invalid ? ['zen-task-meta-invalid'] : [])]
+            : ['zen-task-meta', 'zen-task-field']
     const hProperties: Record<string, unknown> = { className }
+    if (chip.title) hProperties.title = chip.title
     if (token.kind === 'due' && token.date) hProperties['data-due'] = token.date
     return {
       type: 'emphasis',

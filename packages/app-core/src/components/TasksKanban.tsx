@@ -102,6 +102,7 @@ import { isKeyboardContextMenuKey, keyboardMenuPosition } from '../lib/keyboard-
 import { listViewBindingMatches } from '../lib/list-view-keys'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { buildTaskMenuItems, chooseTaskDueDate } from '../lib/task-context-menu'
+import { chooseTaskRemind, chooseTaskRepeat } from '../lib/task-recurrence-pickers'
 import { AlertTriangleIcon, ArrowUpRightIcon, ChevronRightIcon, PencilIcon } from './icons'
 import { TasksKeysButton, TasksViewOptions, tasksToolbarOwnsKey } from './TasksToolbar'
 import { InlineMarkdown } from '../lib/inline-markdown'
@@ -114,6 +115,7 @@ import {
   sequenceTokenFromEvent,
   type KeymapOverrides
 } from '../lib/keymaps'
+import { SCHEDULING_FIELDS, TaskRecurrenceBadges } from './TaskRecurrenceBadges'
 
 interface Props {
   tasks: VaultTask[]
@@ -1339,6 +1341,7 @@ export function TasksKanban({
     const keys = new Set<string>()
     for (const t of tasks) if (t.fields) for (const k of Object.keys(t.fields)) keys.add(k)
     keys.delete('status')
+    for (const k of SCHEDULING_FIELDS) keys.delete(k)
     for (const k of [...keys].sort()) {
       opts.push({ value: `field:${k}` as KanbanGroupBy, label: `By @${k}` })
     }
@@ -1362,7 +1365,7 @@ export function TasksKanban({
       if (!t.fields) continue
       for (const k of Object.keys(t.fields)) {
         if (k === 'status') status = true
-        else keys.add(k)
+        else if (!SCHEDULING_FIELDS.has(k)) keys.add(k)
       }
     }
     return laneOptions(groupBy, keys, { customStatus: status, current: laneBy })
@@ -2819,6 +2822,14 @@ export function TasksKanban({
             void chooseTaskDueDate(actionTask)
           }
           return
+        // Repeat… and Remind… (#1036).
+        case 'r':
+        case 'R':
+          if (vimMode && actionTask) {
+            consume()
+            void (e.key === 'r' ? chooseTaskRepeat(actionTask) : chooseTaskRemind(actionTask))
+          }
+          return
         default:
           return
       }
@@ -3759,8 +3770,9 @@ function TaskCard({
             @waiting
           </span>
         )}
+        <TaskRecurrenceBadges task={task} />
         {task.fields &&
-          Object.entries(task.fields).map(([k, v]) => {
+          Object.entries(task.fields).filter(([k]) => !SCHEDULING_FIELDS.has(k)).map(([k, v]) => {
             const accent = columnAccent(v) ?? '#7f8c9a'
             return (
               <span

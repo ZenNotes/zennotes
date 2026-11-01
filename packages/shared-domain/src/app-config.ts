@@ -172,6 +172,8 @@ export const PORTABLE_DEFAULTS: Record<PortablePrefKey, unknown> = {
   kanbanGroupBy: 'status',
   kanbanCardSort: 'manual',
   hideEmptyTasks: true,
+  taskReminders: true,
+  taskReminderTime: '09:00',
   kanbanWipLimits: {},
   kanbanLanes: 'none',
   tasksListOrder: 'note',

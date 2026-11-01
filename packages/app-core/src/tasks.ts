@@ -4,6 +4,7 @@ import type { VaultTask } from '@bridge-contract/tasks'
 import { useStore, type KanbanGroupBy } from './store'
 import { filterTasksForDisplay, inferDailyTaskDueDates, parseTasksFromBody } from '@shared/tasks'
 import { TASK_LINE_RE } from '@shared/tasklists'
+import { repeatRuleOfLine } from '@shared/task-recurrence'
 import { computeTasksRender } from './lib/tasks-filter'
 import { buildDailyNoteDateByPath } from './lib/vault-layout'
 import { dropMutationsFor } from './lib/task-column-mutations'
@@ -149,6 +150,9 @@ export async function setTaskChecked(id: string, raw: string, checked: boolean):
 
   // The writer reports nothing when it declines or fails; read back.
   const written = await bodyToEdit(path)
+  // A recurring task checked off moves down a line under its next occurrence
+  // (#1036), so the line at its index is the new open one: any write is it.
+  if (checked && repeatRuleOfLine(task.rawText)) return written != null && written !== body ? 'applied' : 'retry'
   const now = written == null ? undefined : parseTasksFromBody(written, ctx)[task.taskIndex]
   return now && lineShape(now.rawText) === shape && now.checked === checked ? 'applied' : 'retry'
 }

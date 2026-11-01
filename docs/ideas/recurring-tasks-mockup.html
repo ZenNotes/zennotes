@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Recurring Tasks Mockup</title>
+<style>
+  /* ZenNotes' default (gruvbox light) tokens, from packages/app-core/src/styles/index.css */
+  :root {
+    --bg: 251 241 199; --bg-softer: 249 245 215; --bg-1: 242 229 188; --bg-2: 229 213 173;
+    --bg-3: 213 196 161; --fg: 80 73 69; --fg-1: 60 56 54; --fg-2: 101 71 53;
+    --grey-1: 124 111 100; --grey-0: 146 131 116; --accent: 195 94 10;
+    --red: 193 74 74; --green: 108 120 46; --yellow: 180 113 9; --blue: 69 112 122;
+    --purple: 148 94 128; --aqua: 76 122 93; --shadow: 42 38 32;
+    --page: 236 228 205;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 28px 16px 48px; background: rgb(var(--page));
+    color: rgb(var(--fg-1)); font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+  }
+  main { max-width: 1120px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .lede { margin: 0 0 24px; color: rgb(var(--grey-1)); }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .grid > section { min-width: 0; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  section > h2 {
+    font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: rgb(var(--grey-1));
+    margin: 0 0 8px; font-weight: 600;
+  }
+  section > p.note { margin: 8px 2px 0; font-size: 12.5px; color: rgb(var(--grey-1)); }
+  .win {
+    background: rgb(var(--bg)); border-radius: 10px; overflow: hidden;
+    box-shadow: 0 1px 2px rgb(var(--shadow) / .12), 0 8px 28px rgb(var(--shadow) / .14);
+    border: 1px solid rgb(var(--shadow) / .08);
+  }
+  .tabs { display: flex; align-items: center; gap: 6px; height: 36px; padding: 0 10px; background: rgb(var(--bg-softer)); border-bottom: 1px solid rgb(var(--bg-2)); font-size: 12.5px; }
+  .dots { display: flex; gap: 6px; margin-right: 8px; }
+  .dots i { width: 11px; height: 11px; border-radius: 50%; background: rgb(var(--bg-3)); display: block; }
+  .tab { padding: 4px 10px; border-radius: 6px; color: rgb(var(--grey-1)); }
+  .tab.on { background: rgb(var(--bg)); color: rgb(var(--fg-1)); box-shadow: 0 0 0 1px rgb(var(--bg-2)); }
+
+  /* Editor */
+  .ed { padding: 18px 26px 22px; font-size: 15px; line-height: 1.75; position: relative; }
+  .ed h3 { font-size: 22px; margin: 0 0 6px; color: rgb(var(--fg-1)); }
+  .ed h4 { font-size: 16px; margin: 10px 0 2px; color: rgb(var(--fg-1)); }
+  .tl { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+  .tl.sub { padding-left: 26px; }
+  .tl.done .txt { color: rgb(var(--grey-0)); text-decoration: line-through; }
+  .tl.done .meta { opacity: .55; }
+  .cb { flex: none; width: 15px; height: 15px; border-radius: 4px; border: 1.5px solid rgb(var(--grey-0)); position: relative; top: 2px; }
+  .cb.x { background: rgb(var(--accent)); border-color: rgb(var(--accent)); }
+  .cb.x::after { content: ""; position: absolute; left: 4px; top: 1px; width: 4px; height: 8px; border: solid rgb(var(--bg)); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+  .meta { border-radius: .35em; padding: 0 .3em; font-size: .92em; }
+  .m-due { color: rgb(var(--blue)); background: rgb(var(--blue) / .12); }
+  .m-rep { color: rgb(var(--aqua)); background: rgb(var(--aqua) / .14); }
+  .m-rem { color: rgb(var(--yellow)); background: rgb(var(--yellow) / .15); }
+  .m-roll { color: rgb(var(--fg-2)); background: rgb(var(--fg-2) / .1); font-variant-numeric: tabular-nums; }
+  .caret { display: inline-block; width: 2px; height: 1.1em; background: rgb(var(--fg-1)); vertical-align: -3px; margin-left: 1px; }
+  .typing { position: relative; }
+  .cmp {
+    position: absolute; left: 0; top: 1.7em; width: 248px; white-space: normal; background: rgb(var(--bg-softer));
+    border: 1px solid rgb(var(--bg-2)); border-radius: 8px; box-shadow: 0 10px 26px rgb(var(--shadow) / .2);
+    padding: 4px; font-size: 13px; line-height: 1.4; z-index: 2;
+  }
+  .cmp .ci { display: flex; justify-content: space-between; padding: 4px 8px; border-radius: 5px; }
+  .cmp .ci span:last-child { color: rgb(var(--grey-1)); font-size: 12px; }
+  .cmp .sel { background: rgb(var(--accent) / .16); }
+  .ed .spacer { height: 178px; }
+
+  /* Diff */
+  pre.diff {
+    margin: 0; padding: 14px 16px; font: 12.5px/1.7 ui-monospace, "SF Mono", Menlo, monospace;
+    background: rgb(var(--bg)); overflow-x: auto; white-space: pre;
+  }
+  .d-del { color: rgb(var(--red)); background: rgb(var(--red) / .08); display: block; }
+  .d-add { color: rgb(var(--green)); background: rgb(var(--green) / .1); display: block; }
+  .d-ctx { color: rgb(var(--grey-1)); display: block; }
+
+  /* Tasks view */
+  .tv-bar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid rgb(var(--bg-2)); font-size: 12px; }
+  .seg { display: flex; border: 1px solid rgb(var(--bg-3) / .7); border-radius: 6px; overflow: hidden; }
+  .seg span { padding: 2px 10px; color: rgb(var(--grey-1)); }
+  .seg span.on { background: rgb(var(--bg-2) / .8); color: rgb(var(--fg-1)); }
+  .filter { flex: 1; border: 1px solid rgb(var(--bg-3) / .7); border-radius: 6px; padding: 2px 8px; color: rgb(var(--grey-0)); background: rgb(var(--bg-softer)); }
+  .keys { border: 1px solid rgb(var(--bg-3)); border-radius: 6px; padding: 1px 7px; color: rgb(var(--grey-1)); }
+  .tv { padding: 6px 8px 10px; position: relative; }
+  .gh { display: flex; align-items: center; gap: 8px; padding: 4px 8px; margin-top: 10px; font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: rgb(var(--fg) / .6); }
+  .gh .n { color: rgb(var(--fg) / .4); }
+  .od { text-transform: none; letter-spacing: 0; font-weight: 500; font-size: 11px; color: rgb(var(--red)); background: rgb(var(--red) / .14); border-radius: 4px; padding: 1px 6px; }
+  .row { display: flex; align-items: flex-start; gap: 8px; padding: 6px 12px; border-radius: 6px; border-left: 2px solid transparent; }
+  .row.cur { background: rgb(var(--accent) / .15); }
+  .row.late { border-left-color: rgb(var(--red) / .7); }
+  .row .body { flex: 1; min-width: 0; }
+  .row .t { font-size: 14px; color: rgb(var(--fg-1) / .92); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row.dn .t { color: rgb(var(--fg) / .5); text-decoration: line-through; }
+  .row .src { font-size: 12px; color: rgb(var(--fg) / .5); }
+  .row .right { display: flex; align-items: center; gap: 7px; font-size: 12px; flex: none; }
+  .chip { border-radius: 4px; padding: 1px 6px; font-weight: 500; background: rgb(var(--fg) / .1); color: rgb(var(--fg) / .72); }
+  .chip.late { background: rgb(var(--red) / .15); color: rgb(var(--red)); }
+  .ico { color: rgb(var(--fg) / .5); font-size: 12px; white-space: nowrap; }
+  .pr-high { color: rgb(var(--red)); font-weight: 600; }
+  .kh { display: inline-flex; gap: 4px; align-items: center; border: 1px solid rgb(var(--fg) / .2); border-radius: 6px; padding: 1px 5px; font-size: 10.5px; color: rgb(var(--fg) / .6); background: rgb(var(--fg) / .05); }
+  .kh b { font: 600 10.5px ui-monospace, Menlo, monospace; color: rgb(var(--fg) / .9); }
+  .menu {
+    position: absolute; left: 30%; top: 112px; width: 210px; background: rgb(var(--bg-softer));
+    border: 1px solid rgb(var(--bg-2)); border-radius: 8px; box-shadow: 0 12px 30px rgb(var(--shadow) / .22);
+    padding: 4px; font-size: 13px; z-index: 3;
+  }
+  .menu .ttl { padding: 4px 8px 6px; font-size: 11px; color: rgb(var(--grey-1)); text-transform: uppercase; letter-spacing: .05em; }
+  .menu div.it { display: flex; justify-content: space-between; padding: 4px 8px; border-radius: 5px; }
+  .menu div.it span:last-child { color: rgb(var(--grey-1)); font-size: 12px; }
+  .menu .sel { background: rgb(var(--accent) / .16); }
+  .menu hr { border: 0; border-top: 1px solid rgb(var(--bg-2)); margin: 4px 2px; }
+  .toast {
+    margin: 10px auto 2px; width: max-content; max-width: 100%; display: flex; gap: 14px; align-items: center;
+    background: rgb(var(--fg-1)); color: rgb(var(--bg)); border-radius: 8px; padding: 7px 12px; font-size: 13px;
+  }
+  .toast b { color: rgb(var(--bg-2)); font-weight: 600; }
+
+  /* Notifications */
+  .desk { background: linear-gradient(135deg, #6a7f8c, #9a8f7e); border-radius: 10px; padding: 18px; display: grid; gap: 10px; justify-items: end; }
+  .ntf {
+    width: min(360px, 100%); display: flex; gap: 11px; padding: 11px 13px; border-radius: 16px;
+    background: rgb(246 246 246 / .86); backdrop-filter: blur(20px); color: #1d1d1f;
+    box-shadow: 0 6px 20px rgb(0 0 0 / .22); font-size: 13px; line-height: 1.35;
+  }
+  .ntf .app { flex: none; width: 34px; height: 34px; border-radius: 8px; background: rgb(var(--bg)); border: 1px solid rgb(0 0 0 / .1); display: grid; place-items: center; font-weight: 700; color: rgb(var(--accent)); font-size: 15px; }
+  .ntf .hd { display: flex; justify-content: space-between; font-size: 11.5px; color: #6e6e73; }
+  .ntf .tt { font-weight: 600; }
+  .ntf .bd { color: #3a3a3c; }
+
+  /* Settings */
+  .set { padding: 6px 18px 12px; }
+  .set h5 { margin: 10px 0 4px; font-size: 13px; color: rgb(var(--fg-1)); }
+  .srow { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 0; border-top: 1px solid rgb(var(--bg-2)); }
+  .srow .l b { display: block; font-size: 13.5px; font-weight: 600; color: rgb(var(--fg-1)); }
+  .srow .l span { font-size: 12.5px; color: rgb(var(--grey-1)); }
+  .tog { flex: none; width: 34px; height: 20px; border-radius: 10px; background: rgb(var(--accent)); position: relative; }
+  .tog::after { content: ""; position: absolute; right: 2px; top: 2px; width: 16px; height: 16px; border-radius: 50%; background: rgb(var(--bg)); }
+  .time { flex: none; border: 1px solid rgb(var(--bg-3)); border-radius: 6px; padding: 3px 10px; font-variant-numeric: tabular-nums; background: rgb(var(--bg-softer)); }
+  .full { grid-column: 1 / -1; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Recurring tasks and reminders (#1036)</h1>
+  <p class="lede">Mockup for the design in docs/ideas/recurring-tasks.md. Default light theme; nothing here is built yet.</p>
+
+  <div class="grid">
+    <section>
+      <h2>1 · In the editor (live preview)</h2>
+      <div class="win">
+        <div class="tabs"><span class="dots"><i></i><i></i><i></i></span><span class="tab on">Home</span><span class="tab">2026-11-01</span></div>
+        <div class="ed">
+          <h3>Home</h3>
+          <h4>Chores</h4>
+          <div class="tl"><span class="cb"></span><span class="txt">Water the plants</span>
+            <span class="meta m-rep">@repeat:weekly</span><span class="meta m-due">due:2026-11-08</span><span class="meta m-rem">@remind:9am</span></div>
+          <div class="tl done"><span class="cb x"></span><span class="txt">Water the plants</span><span class="meta m-due">due:2026-11-01</span></div>
+          <div class="tl"><span class="cb"></span><span class="txt">Weekly review</span>
+            <span class="meta m-rep">@repeat:fri</span><span class="meta m-due">due:2026-11-06</span><span class="meta m-roll">0/2</span></div>
+          <div class="tl sub"><span class="cb"></span><span class="txt">Inbox zero</span></div>
+                    <div class="tl sub"><span class="cb"></span><span class="txt">Plan the week</span></div>
+          <div class="tl done"><span class="cb x"></span><span class="txt">Weekly review</span><span class="meta m-due">due:2026-10-30</span><span class="meta m-roll">2/2</span></div>
+          <div class="tl"><span class="cb"></span><span class="txt">Pay rent</span><span class="meta m-due">due:2026-12-01</span><span class="typing">@repeat:<span class="caret"></span>
+          <span class="cmp">
+            <span class="ci sel"><span>monthly</span><span>Dec 1 → Jan 1</span></span>
+            <span class="ci"><span>weekly</span><span>every 7 days</span></span>
+            <span class="ci"><span>daily</span><span>every day</span></span>
+            <span class="ci"><span>weekdays</span><span>Mon to Fri</span></span>
+            <span class="ci"><span>yearly</span><span>every year</span></span>
+            <span class="ci"><span>2w</span><span>every 2 weeks</span></span>
+            <span class="ci"><span>after-3d</span><span>3 days after done</span></span>
+          </span></span></div>
+          <div class="spacer"></div>
+        </div>
+      </div>
+      <p class="note">Tokens stay as typed, styled like <code>due:</code>. Typing <code>@repeat:</code> or <code>@remind:</code> offers the values. Vim: <code>:repeat weekly</code>, <code>:remind 9am</code>.</p>
+    </section>
+
+    <section>
+      <h2>2 · What checking it off writes</h2>
+      <div class="win">
+        <div class="tabs"><span class="dots"><i></i><i></i><i></i></span><span class="tab on">Home.md (on disk)</span></div>
+<pre class="diff"><span class="d-ctx">  ## Chores</span><span class="d-del">- - [ ] Water the plants @repeat:weekly due:2026-11-01 @remind:9am</span><span class="d-add">+ - [ ] Water the plants @repeat:weekly due:2026-11-08 @remind:9am</span><span class="d-add">+ - [x] Water the plants due:2026-11-01</span><span class="d-ctx"> </span><span class="d-ctx">  A checklist repeats whole; the record keeps its ticks:</span><span class="d-del">- - [ ] Weekly review @repeat:fri due:2026-10-30</span><span class="d-del">-   - [x] Inbox zero</span><span class="d-del">-   - [x] Plan the week</span><span class="d-add">+ - [ ] Weekly review @repeat:fri due:2026-11-06</span><span class="d-add">+   - [ ] Inbox zero</span><span class="d-add">+   - [ ] Plan the week</span><span class="d-add">+ - [x] Weekly review due:2026-10-30</span><span class="d-add">+   - [x] Inbox zero</span><span class="d-add">+   - [x] Plan the week</span></pre>
+      </div>
+      <p class="note">The next one goes above, so the open task stays under the cursor. The record drops <code>@repeat</code> and <code>@remind</code>, so unchecking it never spawns a second copy. Finished late? The next date skips to the first one after today.</p>
+    </section>
+
+    <section class="full">
+      <h2>3 · In the Tasks view (list), with the Repeat menu open (<code>r</code>)</h2>
+      <div class="win">
+        <div class="tabs"><span class="dots"><i></i><i></i><i></i></span><span class="tab on">Tasks</span><span class="tab">Home</span></div>
+        <div class="tv-bar">
+          <div class="seg"><span class="on">List</span><span>Calendar</span><span>Kanban</span></div>
+          <span class="filter">Filter tasks…</span>
+          <span>Order</span><span class="keys">Note order ▾</span>
+          <span class="keys">View ▾</span>
+          <span class="keys">⌨</span>
+        </div>
+        <div class="tv">
+          <div class="gh"><span>▾</span><span>Today</span><span class="n">2</span><span class="od">1 overdue</span></div>
+          <div class="row late"><span class="cb"></span><div class="body"><div class="t">Take out the recycling</div><div class="src">Home</div></div>
+            <div class="right"><span class="ico" title="Repeats every 2 weeks">↻</span><span class="chip late">Oct 31</span></div></div>
+          <div class="row cur"><span class="cb"></span><div class="body"><div class="t">Call Mum</div><div class="src">Family</div></div>
+            <div class="right"><span class="ico" title="Repeats every Sunday">↻</span><span class="ico">⏰ 6:00 PM</span><span class="chip">Nov 1</span>
+              <span class="kh"><b>x</b>check</span><span class="kh"><b>r</b>repeat</span><span class="kh"><b>⏎</b>open</span></div></div>
+
+          <div class="menu">
+            <div class="ttl">Repeat</div>
+            <div class="it"><span>Daily</span><span></span></div>
+            <div class="it"><span>Weekdays</span><span></span></div>
+            <div class="it sel"><span>Weekly</span><span>✓ Sun</span></div>
+            <div class="it"><span>Monthly</span><span></span></div>
+            <div class="it"><span>Yearly</span><span></span></div>
+            <div class="it"><span>Custom…</span><span></span></div>
+            <hr>
+            <div class="it"><span>Stop repeating</span><span></span></div>
+          </div>
+
+          <div class="gh"><span>▾</span><span>Upcoming</span><span class="n">3</span></div>
+          <div class="row"><span class="cb"></span><div class="body"><div class="t">Weekly review</div><div class="src">Home · 0/2</div></div>
+            <div class="right"><span class="ico">↻</span><span class="chip">Nov 6</span></div></div>
+          <div class="row"><span class="cb"></span><div class="body"><div class="t">Water the plants</div><div class="src">Home</div></div>
+            <div class="right"><span class="ico">↻</span><span class="ico">⏰ 9:00 AM</span><span class="chip">Nov 8</span></div></div>
+          <div class="row"><span class="cb"></span><div class="body"><div class="t">Pay rent</div><div class="src">Finance</div></div>
+            <div class="right"><span class="pr-high">High</span><span class="ico">↻</span><span class="ico">⏰ day before</span><span class="chip">Dec 1</span></div></div>
+
+          <div class="gh"><span>▾</span><span>Done</span><span class="n">1</span></div>
+          <div class="row dn"><span class="cb x"></span><div class="body"><div class="t">Water the plants</div><div class="src">Home</div></div>
+            <div class="right"><span class="chip">Nov 1</span></div></div>
+
+          <div class="toast"><span>Water the plants · next: Sun, Nov 8</span><b>Undo</b></div>
+        </div>
+      </div>
+      <p class="note">One quiet ↻ beside the due date (the rule is in its tooltip) and ⏰ when a reminder is set; no new toolbar controls. <code>R</code> opens Remind…; both are also in the task menu (<code>m</code>, Shift+F10) with “Skip this time”. With Vim off, only the menu and the palette offer them.</p>
+    </section>
+
+    <section>
+      <h2>4 · The reminder (macOS notification)</h2>
+      <div class="desk">
+        <div class="ntf"><div class="app">Z</div><div style="flex:1">
+          <div class="hd"><span>ZENNOTES</span><span>now</span></div>
+          <div class="tt">Water the plants</div>
+          <div class="bd">Due today · Home</div></div></div>
+        <div class="ntf"><div class="app">Z</div><div style="flex:1">
+          <div class="hd"><span>ZENNOTES</span><span>9:41 AM</span></div>
+          <div class="tt">3 reminders while ZenNotes was closed</div>
+          <div class="bd">Pay rent, Water the plants and 1 more</div></div></div>
+      </div>
+      <p class="note">Fired by the main process from the schedule the app keeps. A click focuses ZenNotes (out of the tray too) and opens the task. Missed ones from the last 24 h fire once at the next launch, folded together.</p>
+    </section>
+
+    <section>
+      <h2>5 · Settings → Tasks</h2>
+      <div class="win">
+        <div class="set">
+          <h5>Reminders</h5>
+          <div class="srow"><div class="l"><b>Task reminders</b><span>Notify for tasks with @remind.</span></div><span class="tog"></span></div>
+          <div class="srow"><div class="l"><b>Reminder time</b><span>For day-before reminders.</span></div><span class="time">09:00</span></div>
+        </div>
+      </div>
+      <p class="note">Two one-line rows, both portable (<code>[tasks]</code> in config.toml). A Daily summary row comes in slice 2.</p>
+    </section>
+  </div>
+</main>
+</body>
+</html>

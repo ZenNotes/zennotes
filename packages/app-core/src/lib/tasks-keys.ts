@@ -153,6 +153,7 @@ function kanbanGroups({ vimMode, dndEnabled, lanes, laneMoves }: TasksKeySheetOp
           { keys: 'x', label: 'toggle' },
           { keys: 'Enter', label: 'open' },
           ...(dndEnabled ? [{ keys: 'Shift+H / L', label: 'move' }] : []),
+          { keys: 'r / R', label: 'repeat, remind' },
           { keys: 'm', label: 'menu' }
         ]
       },
@@ -209,6 +210,7 @@ function listSheet({ vimMode, listOrder }: TasksKeySheetOptions): TasksKeySheet 
           { keys: 'i', label: 'start' },
           { keys: 'c', label: 'cancel' },
           { keys: '@', label: 'due date' },
+          { keys: 'r / R', label: 'repeat, remind' },
           { keys: '>', label: 'forward' }
         ]
       },
@@ -272,6 +274,7 @@ function calendarSheet({ vimMode, dayAdd }: TasksKeySheetOptions): TasksKeySheet
           { keys: '< / >', label: 'due ±1 day' },
           { keys: 'T', label: 'due today' },
           { keys: '@', label: 'due date' },
+          { keys: 'r / R', label: 'repeat, remind' },
           ...(dayAdd ? [{ keys: 'a', label: 'add to day' }] : [])
         ]
       },

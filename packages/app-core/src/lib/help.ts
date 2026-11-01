@@ -427,12 +427,22 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
   {
     title: 'Right-click a task for actions',
     body:
-      'Every task surface has the same right-click menu: the Tasks list, the Kanban board, the Tasks calendar, the calendar side panel, and the Timeline panel. It carries Open note, Mark done, Mark in progress, Cancel, @waiting, Forward to note…, due-date presets (today / tomorrow / next week / clear) with Choose a date… for any other day, priority, and Delete, with the keyboard equivalent shown beside each one so the menu doubles as a reminder of the shortcut. Right-clicking also moves the cursor to that task, so the menu and the keyboard always act on the same row. The menu takes typing as a filter: right-click, type “prio”, and only the priority entries stay. Editing a task inline is offered on the calendar surfaces and the Timeline, which have an edit field; elsewhere “Open note” takes you to the line.'
+      'Every task surface has the same right-click menu: the Tasks list, the Kanban board, the Tasks calendar, the calendar side panel, and the Timeline panel. It carries Open note, Mark done, Mark in progress, Cancel, @waiting, Forward to note…, due-date presets (today / tomorrow / next week / clear) with Choose a date… for any other day, Repeat… and Remind… (and Skip this time on a repeating task), priority, and Delete, with the keyboard equivalent shown beside each one so the menu doubles as a reminder of the shortcut. Right-clicking also moves the cursor to that task, so the menu and the keyboard always act on the same row. The menu takes typing as a filter: right-click, type “prio”, and only the priority entries stay. Editing a task inline is offered on the calendar surfaces and the Timeline, which have an edit field; elsewhere “Open note” takes you to the line.'
   },
   {
     title: 'Mark a task in progress',
     body:
       'A task you have started but not finished can say so: `- [/]`. Write it directly, run “Mark Task In Progress” from the command palette with the cursor on a task, or press `i` on a task in the Tasks list (press `i` again to set it back to open). It renders as a half-filled box in the editor and the reading view, and that box is clickable on both surfaces: a click checks the task off, the same `[/]` to `[x]` the toggle command performs (the forwarded and cancelled markers stay unclickable records). Moving an in-progress card between live Kanban columns keeps the `/` too. Unlike forwarded or cancelled, an in-progress task is still live work: it keeps its place in Today, Upcoming, or No due date, stays on the calendar and the Kanban board, and rolls forward with your unfinished tasks when you roll over a daily note, `/` and all. A whole-note task file uses `status: in-progress` in its frontmatter (`doing`, `started` and `wip` are read the same way).'
+  },
+  {
+    title: 'Repeat a task',
+    body:
+      'Add `@repeat:` to a task and checking it off schedules the next one: `- [ ] Water the plants @repeat:weekly due:2026-11-01`. The rules are `daily`, `weekdays`, `weekly`, `monthly` and `yearly`; `2d`, `3w`, `6m` or `1y` for every so many days, weeks, months or years; weekdays like `mon/thu`; and `after-3d` (any interval) to count from the day you finish instead of the due date. Check it off with `⌘L`, a click on its checkbox, `x` in the Tasks views or a drop into Done, and the next occurrence is written right above it with the next date in `due:`, while the finished line stays below as the record, without `@repeat` (so unchecking it never makes a second copy). Its subtasks repeat too, every checkbox open again. The next date counts from the due date (or, without one, the daily note’s date, then today) and is never today or earlier: a daily task done three days late comes back tomorrow, not as three overdue copies. `monthly` from the 31st lands on the last day of shorter months. Press `r` in the Tasks views (or Repeat… in the right-click menu, or `:repeat weekly` in a note) to set or stop it; Skip this time in the menu schedules the next one and records this one as cancelled. In the Tasks views a repeating task shows a repeat icon beside its date. Typing an `x` into the brackets by hand is just text and does not repeat. Whole-note task files do not repeat yet.'
+  },
+  {
+    title: 'Remind me before a task is due',
+    body:
+      'Add `@remind:` to a task with a due date and ZenNotes shows a notification: `@remind:9am` (or `930am`, `1730`, `17h30`) at that time on the due date, `@remind:1d` the day before at your reminder time (09:00 unless changed in Settings → Tasks), `@remind:2d-6pm` two days before at 6 PM. A daily note’s tasks remind on the note’s date. Click the notification to open the task. Press `R` in the Tasks views (or Remind… in the right-click menu, or `:remind 9am` in a note) to set or remove it; the Tasks views show a bell and the time. Reminders fire while ZenNotes runs, the window hidden in the tray included. ZenNotes quit misses them: the next launch shows what came due in the last 24 hours once, as one notification. Turn reminders off under Settings → Tasks → Task reminders. A recurring task carries its reminder to each new occurrence.'
   },
   {
     title: 'Subtask progress on the parent',
@@ -814,6 +824,7 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
       { keys: '>', action: 'Forward task', detail: 'Tasks list only: forward the selected task to another note. Opens a note picker that filters as you type and preselects the first match, so Enter forwards without reaching for an arrow key. The original becomes a forwarded record (`[>]`) linking to the target, and a fresh copy is added there, backlinked home, subtasks and all. Forwarded tasks live under a “Forwarded” group.' },
       { keys: 'i', action: 'Mark task in progress', detail: 'Tasks list only: mark the selected task as started (`- [/]`), or set it back to open. In-progress tasks keep their group and their day on the calendar, so the row keeps its place.' },
       { keys: 'c', action: 'Cancel task', detail: 'Tasks list only: mark the selected task as intentionally abandoned (`- [-]`), or un-cancel it. Cancelled tasks live under a “Cancelled” group, out of Today and Done.' },
+      { keys: 'r / R', action: 'Repeat or remind', detail: 'Tasks list, board, and calendar: `r` sets how the selected task repeats (`@repeat:`), `R` when it reminds (`@remind:`). Each opens a picker of common choices; type any other rule, like `2w` or `2d-6pm`. Also in the right-click menu.' },
       { keys: '@', action: 'Choose due date', detail: 'Tasks list, board, and calendar: give the selected task any due date from the month calendar that typing `@date` opens in a note, the same as Choose a date… in its right-click menu. It starts on the task’s due date (today without one); arrows move, Enter sets the day, or type a date.' },
       { keys: 'Tab / Shift+Tab', action: 'Step through a card’s subtasks', detail: 'Kanban board: step onto a card’s subtasks and back. Space (or x), Enter, i, c and @ act on that subtask; Esc returns to the card. Works with Vim mode on or off.' },
       { keys: 'K / J', action: 'Move task up / down', detail: 'Tasks list: reorder the selected task within its group. Works with Vim mode on or off, in Note order (see `s`). On a Kanban board with lanes, in Vim mode: move the card a lane up or down, writing that lane\'s field.' },
@@ -1152,6 +1163,16 @@ export const HELP_VIM_COMMANDS: HelpExCommand[] = [
     detail: 'On a list item, `o` (below) and `O` (above) carry the marker forward like pressing Enter: bullets repeat, numbered lists advance and renumber, checkboxes start a fresh unchecked box, and indentation is kept. On a non-list line they open a plain new line as usual.'
   },
   {
+    command: ':repeat [rule|off]',
+    summary: 'Repeat the task under the cursor',
+    detail: 'Writes `@repeat:` on the cursor’s task line: `:repeat weekly`, `:repeat 2w`, `:repeat mon/thu`. `:repeat off` stops it, and a bare `:repeat` opens the picker. Also “Repeat Task…” in the command palette.'
+  },
+  {
+    command: ':remind [when|off]',
+    summary: 'Remind about the task under the cursor',
+    detail: 'Writes `@remind:` on the cursor’s task line: `:remind 9am`, `:remind 1d`, `:remind 2d-6pm`. `:remind off` removes it, and a bare `:remind` opens the picker. Also “Remind Task…” in the command palette.'
+  },
+  {
     command: 'Mod+L',
     summary: 'Check off the task under the cursor',
     detail: 'Flips the checkbox on the cursor line between `[ ]` and `[x]` without leaving the mode you are in: normal mode stays normal, insert mode keeps typing. In visual mode it toggles every selected line (`Vjj` then Mod+L checks off three tasks), and one `u` undoes the lot. An in-progress `[/]` checks off to `[x]`, forwarded `[>]` and cancelled `[-]` lines are left alone, and a line with no checkbox becomes one. Rebind it as `editor.toggleCheckbox` (a single key chord, not a Vim sequence).'
@@ -1414,6 +1435,8 @@ export const HELP_SETTINGS: HelpSettingsSection[] = [
     title: 'Tasks',
     items: [
       { label: 'Show tasks from archived notes', detail: 'Off by default: archiving a note retires its tasks from the Tasks list, calendar, and Kanban. Turn this on to keep them visible everywhere, Archive column included. The raw key is `show_archived_tasks` in `config.toml`.' },
+      { label: 'Task reminders', detail: 'On by default: a task with `@remind:` shows a notification at its time. Config key `task_reminders` under `[view]`.' },
+      { label: 'Reminder time', detail: 'When a reminder that names a day but no time fires, such as `@remind:1d`. 09:00 by default; config key `task_reminder_time` under `[view]`.' },
       { label: 'Hide empty tasks', detail: 'On by default: bare `- [ ]` tasks stay out of the Tasks views, the Calendar and Timeline panels, and the home view. Same as the View menu; config key `hide_empty_tasks`.' },
       { label: 'Kanban lanes', detail: 'Splits the Kanban board into rows by Priority, Folder, or Tag; an `@field` picked on the board shows here too. Same as Lanes in the View menu; config key `kanban_lanes`.' },
       { label: 'Kanban statuses', detail: 'Define the ordered columns of the custom-status Kanban board here; `kanban_statuses` under `[view]` in `config.toml` is the file-level equivalent.' },

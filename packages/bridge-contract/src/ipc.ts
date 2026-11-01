@@ -183,6 +183,8 @@ export const IPC = {
   APP_GET_KEEP_RUNNING_IN_TRAY: 'app:get-keep-running-in-tray',
   APP_SET_KEEP_RUNNING_IN_TRAY: 'app:set-keep-running-in-tray',
   APP_TRAY_SYNC_STATUS: 'app:tray-sync-status',
+  TASK_REMINDERS_SET: 'tasks:set-reminders',
+  TASK_REMINDER_OPEN: 'tasks:reminder-open',
   WINDOW_HIDE_TO_TRAY: 'window:hide-to-tray',
   APP_QUIT: 'app:quit',
   APP_READ_EXTERNAL_FILE: 'app:read-external-file',

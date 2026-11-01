@@ -67,6 +67,9 @@ import { forwardOnCheckboxArrow } from '../lib/cm-forward-task'
 import { markerHopCommands } from '../lib/cm-marker-hop'
 import { isInMarkdownCode } from '../lib/cm-auto-pairs'
 import { toggleCheckbox } from '../lib/cm-toggle-checkbox'
+import { editorRecurrenceContext } from '../lib/cm-task-recurrence'
+import { taskFieldSource } from '../lib/cm-task-field-complete'
+import { dailyDueForNote } from '../lib/task-check-off'
 import { completionKeymapExtension, completionNavKeymap } from '../lib/cm-completion-nav'
 import { vimAwareDefaultKeymap, vimAwareMarkdownKeymap, vimAwareSearchKeymap } from '../lib/cm-vim-default-keymap'
 import { isVimAwaitingArgument } from '../lib/vim-nav'
@@ -2395,6 +2398,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           editorImagePaste.of((files, view) => {
             void importPastedImagesRef.current?.(files, view)
           }),
+          editorRecurrenceContext.of(() => ({ dailyDue: dailyDueForNote(viewPathRef.current) })),
           commentDecorationField,
           agentReviewCompartment.of([]),
           noteCoverCompartment.of(noteCoverEditorExtension(s0.noteCoverPlacement, noteCoverSlotSink)),
@@ -2433,6 +2437,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             override: [
               slashCommandSource,
               calloutTypeSource,
+              taskFieldSource,
               dateShortcutSource,
               latexCommandSource,
               typstCommandSource,

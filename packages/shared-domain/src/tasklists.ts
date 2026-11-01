@@ -73,7 +73,7 @@ function editTaskAtIndex(
 /** Line numbers (0-based) of every task line, indexed by task index. Counts
  *  exactly like `editTaskAtIndex` / `parseTasksFromBody` (fence-aware) so the
  *  positions line up with a `VaultTask.taskIndex`. */
-function taskLineNumbers(lines: string[]): number[] {
+export function taskLineNumbers(lines: string[]): number[] {
   const out: number[] = []
   let inFence = false
   let fenceMarker: string | null = null
@@ -510,7 +510,7 @@ export function removeTaskAtIndex(markdown: string, taskIndex: number): string {
   return takeTaskLineAtIndex(markdown, taskIndex).body
 }
 
-function leadingIndentWidth(line: string): number {
+export function leadingIndentWidth(line: string): number {
   return line.match(/^[ \t]*/)?.[0].length ?? 0
 }
 
@@ -526,7 +526,7 @@ function leadingIndentWidth(line: string): number {
  * first blank line used to split loose lists: forwarding carried half a task's
  * children and stranded the rest live in the source (#611 review).
  */
-function taskBlockEnd(lines: string[], start: number, baseIndent: number): number {
+export function taskBlockEnd(lines: string[], start: number, baseIndent: number): number {
   let end = start + 1
   while (end < lines.length) {
     const next = lines[end]

@@ -54,7 +54,7 @@ import {
   splitTaskId,
   toggleFileTaskInBody,
   toggleTask,
-  toggleTaskInBody,
+  toggleTaskBody,
   unarchiveNote,
   writeNote,
   writeNoteComments,
@@ -475,20 +475,25 @@ class RemoteBackend implements VaultBackend {
     // explicit ask, and ids for excluded tasks only circulate via
     // `zn task list --include-excluded`.
     let nextBody: string | null
+    // A recurring task checked off moves down under its next occurrence
+    // (#1036); the reply names the finished task, wherever it went.
+    let resultId = taskId
     if (indexStr === 'task') {
       const current = (
         await this.client.scanTasksForPath(rel, { includeExcluded: true })
       ).find((t) => t.id === taskId)
       nextBody = current ? toggleFileTaskInBody(note.body, current.checked) : null
     } else {
-      nextBody = toggleTaskInBody(note.body, parseTaskIndex(taskId, indexStr))
+      const toggled = toggleTaskBody(note.body, parseTaskIndex(taskId, indexStr))
+      nextBody = toggled?.body ?? null
+      if (toggled) resultId = `${rel}#${toggled.index}`
     }
     if (nextBody == null) return null
 
     await this.client.writeNote(rel, nextBody)
     return (
       (await this.client.scanTasksForPath(rel, { includeExcluded: true })).find(
-        (t) => t.id === taskId
+        (t) => t.id === resultId
       ) ?? null
     )
   }

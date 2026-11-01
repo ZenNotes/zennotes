@@ -1519,6 +1519,21 @@ export function buildDailyNoteDateByPath(
   return out
 }
 
+/** The date one note's tasks take from it, the single-note form of
+ *  {@link buildDailyNoteDateByPath}: a recurring task without a `due:` counts
+ *  its next occurrence from it (#1036). */
+export function dailyNoteDueForPath(
+  notes: readonly NoteMeta[],
+  settings: VaultSettings | null | undefined,
+  path: string
+): string | undefined {
+  const normalized = normalizeVaultSettings(settings)
+  if (!normalized.dailyNotes.enabled || !normalized.dailyNotes.tasksDueOnNoteDate) return undefined
+  const note = notes.find((n) => n.path === path)
+  const info = note ? classifyDateNote(note, normalized) : null
+  return info?.kind === 'daily' ? noteTitleForDate(info.date) : undefined
+}
+
 export function dateNoteFolderMayBelongToDatePattern(
   subpath: string,
   settings: VaultSettings | null | undefined

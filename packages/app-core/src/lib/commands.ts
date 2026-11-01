@@ -34,6 +34,7 @@ import { resolveQuickNoteTitle } from './quick-note-title'
 import { forwardTaskWithPicker, taskAtEditorCursor } from './forward-task'
 import { canManageWorkflows } from './workflow-workspace'
 import { toggleCheckbox } from './cm-toggle-checkbox'
+import { remindTaskAtCursor, repeatTaskAtCursor } from './editor-task-recurrence'
 import {
   harperAddWordAtCursor,
   harperApplyFirstSuggestion,
@@ -1280,6 +1281,28 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       run: () => {
         const view = getState().editorViewRef
         if (view) toggleCheckbox(view)
+      }
+    },
+    {
+      id: 'task.repeat',
+      title: 'Repeat Task…',
+      category: 'Editor',
+      keywords: 'repeat recurring recurrence every daily weekly monthly yearly task schedule',
+      when: hasEditorNote,
+      run: () => {
+        const view = getState().editorViewRef
+        if (view) void repeatTaskAtCursor(view)
+      }
+    },
+    {
+      id: 'task.remind',
+      title: 'Remind Task…',
+      category: 'Editor',
+      keywords: 'remind reminder notification notify alarm alert task due',
+      when: hasEditorNote,
+      run: () => {
+        const view = getState().editorViewRef
+        if (view) void remindTaskAtCursor(view)
       }
     },
     {

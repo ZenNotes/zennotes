@@ -27,6 +27,7 @@ import { CloudTaskConflictIndicator } from './CloudTaskConflictIndicator'
 import { resolveWeekStartDay } from '../lib/week-start'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { buildTaskMenuItems, chooseTaskDueDate } from '../lib/task-context-menu'
+import { chooseTaskRemind, chooseTaskRepeat } from '../lib/task-recurrence-pickers'
 import { isOverlayOrDialogOpen } from '../lib/overlay-open'
 import { TasksKeysButton, TasksViewOptions, tasksToolbarOwnsKey } from './TasksToolbar'
 
@@ -530,6 +531,12 @@ export function TasksCalendar({
           if (vimMode && e.key === '@') {
             consume()
             void chooseTaskDueDate(active)
+            return
+          }
+          // Repeat… and Remind… (#1036).
+          if (vimMode && (e.key === 'r' || e.key === 'R')) {
+            consume()
+            void (e.key === 'r' ? chooseTaskRepeat(active) : chooseTaskRemind(active))
             return
           }
           if (e.key === 'e') {

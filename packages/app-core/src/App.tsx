@@ -66,6 +66,7 @@ import {
 } from './lib/app-update-state'
 import { ensureCloudAutoSyncStarted, stopCloudAutoSync } from './lib/cloud-auto-sync'
 import { loadKeepRunningInTray, startTraySyncStatusReporter } from './lib/tray-runtime'
+import { listenForTaskReminderOpen, startTaskReminderReporter } from './lib/task-reminders-runtime'
 import { installHarperRuntime } from './lib/harper-runtime'
 import { installIgnoredKeysGuard } from './lib/ignored-keys'
 import { installCommandKeymapDispatcher, isMainAppWindow } from './lib/command-keymap-dispatch'
@@ -433,6 +434,15 @@ function App(): JSX.Element {
     }
   }, [])
   useEffect(() => installHarperRuntime(), [])
+  // Task reminders (#1036): the schedule goes to the host, clicks come back.
+  useEffect(() => {
+    const stopReporting = startTaskReminderReporter()
+    const stopListening = listenForTaskReminderOpen()
+    return () => {
+      stopReporting()
+      stopListening()
+    }
+  }, [])
 
   useEffect(() => {
     if (!vault) return undefined
