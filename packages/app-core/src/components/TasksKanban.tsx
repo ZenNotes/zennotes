@@ -116,6 +116,7 @@ import { InlineMarkdown } from '../lib/inline-markdown'
 import { CloudTaskConflictIndicator } from './CloudTaskConflictIndicator'
 import { TaskStateBox } from './TaskStateBox'
 import { isImeComposing } from '../lib/ime'
+import { isTouchPrimaryDevice } from '../lib/cm-vim-ime-guard'
 import { createDragAutoScroller } from '../lib/drag-autoscroll'
 import {
   getSequenceTokens,
@@ -1064,6 +1065,9 @@ export function TasksKanban({
   const cardSort = useStore((s) => s.kanbanCardSort)
   const hideEmptyTasks = useStore((s) => s.hideEmptyTasks)
   const kanbanWipLimits = useStore((s) => s.kanbanWipLimits)
+  // The ring and tint that mark the keyboard's card or header. A touch-first
+  // device (a phone) has no keyboard to move them, so its board draws none.
+  const keyCursor = useMemo(() => !isTouchPrimaryDevice(), [])
   const setKanbanWipLimit = useStore((s) => s.setKanbanWipLimit)
   const kanbanColumnColors = useStore((s) => s.kanbanColumnColors)
   const setKanbanColumnColor = useStore((s) => s.setKanbanColumnColor)
@@ -3012,7 +3016,7 @@ export function TasksKanban({
           'flex shrink-0 select-none items-center justify-between gap-2 px-3 py-2',
           alone ? 'rounded-lg' : 'rounded-t-lg border-b',
           wip?.over ? 'border-danger/35' : 'border-paper-300/45',
-          isHeaderFocused ? 'ring-1 ring-inset ring-accent/60' : '',
+          isHeaderFocused && keyCursor ? 'ring-1 ring-inset ring-accent/60' : '',
           isMovableColumn && editingColumnId !== column.id
             ? 'cursor-grab active:cursor-grabbing'
             : ''
@@ -3131,7 +3135,7 @@ export function TasksKanban({
         taskDomId={task.id}
         task={task}
         isOverdue={isTaskOverdue(task, today)}
-        isFocused={isFocused}
+        isFocused={keyCursor && isFocused}
         isDragging={draggingId === task.id}
         draggable={dndEnabled}
         belowStickyRow={laneIdxOfCard !== null}
@@ -3353,7 +3357,7 @@ export function TasksKanban({
                       }}
                       className={[
                         'task-kanban-lane-header flex w-full scroll-mt-16 items-center rounded-md border py-1 text-left outline-none transition-colors',
-                        isLaneHeaderFocused
+                        isLaneHeaderFocused && keyCursor
                           ? 'border-accent/60 bg-paper-200/60'
                           : 'border-transparent hover:bg-paper-200/50'
                       ].join(' ')}
@@ -3415,7 +3419,7 @@ export function TasksKanban({
                                     data-focused={isEmptyFocused ? '' : undefined}
                                     className={[
                                       'h-8 scroll-mt-16 rounded-md border',
-                                      isEmptyFocused
+                                      isEmptyFocused && keyCursor
                                         ? 'border-dashed border-accent/60 bg-paper-200/50'
                                         : 'border-transparent'
                                     ].join(' ')}

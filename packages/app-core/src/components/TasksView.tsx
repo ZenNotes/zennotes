@@ -24,6 +24,7 @@ import { buildTaskMenuItems, chooseTaskDueDate } from '../lib/task-context-menu'
 import { chooseTaskRemind, chooseTaskRepeat } from '../lib/task-recurrence-pickers'
 import { repeatRuleOfLine } from '@shared/task-recurrence'
 import { isImeComposing } from '../lib/ime'
+import { isTouchPrimaryDevice } from '../lib/cm-vim-ime-guard'
 import { isOverlayOrDialogOpen } from '../lib/overlay-open'
 import { promptApp } from '../lib/prompt-requests'
 import { useToastStore } from '../lib/toast'
@@ -78,6 +79,9 @@ export function TasksView(): JSX.Element {
   const loading = useStore((s) => s.tasksLoading)
   const filter = useStore((s) => s.tasksFilter)
   const cursorIndex = useStore((s) => s.taskCursorIndex)
+  // The cursor row's tint and inline key hints are for a keyboard. A
+  // touch-first device (a phone) has none, so its list marks no row.
+  const keyCursor = useMemo(() => !isTouchPrimaryDevice(), [])
   const setFilter = useStore((s) => s.setTasksFilter)
   const savedFilters = useStore((s) => s.savedTaskFilters)
   const saveTaskFilter = useStore((s) => s.saveTaskFilter)
@@ -1213,7 +1217,7 @@ export function TasksView(): JSX.Element {
                 key={task.id}
                 task={task}
                 isOverdue={overdue}
-                isCursor={idx === currentRowIdx}
+                isCursor={keyCursor && idx === currentRowIdx}
                 onToggle={() => lingerToggle(task)}
                 onOpen={() => void openTaskAt(task)}
                 onFocusRow={() => {
