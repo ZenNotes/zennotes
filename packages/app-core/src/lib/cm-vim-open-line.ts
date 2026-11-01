@@ -1,17 +1,17 @@
 import { syntaxTree } from '@codemirror/language'
-import { insertNewlineContinueMarkup } from '@codemirror/lang-markdown'
 import type { EditorState, StateCommand, Transaction } from '@codemirror/state'
 import type { EditorView } from '@codemirror/view'
 import type { SyntaxNode } from '@lezer/common'
 import { Vim } from '@replit/codemirror-vim'
 import { insertNewlineContinueFencedCodeIndent } from './cm-code-fence-indent'
+import { insertNewlineContinueMarkupTight } from './cm-tight-list-enter'
 import { listContinuationPrefix } from './list-continuation'
 
 // Enter's markup continuations, in vimAwareMarkdownKeymap's order. The
 // frontmatter list one is left out: the frontmatter is never in a quote.
 const enterContinuations: readonly StateCommand[] = [
   insertNewlineContinueFencedCodeIndent,
-  insertNewlineContinueMarkup
+  insertNewlineContinueMarkupTight
 ]
 
 function lineInQuote(state: EditorState, lineNumber: number): boolean {
@@ -40,8 +40,8 @@ function enterPrefix(state: EditorState, lineNumber: number): string | null {
     const { changes, state: next } = out.tr
     const head = next.selection.main.head
     const landed = next.doc.lineAt(head)
-    // An empty item's Enter can push it down a line (loosening the list)
-    // and leave the caret on it: that line is this one, not a new one.
+    // An empty item's Enter ends the list and leaves the caret on that
+    // line: it is this one, not a new one.
     const own = next.doc.lineAt(changes.mapPos(line.from, 1))
     return landed.number > own.number ? next.sliceDoc(landed.from, head) : null
   }

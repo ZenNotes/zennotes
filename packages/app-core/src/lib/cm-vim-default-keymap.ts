@@ -12,6 +12,7 @@ import {
 import { getCM } from '@replit/codemirror-vim'
 import { insertNewlineContinueFencedCodeIndent } from './cm-code-fence-indent'
 import { insertNewlineContinueFrontmatterList } from './cm-frontmatter'
+import { insertNewlineContinueMarkupTight } from './cm-tight-list-enter'
 import { selectNoteText } from './cm-select-note'
 import { isMacPlatform } from './keymaps'
 
@@ -277,10 +278,22 @@ const frontmatterListEnter: KeyBinding = {
   run: insertNewlineContinueFrontmatterList
 }
 
+// Upstream's Enter, except that a list never grows blank lines of its own
+// (see `insertNewlineContinueMarkupTight`).
+const tightListEnter: KeyBinding = {
+  key: 'Enter',
+  run: insertNewlineContinueMarkupTight
+}
+
 export const vimAwareMarkdownKeymap: Extension = Prec.high(
   keymap.of(
     deferKeysToVim(
-      [frontmatterListEnter, fencedCodeIndentEnter, ...markdownKeymap],
+      [
+        frontmatterListEnter,
+        fencedCodeIndentEnter,
+        tightListEnter,
+        ...markdownKeymap.filter((binding) => binding.key !== 'Enter')
+      ],
       new Set(['Enter', 'Backspace'])
     )
   )
