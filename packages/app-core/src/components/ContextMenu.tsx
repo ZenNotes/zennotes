@@ -1,7 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useStore } from '../store'
-import { isTouchPrimaryDevice } from '../lib/cm-vim-ime-guard'
 import { CheckIcon, SearchIcon } from './icons'
 
 export interface ContextMenuItem {
@@ -87,7 +86,7 @@ export function ContextMenu({ x, y, items, title, findPlaceholder, anchorTop, on
   const [activeIdx, setActiveIdx] = useState<number>(0)
   const [query, setQuery] = useState('')
   const vimMode = useStore((s) => s.vimMode)
-  const keyHints = !isTouchPrimaryDevice()
+  const keyHints = !coarsePointer()
 
   // Build the filtered list. Each entry knows its original index so
   // reorder / filter doesn't lose the onSelect wiring.
