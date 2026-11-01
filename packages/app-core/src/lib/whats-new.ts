@@ -40,6 +40,35 @@ export const CLOUD_ANNOUNCEMENT = {
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    version: '2.81.0',
+    highlights: [
+      {
+        title: 'Recurring tasks and reminders',
+        body: 'Add @repeat:weekly to a task and checking it off brings the next one back, subtasks and all. @remind:1d sends a desktop reminder. r and R in Tasks.'
+      },
+      {
+        title: 'A Kanban board for any folder',
+        body: 'Right-click a folder and choose New Kanban: a board of its own with To do, Doing and Done. Space k in Vim mode.'
+      },
+      {
+        title: 'Colors for Kanban columns',
+        body: 'Give a column a color from its menu, or C in Vim mode, drawn in your theme’s own shade.'
+      },
+      {
+        title: 'Pick folders, don’t type them',
+        body: 'Every Settings field that names a folder lists your vault’s folders as you type.'
+      },
+      {
+        title: 'Lists keep their bullets together',
+        body: 'Enter opens the next bullet right below, even after a blank line between the first two.'
+      },
+      {
+        title: 'zn’s settings stay put',
+        body: 'Saving settings no longer drops what only zn uses from config.toml. The bundled zn is 0.14.0.'
+      }
+    ]
+  },
+  {
     version: '2.80.1',
     highlights: [
       {
