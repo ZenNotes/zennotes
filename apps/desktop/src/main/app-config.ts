@@ -12,7 +12,7 @@ import { app } from 'electron'
 import path from 'node:path'
 import { promises as fs } from 'node:fs'
 import chokidar, { type FSWatcher } from 'chokidar'
-import { parse as parseToml } from 'smol-toml'
+import { parse as parseToml, stringify as stringifyToml } from 'smol-toml'
 import {
   CONFIG_VERSION,
   PORTABLE_DEFAULTS,
@@ -614,7 +614,8 @@ const FILE_HEADER = `# ZenNotes configuration
 # Every available option is listed below with its current value; the inline
 # comment shows the allowed values. Edit a value to customize it. ZenNotes
 # keeps this list complete, so a removed option reappears with its default.
-# Note: comments you add yourself may be dropped when the app rewrites the file.
+# Tables and keys the desktop app does not use, like zn's [terminal], stay as
+# they are. Other comments you add may be dropped when the app rewrites the file.
 
 `
 
@@ -678,10 +679,16 @@ function tomlKey(key: string): string {
 /**
  * Build the TOML document text from a portable config object. Always emits
  * every option (filling unset ones from defaults) with an inline comment, plus
- * the map tables with format examples, so the file documents itself.
+ * the map tables with format examples, so the file documents itself. What the
+ * file held for other programs (`carried`) goes back in: keys at the end of
+ * their table, other tables at the end of the file.
  */
-export function serializeConfig(portable: AppConfigPortable): string {
+export function serializeConfig(
+  portable: AppConfigPortable,
+  carried: CarriedToml = NOTHING_CARRIED
+): string {
   const lines: string[] = [`config_version = ${CONFIG_VERSION}`]
+  lines.push(...carriedEntries(carried, [], new Set(['config_version'])))
   const scalarKeys = Object.keys(SCALAR_FIELDS) as PortablePrefKey[]
 
   const listKeys = Object.keys(LIST_FIELDS) as PortablePrefKey[]
@@ -711,10 +718,11 @@ export function serializeConfig(portable: AppConfigPortable): string {
       const arr = Array.isArray(raw) ? raw.filter((v): v is string => typeof v === 'string') : []
       lines.push(`${map.tomlKey} = ${tomlArray(arr)}  # ${map.comment}`)
     }
+    lines.push(...carriedEntries(carried, [section], SECTION_KEYS.get(tableId([section])) ?? new Set()))
   }
 
-  lines.push(...keymapSectionLines(portable.keymapOverrides))
-  lines.push(...commandKeymapSectionLines(portable.commandKeymaps))
+  lines.push(...keymapSectionLines(portable.keymapOverrides, carried))
+  lines.push(...commandKeymapSectionLines(portable.commandKeymaps, carried))
 
   for (const key of Object.keys(MAP_TABLE_FIELDS) as PortablePrefKey[]) {
     if (key === 'keymapOverrides') continue // emitted with its full reference above
@@ -725,6 +733,7 @@ export function serializeConfig(portable: AppConfigPortable): string {
     lines.push(`# Example: ${def.example}`)
     lines.push(`[${def.table}]`)
     const value = portable[key]
+    const written = new Set<string>()
     if (value && typeof value === 'object' && !Array.isArray(value)) {
       for (const [entryKey, entryValue] of Object.entries(value as Record<string, unknown>)) {
         // Strings for most tables; [kanban_wip_limits] holds plain numbers.
@@ -733,10 +742,14 @@ export function serializeConfig(portable: AppConfigPortable): string {
           (typeof entryValue === 'number' && Number.isFinite(entryValue))
         ) {
           lines.push(`${tomlKey(entryKey)} = ${tomlValue(entryValue)}`)
+          written.add(entryKey)
         }
       }
     }
+    lines.push(...carriedEntries(carried, [def.table], written))
   }
+
+  for (const table of carried.tables) lines.push('', table)
 
   return FILE_HEADER + lines.join('\n') + '\n'
 }
@@ -744,7 +757,7 @@ export function serializeConfig(portable: AppConfigPortable): string {
 /** Build the `[keymaps]` block: active overrides followed by every action's
  *  default binding as a commented, grouped reference so users can discover and
  *  uncomment what they want to remap. */
-function keymapSectionLines(rawOverrides: unknown): string[] {
+function keymapSectionLines(rawOverrides: unknown, carried: CarriedToml): string[] {
   const overrides: Record<string, string> = {}
   if (rawOverrides && typeof rawOverrides === 'object' && !Array.isArray(rawOverrides)) {
     for (const [key, value] of Object.entries(rawOverrides as Record<string, unknown>)) {
@@ -766,6 +779,7 @@ function keymapSectionLines(rawOverrides: unknown): string[] {
     const line = `${tomlKey(key)} = ${tomlValue(value)}`
     lines.push(value === '' ? `${line}  # unbound` : line)
   }
+  lines.push(...carriedEntries(carried, ['keymaps'], new Set(Object.keys(overrides))))
 
   // The reference must render the same bytes on every OS. Launch rewrites the
   // file whenever its canonical text differs, so a reference built from this
@@ -801,7 +815,7 @@ function keymapSectionLines(rawOverrides: unknown): string[] {
  *  palette commands, then every bindable command as a commented reference.
  *  Every command starts unbound, so the reference shows `""`: uncomment a
  *  line and fill in a key. Static, so it reads the same on every OS (#901). */
-function commandKeymapSectionLines(rawBindings: unknown): string[] {
+function commandKeymapSectionLines(rawBindings: unknown, carried: CarriedToml): string[] {
   const bindings: Record<string, string> = {}
   if (rawBindings && typeof rawBindings === 'object' && !Array.isArray(rawBindings)) {
     for (const [key, value] of Object.entries(rawBindings as Record<string, unknown>)) {
@@ -824,6 +838,7 @@ function commandKeymapSectionLines(rawBindings: unknown): string[] {
     const line = `${tomlKey(key)} = ${tomlValue(value)}`
     lines.push(value === '' ? `${line}  # unbound` : line)
   }
+  lines.push(...carriedEntries(carried, ['keymaps', 'commands'], new Set(Object.keys(bindings))))
 
   lines.push('', '# --- All commands (uncomment + add a key to bind one) ---')
   for (const entry of COMMAND_CATALOG) {
@@ -877,7 +892,13 @@ function readKeymapsTable(table: unknown): {
 /** Parse TOML text into a portable config object plus its version. Throws on
  *  malformed TOML — callers fall back to the last good config. */
 export function deserializeConfig(text: string): { version: number; portable: AppConfigPortable } {
-  const parsed = parseToml(text) as Record<string, unknown>
+  return configFromToml(parseToml(text) as Record<string, unknown>)
+}
+
+function configFromToml(parsed: Record<string, unknown>): {
+  version: number
+  portable: AppConfigPortable
+} {
   const version =
     typeof parsed.config_version === 'number' ? parsed.config_version : 0
   const portable: AppConfigPortable = {}
@@ -924,6 +945,444 @@ export function deserializeConfig(text: string): { version: number; portable: Ap
 /** Forward-migrate an older config layout. No migrations needed yet (v1). */
 function migrateConfig(_version: number, portable: AppConfigPortable): AppConfigPortable {
   return portable
+}
+
+// ---------------------------------------------------------------------------
+// Settings for other programs
+// ---------------------------------------------------------------------------
+//
+// config.toml is shared with zn, the terminal app, which keeps settings of its
+// own here: the [terminal] table, keys like `motions` under [vim]. This module
+// rebuilds the file from the options it knows at every launch and settings
+// change, so anything else used to vanish with each save. It is carried
+// through instead, as the text it was (comments and all): a key goes back at
+// the end of its table, a table the app does not write goes at the end of the
+// file. A file that layout cannot carry (a dotted `vim.motions = ...` before
+// any table, say) is carried as data instead, without its comments. Either
+// way the result must read back with every carried value, or nothing is.
+
+/** A key the app does not write, as its lines plus the comments right above. */
+interface CarriedEntry {
+  key: string
+  text: string
+}
+
+interface CarriedToml {
+  /** Keys inside tables the app writes, or before any table, by `tableId`. */
+  entries: Map<string, CarriedEntry[]>
+  /** Tables the app does not write, each as its text, in file order. */
+  tables: string[]
+  /** False when the file did not parse as TOML: it was read around a broken
+   *  table the app does not use, and a write is checked the same way. */
+  parsed: boolean
+}
+
+const NOTHING_CARRIED: CarriedToml = { entries: new Map(), tables: [], parsed: true }
+
+/** One string per table path. Joining with dots would make a table literally
+ *  named "keymaps.commands" look like [keymaps.commands]. */
+function tableId(path: readonly string[]): string {
+  return JSON.stringify(path)
+}
+
+const SECTION_KEYS = new Map<string, Set<string>>()
+for (const map of [...Object.values(SCALAR_FIELDS), ...Object.values(LIST_FIELDS)]) {
+  if (!map) continue
+  const id = tableId([map.section])
+  const keys = SECTION_KEYS.get(id) ?? new Set<string>()
+  keys.add(map.tomlKey)
+  SECTION_KEYS.set(id, keys)
+}
+const KEYMAPS_ID = tableId(['keymaps'])
+const COMMAND_KEYMAPS_ID = tableId(['keymaps', 'commands'])
+const MAP_TABLE_IDS = new Set(
+  Object.values(MAP_TABLE_FIELDS).flatMap((def) => (def ? [tableId([def.table])] : []))
+)
+
+function isTomlTable(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value) && !(value instanceof Date)
+}
+
+/** A table the app writes under its own `[header]`. */
+function isWrittenTable(path: readonly string[]): boolean {
+  const id = tableId(path)
+  return SECTION_KEYS.has(id) || MAP_TABLE_IDS.has(id) || id === COMMAND_KEYMAPS_ID
+}
+
+/** Whether serializeConfig writes this key of this table. Keys of the map
+ *  tables are the user's own, so it writes those whose value it can: strings,
+ *  and numbers outside [keymaps]. */
+function writesEntry(table: readonly string[], key: string, value: unknown): boolean {
+  if (table.length === 0) return key === 'config_version'
+  const id = tableId(table)
+  const sectionKeys = SECTION_KEYS.get(id)
+  if (sectionKeys) return sectionKeys.has(key)
+  if (id === KEYMAPS_ID) return typeof value === 'string' || (key === 'commands' && isTomlTable(value))
+  if (id === COMMAND_KEYMAPS_ID) return typeof value === 'string'
+  if (MAP_TABLE_IDS.has(id)) {
+    return typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value))
+  }
+  return false
+}
+
+/** Everything in a parsed file that serializeConfig does not write. */
+function unwrittenData(table: Record<string, unknown>, path: string[] = []): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(table)) {
+    const child = [...path, key]
+    if (isTomlTable(value) && isWrittenTable(child)) {
+      const inner = unwrittenData(value, child)
+      if (Object.keys(inner).length > 0) out[key] = inner
+    } else if (!writesEntry(path, key, value)) {
+      out[key] = value
+    }
+  }
+  return out
+}
+
+function sameTomlData(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true
+  if (a instanceof Date || b instanceof Date) {
+    return a instanceof Date && b instanceof Date && Object.is(a.getTime(), b.getTime())
+  }
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return (
+      Array.isArray(a) &&
+      Array.isArray(b) &&
+      a.length === b.length &&
+      a.every((value, i) => sameTomlData(value, b[i]))
+    )
+  }
+  if (!isTomlTable(a) || !isTomlTable(b)) return false
+  const keys = Object.keys(a)
+  return (
+    keys.length === Object.keys(b).length &&
+    keys.every((key) => Object.prototype.hasOwnProperty.call(b, key) && sameTomlData(a[key], b[key]))
+  )
+}
+
+/** The carried keys of one table the app writes, minus any it now writes
+ *  itself (a map entry the user has since set in the app). */
+function carriedEntries(
+  carried: CarriedToml,
+  table: readonly string[],
+  written: ReadonlySet<string>
+): string[] {
+  return (carried.entries.get(tableId(table)) ?? [])
+    .filter((entry) => !written.has(entry.key))
+    .map((entry) => entry.text)
+}
+
+function carryEntry(carried: CarriedToml, table: readonly string[], entry: CarriedEntry): void {
+  const id = tableId(table)
+  const list = carried.entries.get(id)
+  if (list) list.push(entry)
+  else carried.entries.set(id, [entry])
+}
+
+type TomlLine =
+  | { kind: 'blank'; text: string }
+  | { kind: 'comment'; text: string }
+  | { kind: 'table'; text: string; path: string[]; array: boolean }
+  | { kind: 'entry'; text: string; key: string }
+
+/** The key path a TOML key spells (`a."b.c"` is ["a", "b.c"]), or null. */
+function tomlKeyPath(keyText: string): string[] | null {
+  if (keyText.includes('\n')) return null
+  try {
+    const path: string[] = []
+    let node: unknown = parseToml(`${keyText} = 0`)
+    while (isTomlTable(node)) {
+      const [key] = Object.keys(node)
+      if (key === undefined) return null
+      path.push(key)
+      node = node[key]
+    }
+    return path.length > 0 ? path : null
+  } catch {
+    return null
+  }
+}
+
+/** Index of the first `=` outside a quoted key, or -1. */
+function keyValueSplit(text: string): number {
+  let quote = ''
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    if (quote) {
+      if (quote === '"' && ch === '\\') i++
+      else if (ch === quote) quote = ''
+    } else if (ch === '"' || ch === "'") quote = ch
+    else if (ch === '=') return i
+  }
+  return -1
+}
+
+/** Where the key/value line starting at `start` ends: the newline that closes
+ *  it, past any multi-line string or array. -1 when one is still open at the
+ *  end of the file. */
+function entryEnd(text: string, start: number): number {
+  let i = start
+  let depth = 0
+  let inValue = false
+  let quote = ''
+  while (i < text.length) {
+    const ch = text[i]
+    if (quote) {
+      if (quote.length === 3 && text.startsWith(quote, i)) {
+        // """ closes, and up to two more quotes before it belong to the string.
+        let run = 0
+        while (text[i + run] === quote[0]) run++
+        i += run
+        quote = ''
+      } else if (quote.length === 1 && ch === '\n') {
+        quote = '' // an unclosed one-line string: the line still ends here
+      } else {
+        i += quote[0] === '"' && ch === '\\' ? 2 : 1
+        if (quote.length === 1 && ch === quote) quote = ''
+      }
+      continue
+    }
+    if (ch === '\n') {
+      if (depth === 0) return i
+    } else if (ch === '#') {
+      const eol = text.indexOf('\n', i)
+      i = eol < 0 ? text.length : eol
+      continue
+    } else if (ch === '"' || ch === "'") {
+      quote = text.startsWith(ch.repeat(3), i) ? ch.repeat(3) : ch
+      i += quote.length
+      continue
+    } else if (ch === '=') {
+      inValue = true
+    } else if (inValue && (ch === '[' || ch === '{')) {
+      depth++
+    } else if (inValue && (ch === ']' || ch === '}')) {
+      depth = Math.max(0, depth - 1)
+    }
+    i++
+  }
+  return quote.length === 3 || depth > 0 ? -1 : text.length
+}
+
+function tableHeader(line: string): { path: string[]; array: boolean } | null {
+  const s = line.trim()
+  const array = s.startsWith('[[')
+  const open = array ? 2 : 1
+  let quote = ''
+  let i = open
+  for (; i < s.length; i++) {
+    const ch = s[i]
+    if (quote) {
+      if (quote === '"' && ch === '\\') i++
+      else if (ch === quote) quote = ''
+    } else if (ch === '"' || ch === "'") quote = ch
+    else if (ch === ']') break
+  }
+  let rest = s.slice(i + 1)
+  if (array) {
+    if (!rest.startsWith(']')) return null
+    rest = rest.slice(1)
+  }
+  rest = rest.trim()
+  if (i >= s.length || (rest && !rest.startsWith('#'))) return null
+  const path = tomlKeyPath(s.slice(open, i))
+  return path ? { path, array } : null
+}
+
+/** Split TOML text into blank and comment lines, table headers and key/value
+ *  entries (an entry spans lines when its value does). It reads the layout,
+ *  not the values, so it gets through a value that does not parse. Null when
+ *  the layout is unclear: a string or array still open at the end, a line
+ *  that is no key. */
+function scanTomlLines(source: string): TomlLine[] | null {
+  const text = source.replace(/\r\n/g, '\n')
+  const lines: TomlLine[] = []
+  let pos = 0
+  while (pos < text.length) {
+    let eol = text.indexOf('\n', pos)
+    if (eol < 0) eol = text.length
+    const line = text.slice(pos, eol)
+    const trimmed = line.trim()
+    if (trimmed === '' || trimmed.startsWith('#')) {
+      lines.push(trimmed === '' ? { kind: 'blank', text: line } : { kind: 'comment', text: line })
+      pos = eol + 1
+      continue
+    }
+    if (trimmed.startsWith('[')) {
+      const header = tableHeader(line)
+      if (!header) return null
+      lines.push({ kind: 'table', text: line, ...header })
+      pos = eol + 1
+      continue
+    }
+    const end = entryEnd(text, pos)
+    if (end < 0) return null
+    const entry = text.slice(pos, end)
+    const split = keyValueSplit(entry)
+    const key = split > 0 ? tomlKeyPath(entry.slice(0, split).trim())?.[0] : undefined
+    if (key === undefined) return null
+    lines.push({ kind: 'entry', text: entry, key })
+    pos = end + 1
+  }
+  return lines
+}
+
+function entryValue(line: { text: string; key: string }): unknown {
+  try {
+    return (parseToml(line.text) as Record<string, unknown>)[line.key]
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Sort scanned lines into what the app writes (`written`, the text a read
+ * that cannot parse the rest falls back to) and what it carries. Comment
+ * lines right above a key or a table go with it; a blank line ends them.
+ * Null when a key before any table writes into a table the app writes
+ * (`vim.motions = "helix"`, `vim = { ... }`): that text cannot be split.
+ */
+function splitConfigLines(lines: TomlLine[]): { written: string; carried: CarriedToml } | null {
+  const carried: CarriedToml = { entries: new Map(), tables: [], parsed: true }
+  const written: string[] = []
+  let table: string[] = []
+  let otherTable: string[] | null = null
+  let pending: TomlLine[] = []
+
+  const takePending = (): { before: string[]; comments: string[] } => {
+    let start = pending.length
+    while (start > 0 && pending[start - 1].kind === 'comment') start--
+    const before = pending.slice(0, start).map((line) => line.text)
+    const comments = pending.slice(start).map((line) => line.text)
+    pending = []
+    return { before, comments }
+  }
+  const closeOtherTable = (trailing: string[]): void => {
+    if (!otherTable) return
+    otherTable.push(...trailing)
+    while (otherTable.length > 0 && otherTable[otherTable.length - 1].trim() === '') otherTable.pop()
+    carried.tables.push(otherTable.join('\n'))
+    otherTable = null
+  }
+
+  for (const line of lines) {
+    if (line.kind === 'blank' || line.kind === 'comment') {
+      pending.push(line)
+    } else if (line.kind === 'table') {
+      const { before, comments } = takePending()
+      closeOtherTable(before)
+      table = line.path
+      if (!line.array && isWrittenTable(line.path)) written.push(line.text)
+      else otherTable = [...comments, line.text]
+    } else if (otherTable) {
+      otherTable.push(...pending.map((pendingLine) => pendingLine.text), line.text)
+      pending = []
+    } else {
+      const { comments } = takePending()
+      if (table.length === 0 && isWrittenTable([line.key])) return null
+      if (writesEntry(table, line.key, entryValue(line))) written.push(line.text)
+      else carryEntry(carried, table, { key: line.key, text: [...comments, line.text].join('\n') })
+    }
+  }
+  closeOtherTable(pending.map((line) => line.text))
+  return { written: written.join('\n'), carried }
+}
+
+/** The same unwritten data as carried values, without the comments: for a
+ *  file whose text splitConfigLines cannot carry. */
+function carriedFromData(unwritten: Record<string, unknown>): CarriedToml {
+  const carried: CarriedToml = { entries: new Map(), tables: [], parsed: true }
+  const visit = (table: Record<string, unknown>, path: string[]): void => {
+    for (const [key, value] of Object.entries(table)) {
+      const child = [...path, key]
+      if (isTomlTable(value) && isWrittenTable(child)) {
+        visit(value, child)
+      } else if (isTomlTable(value) || (Array.isArray(value) && value.length > 0 && value.every(isTomlTable))) {
+        // Nested under its full path: stringify writes [a.b] without an [a].
+        const nested = child.reduceRight<unknown>((inner, part) => ({ [part]: inner }), value)
+        carried.tables.push(stringifyToml(nested).trimEnd())
+      } else {
+        carryEntry(carried, path, { key, text: stringifyToml({ [key]: value }).trimEnd() })
+      }
+    }
+  }
+  visit(unwritten, [])
+  return carried
+}
+
+/** What a file that parsed holds for other programs, as text when its layout
+ *  allows, as data otherwise; nothing (with a warning) when neither writes
+ *  back every value, which only a file the app could not write anyway does
+ *  (`vim = 3`, say). */
+function carriedFromFile(
+  text: string,
+  parsed: Record<string, unknown>,
+  portable: AppConfigPortable
+): CarriedToml {
+  const unwritten = unwrittenData(parsed)
+  if (Object.keys(unwritten).length === 0) return NOTHING_CARRIED
+  const keepsEverything = (carried: CarriedToml): boolean => {
+    try {
+      const written = parseToml(serializeConfig(portable, carried)) as Record<string, unknown>
+      return sameTomlData(unwrittenData(written), unwritten)
+    } catch {
+      return false
+    }
+  }
+  const lines = scanTomlLines(text)
+  const split = lines && splitConfigLines(lines)
+  if (split && keepsEverything(split.carried)) return split.carried
+  const fromData = carriedFromData(unwritten)
+  if (keepsEverything(fromData)) return fromData
+  console.warn('config.toml: could not keep these settings when rewriting it:', Object.keys(unwritten))
+  return NOTHING_CARRIED
+}
+
+/**
+ * Read config text: the options the app knows, or null when they do not
+ * parse, and what the file holds for other programs. A file that is not TOML
+ * still reads when the damage sits in a table or key the app does not write
+ * (a typo in zn's [terminal] must not cost the app its settings); that table
+ * is carried as it is, for its owner to fix.
+ */
+function readConfigText(text: string): { portable: AppConfigPortable | null; carried: CarriedToml } {
+  let parsed: Record<string, unknown>
+  try {
+    parsed = parseToml(text) as Record<string, unknown>
+  } catch {
+    const lines = scanTomlLines(text)
+    const split = lines && splitConfigLines(lines)
+    if (!split) return { portable: null, carried: NOTHING_CARRIED }
+    let portable: AppConfigPortable | null = null
+    try {
+      portable = configFromToml(parseToml(split.written) as Record<string, unknown>).portable
+    } catch {
+      // Damage in the app's own options: no reading around that.
+    }
+    return { portable, carried: { ...split.carried, parsed: false } }
+  }
+  const { portable } = configFromToml(parsed)
+  return { portable, carried: carriedFromFile(text, parsed, portable) }
+}
+
+/** The file text for these options plus what the file carries, checked to
+ *  read back first: should it not, the carried part is left out. */
+function composeConfig(portable: AppConfigPortable, carried: CarriedToml): string {
+  const text = serializeConfig(portable, carried)
+  if (carried.entries.size === 0 && carried.tables.length === 0) return text
+  if (carried.parsed) {
+    try {
+      parseToml(text)
+      return text
+    } catch {
+      // falls through
+    }
+  } else if (readConfigText(text).portable) {
+    return text
+  }
+  console.warn('config.toml: settings for other programs did not fit back in; writing without them')
+  return serializeConfig(portable)
 }
 
 // ---------------------------------------------------------------------------
@@ -988,7 +1447,11 @@ function clearRecheck(): void {
 
 const WATCH_DEBOUNCE_MS = 150
 
-async function readConfigFile(): Promise<{ text: string; portable: AppConfigPortable } | null> {
+async function readConfigFile(): Promise<{
+  text: string
+  portable: AppConfigPortable
+  carried: CarriedToml
+} | null> {
   const file = getConfigFilePath()
   let text: string
   try {
@@ -998,12 +1461,22 @@ async function readConfigFile(): Promise<{ text: string; portable: AppConfigPort
     console.warn('Failed to read config.toml', err)
     return null
   }
-  try {
-    const { portable } = deserializeConfig(text)
-    return { text, portable }
-  } catch (err) {
-    console.warn('Failed to parse config.toml, keeping last good config', err)
+  const { portable, carried } = readConfigText(text)
+  if (!portable) {
+    console.warn('Failed to parse config.toml, keeping last good config')
     return null
+  }
+  return { text, portable, carried }
+}
+
+/** What the file holds for other programs right now, read just before a
+ *  write: zn may have saved since the app last read it. Kept even when the
+ *  app's own options in it do not parse, since the write replaces those. */
+async function currentlyCarried(): Promise<CarriedToml> {
+  try {
+    return readConfigText(await fs.readFile(getConfigFilePath(), 'utf8')).carried
+  } catch {
+    return NOTHING_CARRIED
   }
 }
 
@@ -1082,8 +1555,9 @@ export async function initAppConfig(
     // Normalize an existing file to the canonical, fully-documented form. Files
     // written by older versions (or hand-trimmed) may be missing options,
     // comments, or the example map tables — re-render so every option is shown.
-    // The user's set values are preserved; only presentation/missing keys change.
-    const canonical = serializeConfig(cache)
+    // The user's set values are preserved; only presentation/missing keys change,
+    // and what the file holds for other programs stays.
+    const canonical = composeConfig(cache, res.carried)
     if (canonical !== res.text) {
       lastKnownText = canonical
       rememberOwnWrite(canonical)
@@ -1111,10 +1585,13 @@ export function getPortableConfigSnapshot(): AppConfigPortable {
 /** Merge a partial portable config into the cache and persist it atomically. */
 export function setPortableConfig(partial: AppConfigPortable): Promise<void> {
   cache = { ...cache, ...partial }
-  const text = serializeConfig(cache)
+  // This call's options, even if a watcher reload replaces the cache before
+  // the queued write runs.
+  const portable = cache
   writeQueue = writeQueue
     .catch(() => {})
     .then(async () => {
+      const text = composeConfig(portable, await currentlyCarried())
       if (text === lastKnownText) return
       // Set before writing so the watcher event this triggers is recognized
       // as our own and ignored.

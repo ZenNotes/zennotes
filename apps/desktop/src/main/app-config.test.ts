@@ -44,6 +44,7 @@ import {
   stopAppConfigWatcher
 } from './app-config'
 import { CONFIG_VERSION, PORTABLE_PREF_KEYS, type AppConfigPortable } from '@shared/app-config'
+import { parse as parseToml } from 'smol-toml'
 
 const tempDirs: string[] = []
 async function tmp(prefix: string): Promise<string> {
@@ -572,5 +573,259 @@ describe('command keys in [keymaps.commands] (#971)', () => {
     const onDisk = await readFile(getConfigFilePath(), 'utf8')
     expect(onDisk).toContain('[keymaps.commands]\n"note.trash" = "Mod+Backspace"\n')
     expect(onDisk.split('[keymaps.commands]')[0]).not.toMatch(/^"note\.trash"/m)
+  })
+})
+
+// zn, the terminal app, reads config.toml too and keeps settings of its own
+// there. The app rebuilt the file from the options it knows, so zn's
+// [terminal] table and keys like [vim] motions vanished at every launch and
+// every settings change.
+describe('settings the app does not write, for zn', () => {
+  const sharedFile = [
+    'config_version = 1',
+    'zn_only = "kept"  # a root key only zn reads',
+    '',
+    '[vim]',
+    'enabled = false',
+    '# zn: vim | helix',
+    'motions = "helix"  # Helix-style selections in zn tui',
+    '',
+    '[editor]',
+    'font_size = 19',
+    '',
+    '[keymaps]',
+    '"global.searchNotes" = "Mod+K"',
+    '',
+    '# zn tui only',
+    '[terminal]',
+    '# preview_style is a Glamour style name, or "zen"',
+    'preview_style = "dracula"',
+    'mouse = false',
+    'banner = """',
+    '[not.a.table]',
+    'just text"""',
+    'images = [',
+    '  "kitty",  # first choice',
+    '  "off",',
+    ']',
+    '  [terminal.view_mode_rules]',
+    '    "page-status=done" = "preview"',
+    '',
+    '[[terminal.profiles]]',
+    'name = "work"',
+    ''
+  ].join('\n')
+
+  const terminalBlock = [
+    '# zn tui only',
+    '[terminal]',
+    '# preview_style is a Glamour style name, or "zen"',
+    'preview_style = "dracula"',
+    'mouse = false',
+    'banner = """',
+    '[not.a.table]',
+    'just text"""',
+    'images = [',
+    '  "kitty",  # first choice',
+    '  "off",',
+    ']'
+  ].join('\n')
+
+  const sharedTerminal = {
+    preview_style: 'dracula',
+    mouse: false,
+    banner: '[not.a.table]\njust text',
+    images: ['kitty', 'off'],
+    view_mode_rules: { 'page-status=done': 'preview' },
+    profiles: [{ name: 'work' }]
+  }
+
+  it('keeps them through a launch, as written, comments included', async () => {
+    process.env.ZENNOTES_CONFIG_DIR = await tmp('zen-cfg-zn-')
+    await writeFile(getConfigFilePath(), sharedFile, 'utf8')
+    await initAppConfig(() => {})
+
+    const snap = getPortableConfigSnapshot()
+    expect(snap.vimMode).toBe(false)
+    expect(snap.editorFontSize).toBe(19)
+    expect(snap.keymapOverrides).toEqual({ 'global.searchNotes': 'Mod+K' })
+
+    const text = await readFile(getConfigFilePath(), 'utf8')
+    // The file is the app's canonical one again, every option documented...
+    expect(text).toContain('theme_mode = "dark"  # light | dark | auto')
+    // ...with zn's tables after its own, as they were written.
+    expect(text).toContain(`${terminalBlock}\n\n  [terminal.view_mode_rules]\n    "page-status=done" = "preview"\n\n[[terminal.profiles]]\nname = "work"\n`)
+    expect(text.indexOf('# zn tui only')).toBeGreaterThan(text.indexOf('[saved_filters]'))
+    // A key zn keeps in a table the app writes stays in that table, with its comments.
+    expect(text).toMatch(
+      /\n\[vim\]\n(?:[a-z_]+ = .*\n)+# zn: vim \| helix\nmotions = "helix"  # Helix-style selections in zn tui\n/
+    )
+    expect(text).toContain('config_version = 1\nzn_only = "kept"  # a root key only zn reads\n')
+
+    const parsed = parseToml(text) as Record<string, any>
+    expect(parsed.terminal).toEqual(sharedTerminal)
+    expect(parsed.vim.motions).toBe('helix')
+    expect(parsed.zn_only).toBe('kept')
+
+    // The next launch finds nothing to change: no rewrite on every start.
+    await stopAppConfigWatcher()
+    await initAppConfig(() => {})
+    expect(await readFile(getConfigFilePath(), 'utf8')).toBe(text)
+  })
+
+  it('keeps them when a setting changes in the app', async () => {
+    process.env.ZENNOTES_CONFIG_DIR = await tmp('zen-cfg-zn-set-')
+    await writeFile(getConfigFilePath(), sharedFile, 'utf8')
+    await initAppConfig(() => {})
+
+    await setPortableConfig({ editorFontSize: 22, vimMode: true })
+
+    const text = await readFile(getConfigFilePath(), 'utf8')
+    expect(text).toContain('font_size = 22')
+    expect(text).toContain(terminalBlock)
+    const parsed = parseToml(text) as Record<string, any>
+    expect(parsed.vim).toMatchObject({ enabled: true, motions: 'helix' })
+    expect(parsed.terminal).toEqual(sharedTerminal)
+  })
+
+  it('keeps what zn saved after the app last read the file', async () => {
+    process.env.ZENNOTES_CONFIG_DIR = await tmp('zen-cfg-zn-race-')
+    await writeFile(getConfigFilePath(), serializeConfig({ editorFontSize: 18 }), 'utf8')
+    await initAppConfig(() => {})
+
+    // zn's writer (BurntSushi/toml) sorts keys, indents, and drops comments.
+    // A settings change lands before the watcher has read this.
+    await writeFile(
+      getConfigFilePath(),
+      [
+        'config_version = 1',
+        '',
+        '[editor]',
+        '  font_size = 18',
+        '',
+        '[terminal]',
+        '  math = "latex"',
+        '  view_mode_field = "view-mode"',
+        '  [terminal.view_mode_rules]',
+        '    "page-status=done" = "preview"',
+        '',
+        '[vim]',
+        '  enabled = true',
+        ''
+      ].join('\n'),
+      'utf8'
+    )
+    await setPortableConfig({ themeMode: 'light' })
+
+    const text = await readFile(getConfigFilePath(), 'utf8')
+    expect(text).toContain('theme_mode = "light"')
+    expect(text).toContain(
+      '[terminal]\n  math = "latex"\n  view_mode_field = "view-mode"\n\n  [terminal.view_mode_rules]\n    "page-status=done" = "preview"\n'
+    )
+  })
+
+  it('still loads when a table it does not use is broken, and leaves that table for zn', async () => {
+    process.env.ZENNOTES_CONFIG_DIR = await tmp('zen-cfg-zn-broken-')
+    const broken = [
+      'config_version = 1',
+      '',
+      '[editor]',
+      'font_size = 19',
+      '',
+      '[terminal]',
+      'mouse = yes',
+      'math = "latex"',
+      ''
+    ].join('\n')
+    expect(() => parseToml(broken)).toThrow()
+    await writeFile(getConfigFilePath(), broken, 'utf8')
+
+    await initAppConfig(() => {})
+    expect(getPortableConfigSnapshot().editorFontSize).toBe(19)
+    expect(await readFile(getConfigFilePath(), 'utf8')).toContain('[terminal]\nmouse = yes\nmath = "latex"\n')
+
+    await setPortableConfig({ editorFontSize: 21 })
+    const text = await readFile(getConfigFilePath(), 'utf8')
+    expect(text).toContain('font_size = 21')
+    expect(text).toContain('[terminal]\nmouse = yes\nmath = "latex"\n')
+    // Fixing the typo by hand makes the file plain TOML again.
+    expect(() => parseToml(text.replace('mouse = yes', 'mouse = true'))).not.toThrow()
+  })
+
+  it('keeps zn tables through the next save when the app options themselves are broken', async () => {
+    process.env.ZENNOTES_CONFIG_DIR = await tmp('zen-cfg-zn-own-broken-')
+    await writeFile(
+      getConfigFilePath(),
+      'config_version = 1\n\n[editor]\nfont_size = 1 9\n\n[terminal]\nmouse = false\n',
+      'utf8'
+    )
+    // As before: a typo in the app's own options leaves them unread.
+    await initAppConfig(() => {})
+    expect(getPortableConfigSnapshot()).toEqual({})
+
+    await setPortableConfig({ editorFontSize: 20 })
+    const parsed = parseToml(await readFile(getConfigFilePath(), 'utf8')) as Record<string, any>
+    expect(parsed.editor.font_size).toBe(20)
+    expect(parsed.terminal).toEqual({ mouse: false })
+  })
+
+  it('carries a dotted key into a table it writes as data, inside that table', async () => {
+    process.env.ZENNOTES_CONFIG_DIR = await tmp('zen-cfg-zn-dotted-')
+    await writeFile(
+      getConfigFilePath(),
+      'config_version = 1\nvim.motions = "helix"\nterminal.mouse = false\n\n[editor]\nfont_size = 18\n',
+      'utf8'
+    )
+    await initAppConfig(() => {})
+
+    const text = await readFile(getConfigFilePath(), 'utf8')
+    expect(text.match(/^\[vim\]$/gm)).toHaveLength(1)
+    const parsed = parseToml(text) as Record<string, any>
+    expect(parsed.vim.motions).toBe('helix')
+    expect(parsed.terminal).toEqual({ mouse: false })
+    expect(parsed.editor.font_size).toBe(18)
+  })
+
+  // The scan reads only the layout, so it must not take a bracket or a hash
+  // inside a value for a table or a comment.
+  it.each([
+    [
+      'literal strings',
+      `[terminal]\na = 'C:\\path #not a comment [x]'\nb = "say \\"hi\\" # still the string"\nc = '''\n[not.a.table]\n# not a comment\n'''`
+    ],
+    ['a multi-line array', `[terminal]\nlist = [\n  "a]", # ]\n  'b[',\n  """c\n]""",\n]\nafter = 1`],
+    [
+      'headers with comments and quoted keys',
+      `[ terminal ] # zn\nmouse = true\n\n[ terminal . "rules.x" ]  # sub\n"k=v" = 1`
+    ],
+    ['dates and special numbers', `[terminal]\nd = 1979-05-27T07:32:00Z\nt = 07:32:00\nf = inf\nn = nan\nh = 0xff`]
+  ])('carries %s as written', async (_name, block) => {
+    process.env.ZENNOTES_CONFIG_DIR = await tmp('zen-cfg-zn-shape-')
+    await writeFile(getConfigFilePath(), `config_version = 1\n\n${block}\n`, 'utf8')
+    await initAppConfig(() => {})
+    await setPortableConfig({ editorLineHeight: 1.7 })
+    const text = await readFile(getConfigFilePath(), 'utf8')
+    expect(text.endsWith(`\n\n${block}\n`)).toBe(true)
+    expect(() => parseToml(text)).not.toThrow()
+  })
+
+  it('lets an entry set in the app replace a carried one with the same key', async () => {
+    process.env.ZENNOTES_CONFIG_DIR = await tmp('zen-cfg-zn-collide-')
+    await writeFile(
+      getConfigFilePath(),
+      'config_version = 1\n\n[folder_labels]\ninbox = true\narchive = "Old"\n',
+      'utf8'
+    )
+    await initAppConfig(() => {})
+    // Not a string, so not a label the app writes: carried as it is.
+    expect(await readFile(getConfigFilePath(), 'utf8')).toMatch(/\[folder_labels\]\narchive = "Old"\ninbox = true\n/)
+
+    await setPortableConfig({ systemFolderLabels: { inbox: 'Notes', archive: 'Old' } })
+    const text = await readFile(getConfigFilePath(), 'utf8')
+    expect(text).not.toContain('inbox = true')
+    expect((parseToml(text) as Record<string, any>).folder_labels).toEqual({
+      inbox: 'Notes',
+      archive: 'Old'
+    })
   })
 })
