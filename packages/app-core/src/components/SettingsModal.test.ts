@@ -408,6 +408,34 @@ describe("SettingsModal date note directories", () => {
     expect(await sharesRowFound()).toBe(true);
   });
 
+  it("shows the reminder settings only where the host fires reminders", async () => {
+    const openTasksPage = async () => {
+      await act(async () => root.render(createElement(SettingsModal)));
+      const search = host.querySelector<HTMLInputElement>('input[placeholder="Search settings…"]')!;
+      await act(async () => changeInput(search, "reminder"));
+      const found = [...host.querySelectorAll<HTMLButtonElement>("aside nav button")].some(
+        (button) => button.textContent?.includes("Task reminders"),
+      );
+      await act(async () => changeInput(search, "hide empty tasks"));
+      const emptyTasks = [...host.querySelectorAll<HTMLButtonElement>("aside nav button")].find(
+        (button) => button.textContent?.includes("Hide empty tasks"),
+      );
+      await act(async () => emptyTasks!.click());
+      return {
+        found,
+        rows: host.querySelectorAll(
+          '[data-settings-search-id="task-reminders"], [data-settings-search-id="task-reminder-time"]',
+        ).length,
+      };
+    };
+    // A phone or the web app: no schedule to hand reminders to.
+    expect(await openTasksPage()).toEqual({ found: false, rows: 0 });
+    act(() => root.unmount());
+    root = createRoot(host);
+    Object.assign(window.zen, { setTaskReminders: vi.fn() });
+    expect(await openTasksPage()).toEqual({ found: true, rows: 2 });
+  });
+
   it("finds the template folder and picks it from the vault's folders (#1024)", async () => {
     await act(async () => root.render(createElement(SettingsModal)));
     const search = host.querySelector<HTMLInputElement>('input[placeholder="Search settings…"]')!;
@@ -632,6 +660,7 @@ describe("SettingsModal date note directories", () => {
     };
     Object.assign(window.zen, {
       getCapabilities: () => ({ supportsHarper: true }),
+      setTaskReminders: vi.fn(),
     });
     await act(async () => root.render(createElement(SettingsModal)));
     return vi.mocked(getSettingsSearchResults).mock

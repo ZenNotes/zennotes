@@ -452,7 +452,7 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
   {
     title: 'Remind me before a task is due',
     body:
-      'Add `@remind:` to a task with a due date and ZenNotes shows a notification: `@remind:9am` (or `930am`, `1730`, `17h30`) at that time on the due date, `@remind:1d` the day before at your reminder time (09:00 unless changed in Settings → Tasks), `@remind:2d-6pm` two days before at 6 PM. A daily note’s tasks remind on the note’s date. Click the notification to open the task. Press `R` in the Tasks views (or Remind… in the right-click menu, or `:remind 9am` in a note) to set or remove it; the Tasks views show a bell and the time. Reminders fire while ZenNotes runs, the window hidden in the tray included. ZenNotes quit misses them: the next launch shows what came due in the last 24 hours once, as one notification. Turn reminders off under Settings → Tasks → Task reminders. A recurring task carries its reminder to each new occurrence.'
+      'Add `@remind:` to a task with a due date and ZenNotes shows a notification: `@remind:9am` (or `930am`, `1730`, `17h30`) at that time on the due date, `@remind:1d` the day before at your reminder time (09:00 unless changed in Settings → Tasks), `@remind:2d-6pm` two days before at 6 PM. A daily note’s tasks remind on the note’s date. Click the notification to open the task. Press `R` in the Tasks views (or Remind… in the right-click menu, or `:remind 9am` in a note) to set or remove it; the Tasks views show a bell and the time. Reminders fire from the desktop app while it runs, the window hidden in the tray included. ZenNotes quit misses them: the next launch shows what came due in the last 24 hours once, as one notification. Turn reminders off under Settings → Tasks → Task reminders. A recurring task carries its reminder to each new occurrence.'
   },
   {
     title: 'Subtask progress on the parent',
@@ -1470,8 +1470,8 @@ export const HELP_SETTINGS: HelpSettingsSection[] = [
     title: 'Tasks',
     items: [
       { label: 'Show tasks from archived notes', detail: 'Off by default: archiving a note retires its tasks from the Tasks list, calendar, and Kanban. Turn this on to keep them visible everywhere, Archive column included. The raw key is `show_archived_tasks` in `config.toml`.' },
-      { label: 'Task reminders', detail: 'On by default: a task with `@remind:` shows a notification at its time. Config key `task_reminders` under `[view]`.' },
-      { label: 'Reminder time', detail: 'When a reminder that names a day but no time fires, such as `@remind:1d`. 09:00 by default; config key `task_reminder_time` under `[view]`.' },
+      { label: 'Task reminders', detail: 'Desktop only, on by default: a task with `@remind:` shows a notification at its time. The phone and web apps leave this setting out, since reminders fire from the desktop app. Config key `task_reminders` under `[view]`.' },
+      { label: 'Reminder time', detail: 'Desktop only. When a reminder that names a day but no time fires, such as `@remind:1d`. 09:00 by default; config key `task_reminder_time` under `[view]`.' },
       { label: 'Hide empty tasks', detail: 'On by default: bare `- [ ]` tasks stay out of the Tasks views, the Calendar and Timeline panels, and the home view. Same as the View menu; config key `hide_empty_tasks`.' },
       { label: 'Task folders', detail: 'Once any Task folder is set, only the notes inside Task folders feed Tasks; the folders excluded from Tasks never do. Add a folder by picking it from the list under each field or typing its path from the vault root, or from the folder’s sidebar menu. Saved in the vault.' },
       { label: 'Kanban lanes', detail: 'Splits the Kanban board into rows by Priority, Folder, or Tag; an `@field` picked on the board shows here too. Same as Lanes in the View menu; config key `kanban_lanes`.' },

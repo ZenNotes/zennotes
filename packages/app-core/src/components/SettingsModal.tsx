@@ -950,6 +950,10 @@ export function SettingsModal(): JSX.Element {
   // Undo history between launches needs somewhere machine-local that is not
   // the vault, which only the desktop app has. (#793)
   const supportsUndoFile = !!zenBridge.getCapabilities().supportsUndoFile;
+  // Reminders fire from the desktop app's main process, the only host that
+  // takes the schedule (the same check as task-reminders-runtime), so the
+  // phones and the web app leave out a setting that would do nothing there.
+  const supportsTaskReminders = !!window.zen.setTaskReminders;
   const [templateEditor, setTemplateEditor] = useState<{
     initialRaw?: string;
     sourcePath?: string;
@@ -3754,28 +3758,32 @@ export function SettingsModal(): JSX.Element {
             "split",
           ],
         },
-        {
-          id: "task-reminders",
-          title: "Task reminders",
-          description: "Notify for tasks with @remind.",
-          keywords: [
-            "remind",
-            "reminder",
-            "notification",
-            "notify",
-            "alert",
-            "alarm",
-            "due",
-            "repeat",
-            "recurring",
-          ],
-        },
-        {
-          id: "task-reminder-time",
-          title: "Reminder time",
-          description: "For day-before reminders.",
-          keywords: ["remind", "reminder", "time", "morning", "default", "notification"],
-        },
+        ...(supportsTaskReminders
+          ? [
+              {
+                id: "task-reminders",
+                title: "Task reminders",
+                description: "Notify for tasks with @remind.",
+                keywords: [
+                  "remind",
+                  "reminder",
+                  "notification",
+                  "notify",
+                  "alert",
+                  "alarm",
+                  "due",
+                  "repeat",
+                  "recurring",
+                ],
+              },
+              {
+                id: "task-reminder-time",
+                title: "Reminder time",
+                description: "For day-before reminders.",
+                keywords: ["remind", "reminder", "time", "morning", "default", "notification"],
+              },
+            ]
+          : []),
         {
           id: "hide-empty-tasks",
           title: "Hide empty tasks",
@@ -3905,30 +3913,32 @@ export function SettingsModal(): JSX.Element {
               onChange={(next) => setTasksListOrder(next)}
             />
           </Section>
-          <Section title="Reminders">
-            <ToggleRow
-              label="Task reminders"
-              description="Notify for tasks with @remind."
-              value={taskReminders}
-              settingId="task-reminders"
-              onChange={setTaskReminders}
-            />
-            <TextInputRow
-              label="Reminder time"
-              description="For day-before reminders."
-              value={taskReminderTime}
-              placeholder="09:00"
-              settingId="task-reminder-time"
-              commitOnBlur
-              issue={reminderTimeIssue}
-              onChange={(next) => {
-                const m = /^(\d{1,2}):([0-5]\d)$/.exec(next ?? "");
-                const ok = m != null && Number(m[1]) <= 23;
-                setReminderTimeIssue(ok ? null : "Use HH:MM, like 09:00 or 18:30.");
-                if (ok) setTaskReminderTime(next ?? "");
-              }}
-            />
-          </Section>
+          {supportsTaskReminders && (
+            <Section title="Reminders">
+              <ToggleRow
+                label="Task reminders"
+                description="Notify for tasks with @remind."
+                value={taskReminders}
+                settingId="task-reminders"
+                onChange={setTaskReminders}
+              />
+              <TextInputRow
+                label="Reminder time"
+                description="For day-before reminders."
+                value={taskReminderTime}
+                placeholder="09:00"
+                settingId="task-reminder-time"
+                commitOnBlur
+                issue={reminderTimeIssue}
+                onChange={(next) => {
+                  const m = /^(\d{1,2}):([0-5]\d)$/.exec(next ?? "");
+                  const ok = m != null && Number(m[1]) <= 23;
+                  setReminderTimeIssue(ok ? null : "Use HH:MM, like 09:00 or 18:30.");
+                  if (ok) setTaskReminderTime(next ?? "");
+                }}
+              />
+            </Section>
+          )}
           <Section title="Empty tasks">
             <ToggleRow
               label="Hide empty tasks"
