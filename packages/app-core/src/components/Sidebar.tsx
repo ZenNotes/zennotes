@@ -2762,7 +2762,7 @@ export function Sidebar(): JSX.Element {
       for (const entry of vaultSwitcherEntries) {
         items.push({
           label: entry.name,
-          hint: entry.current ? "Current" : entry.kind === "remote" ? "Remote" : undefined,
+          mark: entry.current ? "Current" : entry.kind === "remote" ? "Remote" : undefined,
           icon: <VaultBadge name={entry.name} size={16} />,
           disabled: entry.current || (entry.kind === "remote" && !entry.id),
           onSelect: async () => {
@@ -3992,7 +3992,7 @@ export function Sidebar(): JSX.Element {
                 label: `Sort by ${label}`,
                 // Re-picking the active field flips its direction, like a
                 // list header; a fresh field starts ascending.
-                hint: activeField ? (asc ? "↑" : "↓") : undefined,
+                mark: activeField ? (asc ? "↑" : "↓") : undefined,
                 onSelect: () =>
                   state.setAssetSortOrder(
                     activeField && asc ? `${field}-desc` : `${field}-asc`,

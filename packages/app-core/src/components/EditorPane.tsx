@@ -1486,7 +1486,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       }
       items.push({
         label: pick.label,
-        hint: pick.hint,
+        mark: pick.hint,
         keywords: pick.keywords,
         checked: pick.checked,
         onSelect: () => {
@@ -5127,7 +5127,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               (entry): ContextMenuItem => ({
                 label: entry.label,
                 disabled: entry.disabled,
-                hint: entry.reason ?? (entry.action === 'remove' ? undefined : calloutChordHint),
+                mark: entry.reason,
+                hint: entry.action === 'remove' ? undefined : calloutChordHint,
                 onSelect: () => {
                   const view = viewRef.current
                   if (!view) return

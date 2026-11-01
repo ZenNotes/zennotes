@@ -351,3 +351,60 @@ describe('ContextMenu with a find field (#1014)', () => {
     expect(field()).not.toBeNull()
   })
 })
+
+describe('ContextMenu key hints on a touch-first device', () => {
+  let host: HTMLDivElement
+  let root: Root
+  const original = Object.getOwnPropertyDescriptor(window, 'matchMedia')
+
+  const pointer = (coarse: boolean): void => {
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: (query: string) => ({ matches: coarse && query === '(pointer: coarse)', addEventListener() {}, removeEventListener() {} })
+    })
+  }
+  const sides = async (): Promise<string[]> => {
+    await act(async () =>
+      root.render(
+        createElement(ContextMenu, {
+          x: 10,
+          y: 10,
+          items: [
+            { label: 'Open page', hint: 'Enter', onSelect: () => {} },
+            { label: 'Text', mark: '●', onSelect: () => {} },
+            { label: 'Due today', mark: '2026-11-01', hint: 'never shown', onSelect: () => {} }
+          ],
+          onClose: () => {}
+        })
+      )
+    )
+    // The menu portals into document.body, not into host.
+    return [...document.querySelectorAll('[data-ctx-menu] button')].map(
+      (button) => button.lastElementChild?.textContent ?? ''
+    )
+  }
+
+  beforeEach(() => {
+    ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+    host = document.createElement('div')
+    document.body.append(host)
+    root = createRoot(host)
+  })
+
+  afterEach(() => {
+    act(() => root.unmount())
+    host.remove()
+    if (original) Object.defineProperty(window, 'matchMedia', original)
+    else delete (window as { matchMedia?: unknown }).matchMedia
+  })
+
+  it('shows key hints and marks where there is a keyboard', async () => {
+    pointer(false)
+    expect(await sides()).toEqual(['Enter', '●', '2026-11-01'])
+  })
+
+  it('leaves the key hints out on a phone and keeps the marks', async () => {
+    pointer(true)
+    expect(await sides()).toEqual(['Open page', '●', '2026-11-01'])
+  })
+})

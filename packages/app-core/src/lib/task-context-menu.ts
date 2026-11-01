@@ -107,15 +107,15 @@ export function buildTaskMenuItems(
       onSelect: () => void forwardTaskWithPicker(task)
     },
     { kind: 'separator' },
-    { label: 'Due today', hint: dueIn(0), onSelect: () => mutate({ kind: 'set-due', due: dueIn(0) }) },
+    { label: 'Due today', mark: dueIn(0), onSelect: () => mutate({ kind: 'set-due', due: dueIn(0) }) },
     {
       label: 'Due tomorrow',
-      hint: dueIn(1),
+      mark: dueIn(1),
       onSelect: () => mutate({ kind: 'set-due', due: dueIn(1) })
     },
     {
       label: 'Due next week',
-      hint: dueIn(7),
+      mark: dueIn(7),
       onSelect: () => mutate({ kind: 'set-due', due: dueIn(7) })
     },
     { label: 'Choose a date…', hint: key('@'), onSelect: () => void chooseTaskDueDate(task, today) }

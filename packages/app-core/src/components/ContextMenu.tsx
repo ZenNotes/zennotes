@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useStore } from '../store'
+import { isTouchPrimaryDevice } from '../lib/cm-vim-ime-guard'
 import { CheckIcon, SearchIcon } from './icons'
 
 export interface ContextMenuItem {
@@ -8,8 +9,12 @@ export interface ContextMenuItem {
   label?: string
   /** Optional SVG icon to the left of the label. */
   icon?: JSX.Element
-  /** Right-aligned hint, e.g. a keyboard shortcut. */
+  /** Right-aligned keyboard shortcut. A touch-first device (a phone) has no
+   *  keyboard to press it on, so the menu leaves it out there. */
   hint?: string
+  /** Right-aligned text that is not a key, shown on every device: the dot
+   *  beside the current choice, a date, why an item is unavailable. */
+  mark?: string
   /** Displayed in muted red (used for destructive actions). */
   danger?: boolean
   disabled?: boolean
@@ -82,6 +87,7 @@ export function ContextMenu({ x, y, items, title, findPlaceholder, anchorTop, on
   const [activeIdx, setActiveIdx] = useState<number>(0)
   const [query, setQuery] = useState('')
   const vimMode = useStore((s) => s.vimMode)
+  const keyHints = !isTouchPrimaryDevice()
 
   // Build the filtered list. Each entry knows its original index so
   // reorder / filter doesn't lose the onSelect wiring.
@@ -353,14 +359,14 @@ export function ContextMenu({ x, y, items, title, findPlaceholder, anchorTop, on
               <span className="flex-1 truncate">
                 {highlightMatch(item.label ?? '', query)}
               </span>
-              {item.hint && (
+              {(item.mark ?? (keyHints ? item.hint : undefined)) && (
                 <span
                   className={[
                     'shrink-0 text-xs',
                     active && !item.danger ? 'text-ink-600' : 'text-ink-400'
                   ].join(' ')}
                 >
-                  {item.hint}
+                  {item.mark ?? item.hint}
                 </span>
               )}
               {item.checked && (

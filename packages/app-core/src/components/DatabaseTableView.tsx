@@ -577,7 +577,7 @@ export function DatabaseTableView({ csvPath, doc, view, isActive, onOpenColumns 
     { label: 'Rename field', onSelect: () => setRenamingField(field.id) },
     ...(Object.keys(FIELD_TYPE_LABELS) as FieldType[]).map((t) => ({
       label: `Type: ${FIELD_TYPE_LABELS[t]}`,
-      hint: field.type === t ? '●' : undefined,
+      mark: field.type === t ? '●' : undefined,
       onSelect: () => updateDatabaseSchema(csvPath, retypeField(doc, field.id, t))
     })),
     // Where a select field's popover discovers options beyond the hand-added
@@ -587,13 +587,13 @@ export function DatabaseTableView({ csvPath, doc, view, isActive, onOpenColumns 
           { kind: 'separator' },
           {
             label: 'Options: manual only',
-            hint: !field.optionsSource ? '●' : undefined,
+            mark: !field.optionsSource ? '●' : undefined,
             onSelect: () =>
               updateDatabaseSchema(csvPath, setFieldOptionsSource(doc, field.id, null))
           },
           {
             label: 'Options: all notes',
-            hint: field.optionsSource?.kind === 'notes' ? '●' : undefined,
+            mark: field.optionsSource?.kind === 'notes' ? '●' : undefined,
             onSelect: () =>
               updateDatabaseSchema(
                 csvPath,
@@ -602,12 +602,12 @@ export function DatabaseTableView({ csvPath, doc, view, isActive, onOpenColumns 
           },
           {
             label: 'Options: notes in folder…',
-            hint: field.optionsSource?.kind === 'folder' ? '●' : undefined,
+            mark: field.optionsSource?.kind === 'folder' ? '●' : undefined,
             onSelect: () => setSourcePrompt({ fieldId: field.id, kind: 'folder' })
           },
           {
             label: 'Options: notes with tag…',
-            hint: field.optionsSource?.kind === 'tag' ? '●' : undefined,
+            mark: field.optionsSource?.kind === 'tag' ? '●' : undefined,
             onSelect: () => setSourcePrompt({ fieldId: field.id, kind: 'tag' })
           }
         ] as ContextMenuItem[])
