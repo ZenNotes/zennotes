@@ -26,6 +26,7 @@ import {
   type BoardCursor
 } from '../lib/database-board'
 import { isImeComposing } from '../lib/ime'
+import { isTouchPrimaryDevice } from '../lib/cm-vim-ime-guard'
 import { PlusIcon, ArrowUpRightIcon } from './icons'
 import { IconButton } from './ui/Button'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
@@ -72,6 +73,9 @@ export function DatabaseBoardView({ csvPath, doc, view, isActive = true }: Props
     .filter((f): f is DbField => !!f && !f.hidden && f.id !== doc.idFieldId && f.id !== titleField?.id && f.id !== groupField?.id)
 
   const boardRef = useRef<HTMLDivElement | null>(null)
+  // The ring marks the keyboard's card. A touch-first device (a phone) has no
+  // keyboard to move it, so a new board there opens without one.
+  const cursorRing = isTouchPrimaryDevice() ? '' : 'group-focus/board:ring-1 group-focus/board:ring-accent/60'
   const [dragRow, setDragRow] = useState<string | null>(null)
   const [overCol, setOverCol] = useState<string | null>(null)
   const [addingOption, setAddingOption] = useState(false)
@@ -335,7 +339,7 @@ export function DatabaseBoardView({ csvPath, doc, view, isActive = true }: Props
                     className={[
                       'group/card cursor-grab rounded-md border border-paper-300/60 bg-paper-100/85 px-2.5 py-1.5 active:cursor-grabbing',
                       dragRow === row.id ? 'opacity-50' : 'hover:bg-paper-200/60',
-                      cardFocused ? 'group-focus/board:ring-1 group-focus/board:ring-accent/60' : ''
+                      cardFocused ? cursorRing : ''
                     ].join(' ')}
                   >
                     <div className="flex items-start justify-between gap-1">
@@ -415,7 +419,7 @@ export function DatabaseBoardView({ csvPath, doc, view, isActive = true }: Props
                   className={[
                     'flex w-full items-center gap-1 rounded-md px-2 py-1.5 text-xs text-ink-500 hover:bg-paper-200/40 hover:text-ink-900',
                     col.rows.length === 0 ? 'border border-dashed border-paper-300/60' : '',
-                    columnFocused && !focusedRowId ? 'group-focus/board:ring-1 group-focus/board:ring-accent/60' : ''
+                    columnFocused && !focusedRowId ? cursorRing : ''
                   ].join(' ')}
                 >
                   <PlusIcon className="h-3.5 w-3.5" /> Add card
