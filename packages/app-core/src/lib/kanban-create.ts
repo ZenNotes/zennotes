@@ -5,7 +5,7 @@
  * The sidebar row under the cursor wins while the sidebar holds the keyboard
  * (a folder row is that folder, a note row its note's folder), as it does
  * for the Gallery. Otherwise the board goes where new databases go
- * (Settings → Vault → New Drawings, Databases & Tasks). Only a folder in the
+ * (Settings → Vault → Default Locations). Only a folder in the
  * notes area takes one: a board in Quick Notes, the Archive or the Trash, or
  * inside another database's `.base` folder, would be filed somewhere nobody
  * looks for it.

@@ -5015,8 +5015,8 @@ export function SettingsModal(): JSX.Element {
                 />
               </Section>
               <Section
-                title="New Drawings, Databases & Tasks"
-                description="Where new Excalidraw drawings, databases, and task files are created, so they don't clutter the root of your vault."
+                title="Default Locations"
+                description="Where new files are created, so they don't clutter the root of your vault."
               >
                 <SegmentedRow
                   label="Default drawings location"
