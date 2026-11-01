@@ -5100,7 +5100,7 @@ export function SettingsModal(): JSX.Element {
                 )}
                 <SegmentedRow
                   label="Default tasks location"
-                  description="Where new task files (from `+ New task`, the `a` key, `:newtask`, or the command palette) are created. `New Task in Folder…` and `:newtask <folder>` still override this per task."
+                  description="Where new task files are created."
                   value={vaultSettings.tasksLocation?.mode ?? "primary"}
                   settingId="tasks-location"
                   options={[
