@@ -7,6 +7,7 @@ import {
   inferFields,
   initialDatabaseContents,
   buildDefaultViews,
+  kanbanDatabaseSeed,
   type GenId
 } from '@shared/database-csv'
 import {
@@ -222,6 +223,56 @@ describe('initialDatabaseContents', () => {
     )
     const widths = sidecar.fields.map((f) => f.width)
     expect(widths).toEqual([undefined, 120, undefined, undefined])
+  })
+
+  it('New Kanban opens on a Board grouped by a To do / Doing / Done select (#1038)', () => {
+    const { sidecar, rows } = initialDatabaseContents(kanbanDatabaseSeed(), counterGenId())
+    expect(rows).toEqual([])
+    expect(sidecar.fields.map((f) => [f.name, f.type])).toEqual([
+      ['id', 'text'],
+      ['Name', 'text'],
+      ['Status', 'select']
+    ])
+    const status = sidecar.fields[2]
+    expect(status.options?.map((o) => o.value)).toEqual(['To do', 'Doing', 'Done'])
+    expect(new Set(status.options?.map((o) => o.id)).size).toBe(3)
+    expect(sidecar.views.map((v) => [v.name, v.type])).toEqual([
+      ['Board', 'board'],
+      ['Table', 'table']
+    ])
+    expect(sidecar.activeViewId).toBe(sidecar.views[0].id)
+    expect(sidecar.views[0].groupByFieldId).toBe(status.id)
+    expect(sidecar.views[1].hiddenFieldIds).toEqual([sidecar.idFieldId])
+    expect(serializeRows(rows, sidecar.fields)).toBe('id,Name,Status\n')
+  })
+
+  it('a board seed adds the values its rows already hold after its columns', () => {
+    const { sidecar, rows } = initialDatabaseContents(
+      {
+        headers: ['Card', 'Stage'],
+        rows: [['Ship', ' Review '], ['Plan', 'Doing'], ['Fix', 'a, b']],
+        board: { groupBy: 'Stage', columns: ['To do', 'Doing', 'Doing', ' ', 'Done'] }
+      },
+      counterGenId()
+    )
+    const stage = sidecar.fields.find((f) => f.name === 'Stage')!
+    expect(stage.type).toBe('select')
+    expect(stage.options?.map((o) => o.value)).toEqual(['To do', 'Doing', 'Done', 'Review', 'a  b'])
+    expect(rows.map((r) => r.cells[stage.id])).toEqual(['Review', 'Doing', 'a  b'])
+  })
+
+  it('ignores a board seed that names no column of its own, or the row id', () => {
+    for (const board of [
+      { groupBy: 'Missing', columns: ['A'] },
+      { groupBy: 'id', columns: ['A'] }
+    ]) {
+      const { sidecar } = initialDatabaseContents(
+        { headers: ['id', 'Name'], rows: [], board },
+        counterGenId()
+      )
+      expect(sidecar.fields.every((f) => f.type === 'text')).toBe(true)
+      expect(sidecar.views.map((v) => v.type)).toEqual(['table'])
+    }
   })
 
   it('a header-only seed makes an empty database with those fields', () => {

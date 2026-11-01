@@ -92,6 +92,7 @@ import {
   isDatabaseTabPath,
   isDatabaseCsvPath
 } from '@shared/databases'
+import { KANBAN_DATABASE_TITLE, kanbanDatabaseSeed } from '@shared/database-csv'
 import { parseFrontmatter } from '@shared/template-files'
 import { recordTitle, composePageBody, planRecordPages, recordPageToAdopt } from './lib/database-cells'
 import { applyManualMove, manualOrderCompare, parentDirOf } from './lib/manual-order'
@@ -3831,6 +3832,11 @@ interface Store {
   ) => Promise<DatabaseDoc | undefined>
   /** Create a database in the configured default databases location and open it. (#362) */
   newDatabase: () => Promise<void>
+  /** Create a Kanban (a database that opens on its Board, with To do / Doing
+   *  / Done columns) under `folder`/`subpath` and open it. (#1038) */
+  createKanban: (folder: NoteFolder, subpath?: string) => Promise<void>
+  /** Create a Kanban where new databases go and open it. (#1038) */
+  newKanban: () => Promise<void>
   /** Rename a database (its `.base` folder); rehomes the open grid tab. */
   renameDatabase: (csvPath: string, newTitle: string, isCurrent?: () => boolean) => Promise<void>
   /** Optimistically replace a database's rows and debounce-persist the CSV. */
@@ -6992,6 +6998,21 @@ export const useStore = create<Store>((set, get) => {
       settings
     )
     await get().createDatabase(folder, subpath)
+  },
+  createKanban: async (folder, subpath = '') => {
+    await get().createDatabase(folder, subpath, KANBAN_DATABASE_TITLE, undefined, {
+      seed: kanbanDatabaseSeed()
+    })
+  },
+  newKanban: async () => {
+    const s = get()
+    const settings = normalizeVaultSettings(s.vaultSettings)
+    const { folder, subpath } = resolveCreateLocation(
+      settings.databasesLocation,
+      s.activeNote,
+      settings
+    )
+    await get().createKanban(folder, subpath)
   },
   newTaskFile: trackNoteWrite(null, async (opts) => {
     const title = (

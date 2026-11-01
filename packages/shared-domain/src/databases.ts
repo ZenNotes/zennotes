@@ -11,6 +11,7 @@ export type {
   DbView,
   DatabaseSidecar,
   DatabaseSeed,
+  DatabaseSeedBoard,
   DbRow,
   DatabaseDoc,
   DatabaseSummary

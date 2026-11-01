@@ -110,6 +110,7 @@ import { copyLinkAtCursor } from "../lib/link-copy";
 import { followLinkTarget } from "../lib/follow-link";
 import { openLinkPopoverAtCursor } from "../lib/link-popover-open";
 import { openGalleryFromArgument } from "../lib/folder-gallery-open";
+import { newKanbanFromArgument } from "../lib/kanban-create";
 
 let vimCommandsRegistered = false;
 let syncedVimBindings: Partial<Record<KeymapId, string[]>> = {};
@@ -749,6 +750,15 @@ function registerVimCommands(): void {
     "gal",
     (_cm: unknown, params: { argString?: string } | undefined) => {
       void openGalleryFromArgument(params?.argString ?? "");
+    },
+  );
+  // `:kanban` creates a Kanban board (#1038) where `Space k` would; `:kanban
+  // Biology` puts it in that folder.
+  Vim.defineEx(
+    "kanban",
+    "kanb",
+    (_cm: unknown, params: { argString?: string } | undefined) => {
+      void newKanbanFromArgument(params?.argString ?? "");
     },
   );
 

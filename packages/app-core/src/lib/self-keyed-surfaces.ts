@@ -26,6 +26,8 @@
 export const SELF_KEYED_SURFACES = [
   // Runs its own vim-style motion grid.
   '[data-zen-db-grid]',
+  // The database Board: h / j / k / l, H / L and the arrows move its cursor.
+  '[data-zen-db-board]',
   // The grid's Columns popover: j / k and x with Vim on, the arrows and
   // Space with it off, and its Escape closes it rather than leaving the grid.
   '[data-db-columns-menu]',

@@ -31,6 +31,7 @@ export const COMMAND_CATALOG: CommandCatalogEntry[] = [
   { id: "note.new.quick", title: "New Quick Note", category: "Note", keywords: "scratch capture jot" },
   { id: "note.new.inbox", title: "New Note in Inbox", category: "Note", keywords: "create add write" },
   { id: "database.new", title: "New Database", category: "Note", keywords: "database table csv records spreadsheet board kanban base" },
+  { id: "database.new.kanban", title: "New Kanban", category: "Note", keywords: "kanban board columns cards todo doing done project database base" },
   { id: "task.new", title: "New Task", category: "Note", keywords: "task todo checkbox tasknotes taskforge new add create file due priority" },
   { id: "task.new.folder", title: "New Task in Folder…", category: "Note", keywords: "task todo new create folder project location directory organize where place" },
   { id: "note.daily.today", title: "Open Today's Daily Note", category: "Note", keywords: "daily journal date today log" },

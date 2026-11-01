@@ -370,7 +370,7 @@ export function DatabaseView({
             onOpenColumns={() => openColumnsFor(activeView.id)}
           />
         ) : (
-          <DatabaseBoardView csvPath={csvPath} doc={doc} view={activeView} />
+          <DatabaseBoardView csvPath={csvPath} doc={doc} view={activeView} isActive={isActive} />
         )}
       </div>
 
