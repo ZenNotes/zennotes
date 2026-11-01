@@ -131,6 +131,7 @@ import {
   normalizeMonthlyNoteLocale,
   normalizeMonthlyNoteTitlePattern,
   normalizeMonthlyNotesDirectory,
+  reservedCreateFolderTop,
   specificFolderDestination,
   vaultRelativeFolderPath,
 } from "../lib/vault-layout";
@@ -374,6 +375,20 @@ function specificFolderDestinationLabel(
 ): string {
   const dir = specificFolderDestination(folder, settings);
   return dir ? `\`${dir}/\`` : "the vault root";
+}
+
+/** Where a `Specific folder` row's new files go, and why when a reserved
+ *  folder sends them to the primary location instead. */
+function specificFolderOutcome(
+  folder: string | undefined,
+  settings: VaultSettings,
+  files: string,
+): string {
+  const where = specificFolderDestinationLabel(folder, settings);
+  const reserved = reservedCreateFolderTop(folder, settings);
+  if (!reserved) return `New ${files} go to ${where}.`;
+  const why = reserved.startsWith(".") ? "is hidden" : "holds attachments";
+  return `\`${reserved}/\` ${why}, so new ${files} go to ${where}.`;
 }
 
 function resolveVaultTextSearchBackend(
@@ -4952,9 +4967,9 @@ export function SettingsModal(): JSX.Element {
                 {vaultSettings.drawingsLocation?.mode === "folder" && (
                   <TextInputRow
                     label="Drawings folder"
-                    description={`A folder inside your primary notes area, e.g. \`assets/drawings\`. New drawings go to ${specificFolderDestinationLabel(vaultSettings.drawingsLocation?.folder, vaultSettings)}.`}
+                    description={`A folder inside your primary notes area, e.g. \`Drawings\`. ${specificFolderOutcome(vaultSettings.drawingsLocation?.folder, vaultSettings, "drawings")}`}
                     value={vaultSettings.drawingsLocation?.folder ?? ""}
-                    placeholder="assets/drawings"
+                    placeholder="Drawings"
                     settingId="drawings-folder"
                     commitOnBlur
                     onChange={(next) =>
@@ -4991,9 +5006,9 @@ export function SettingsModal(): JSX.Element {
                 {vaultSettings.databasesLocation?.mode === "folder" && (
                   <TextInputRow
                     label="Databases folder"
-                    description={`A folder inside your primary notes area, e.g. \`assets/databases\`. New databases go to ${specificFolderDestinationLabel(vaultSettings.databasesLocation?.folder, vaultSettings)}.`}
+                    description={`A folder inside your primary notes area, e.g. \`Databases\`. ${specificFolderOutcome(vaultSettings.databasesLocation?.folder, vaultSettings, "databases")}`}
                     value={vaultSettings.databasesLocation?.folder ?? ""}
-                    placeholder="assets/databases"
+                    placeholder="Databases"
                     settingId="databases-folder"
                     commitOnBlur
                     onChange={(next) =>
@@ -5027,7 +5042,7 @@ export function SettingsModal(): JSX.Element {
                 {vaultSettings.tasksLocation?.mode === "folder" && (
                   <TextInputRow
                     label="Tasks folder"
-                    description={`A folder inside your primary notes area, e.g. \`Tasks\` or \`Projects/Inbox\`. New task files go to ${specificFolderDestinationLabel(vaultSettings.tasksLocation?.folder, vaultSettings)}.`}
+                    description={`A folder inside your primary notes area, e.g. \`Tasks\` or \`Projects/Inbox\`. ${specificFolderOutcome(vaultSettings.tasksLocation?.folder, vaultSettings, "task files")}`}
                     value={vaultSettings.tasksLocation?.folder ?? ""}
                     placeholder="Tasks"
                     settingId="tasks-folder"

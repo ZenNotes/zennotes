@@ -436,7 +436,7 @@ export interface FileLocationSetting {
    *  the note you're viewing; `folder` → the `folder` subfolder of the primary
    *  location. */
   mode: FileLocationMode
-  /** Vault-relative subfolder used when `mode === 'folder'`, e.g. `assets/drawings`. */
+  /** Subfolder of the primary notes area used when `mode === 'folder'`, e.g. `Drawings`. */
   folder?: string
 }
 export const DEFAULT_FILE_LOCATION: FileLocationSetting = { mode: 'primary' }

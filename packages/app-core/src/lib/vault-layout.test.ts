@@ -15,6 +15,7 @@ import {
   noteFolderLabel,
   noteFolderSubpath,
   normalizeVaultSettings,
+  reservedCreateFolderTop,
   resolveCreateLocation,
   specificFolderDestination,
   parseFavoriteFolderKey,
@@ -831,6 +832,37 @@ describe('resolveCreateLocation (#362)', () => {
       folder: 'inbox',
       subpath: ''
     })
+  })
+})
+
+describe('a specific folder in a reserved root folder', () => {
+  const inboxVault = normalizeVaultSettings(null)
+  const rootVault = normalizeVaultSettings({ primaryNotesLocation: 'root' } as VaultSettings)
+
+  it('creates in the primary location of a root vault instead of in assets/', () => {
+    expect(reservedCreateFolderTop('assets/drawings', rootVault)).toBe('assets')
+    expect(
+      resolveCreateLocation({ mode: 'folder', folder: 'assets/drawings' }, null, rootVault)
+    ).toEqual({ folder: 'inbox', subpath: '' })
+    expect(specificFolderDestination('assets/drawings', rootVault)).toBe('')
+  })
+
+  it('treats every attachments folder and a hidden folder the same, in any case', () => {
+    expect(reservedCreateFolderTop('Assets/Drawings', rootVault)).toBe('Assets')
+    expect(reservedCreateFolderTop('attachements/x', rootVault)).toBe('attachements')
+    expect(reservedCreateFolderTop('_assets', rootVault)).toBe('_assets')
+    expect(reservedCreateFolderTop('.drawings', rootVault)).toBe('.drawings')
+    expect(reservedCreateFolderTop('/.zennotes/x/', rootVault)).toBe('.zennotes')
+  })
+
+  it('leaves ordinary folders, and every folder of an Inbox vault, alone', () => {
+    expect(reservedCreateFolderTop('Drawings', rootVault)).toBeNull()
+    expect(reservedCreateFolderTop('Projects/assets', rootVault)).toBeNull()
+    expect(reservedCreateFolderTop('', rootVault)).toBeNull()
+    expect(reservedCreateFolderTop('assets/drawings', inboxVault)).toBeNull()
+    expect(
+      resolveCreateLocation({ mode: 'folder', folder: 'assets/drawings' }, null, inboxVault)
+    ).toEqual({ folder: 'inbox', subpath: 'assets/drawings' })
   })
 })
 
