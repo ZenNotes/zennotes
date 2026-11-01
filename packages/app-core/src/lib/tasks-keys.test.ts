@@ -35,9 +35,9 @@ describe('the Tasks keys cheat sheet', () => {
     expect(calendar(false)).not.toContain('a')
   })
 
-  it('lists the board keys with Vim mode on, the WIP limit among them', () => {
+  it('lists the board keys with Vim mode on, the column colour and WIP limit among them', () => {
     const keys = keysOf(tasksKeySheet('kanban', { vimMode: true, dndEnabled: true, listOrder: 'note' }))
-    for (const key of ['h / l', 'j / k', 'x', 'Enter', 'Shift+H / L', 'm', '< / >', 'W', 'g', 's', 'v', 'E', '?']) {
+    for (const key of ['h / l', 'j / k', 'x', 'Enter', 'Shift+H / L', 'm', '< / >', 'C', 'W', 'g', 's', 'v', 'E', '?']) {
       expect(keys).toContain(key)
     }
   })

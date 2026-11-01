@@ -100,6 +100,13 @@ import { useToastStore } from '../lib/toast'
 import { isOverlayOrDialogOpen } from '../lib/overlay-open'
 import { isKeyboardContextMenuKey, keyboardMenuPosition } from '../lib/keyboard-context-menu'
 import { listViewBindingMatches } from '../lib/list-view-keys'
+import {
+  KANBAN_COLUMN_COLORS,
+  kanbanColumnColorCss,
+  kanbanColumnColorLabel,
+  kanbanColumnColorVar,
+  type KanbanColumnColor
+} from '../lib/kanban-column-colors'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { buildTaskMenuItems, chooseTaskDueDate } from '../lib/task-context-menu'
 import { AlertTriangleIcon, ArrowUpRightIcon, ChevronRightIcon, PencilIcon } from './icons'
@@ -127,7 +134,8 @@ interface Props {
   today: Date
   onOpenTask: (task: VaultTask) => void
   onToggleTask: (task: VaultTask) => void
-  /** Filled while the board is mounted, for the Tasks ex line's `:wip`. */
+  /** Filled while the board is mounted, for the Tasks ex line's `:wip` and
+   *  `:color`. */
   controlRef?: React.MutableRefObject<KanbanControl | null>
 }
 
@@ -137,6 +145,8 @@ export interface KanbanControl {
   /** Set or clear the focused column's WIP limit (#1025). Returns that
    *  column's label, or null on a board with no columns. */
   setFocusedColumnWipLimit: (limit: number | null) => string | null
+  /** Set or clear the focused column's colour (#1037), the same way. */
+  setFocusedColumnColor: (color: KanbanColumnColor | null) => string | null
 }
 
 // Sentinel column id for the "No status" bucket on the custom-status board.
@@ -161,10 +171,11 @@ const NO_SUBTASKS: readonly CardSubtask[] = []
 const NO_LANE_IDS: readonly string[] = []
 
 /** The dot beside a lane's label: the card chips' priority colours, a field
- *  value's column accent, none for tags and folders. */
+ *  value's column colour or accent, none for tags and folders. */
 function laneDotOf(
   laneBy: KanbanLaneBy,
-  laneId: string
+  laneId: string,
+  columnColors: Record<string, KanbanColumnColor>
 ): { className?: string; color?: string } | null {
   if (laneBy === 'priority') {
     if (laneId === 'high') return { className: 'bg-rose-400' }
@@ -173,7 +184,8 @@ function laneDotOf(
     return null
   }
   if (laneBy.startsWith('field:')) {
-    const color = columnAccent(laneId)
+    const chosen = laneId === NO_VALUE_COLUMN_ID ? undefined : columnColors[`${laneBy}:${laneId}`]
+    const color = chosen ? kanbanColumnColorCss(chosen) : columnAccent(laneId)
     return color ? { color } : null
   }
   return null
@@ -1051,6 +1063,8 @@ export function TasksKanban({
   const hideEmptyTasks = useStore((s) => s.hideEmptyTasks)
   const kanbanWipLimits = useStore((s) => s.kanbanWipLimits)
   const setKanbanWipLimit = useStore((s) => s.setKanbanWipLimit)
+  const kanbanColumnColors = useStore((s) => s.kanbanColumnColors)
+  const setKanbanColumnColor = useStore((s) => s.setKanbanColumnColor)
   const setCardSort = useStore((s) => s.setKanbanCardSort)
   const setGroupBy = useStore((s) => s.setKanbanGroupBy)
   const kanbanColumnTitles = useStore((s) => s.kanbanColumnTitles)
@@ -1095,7 +1109,13 @@ export function TasksKanban({
   const [columnDropTarget, setColumnDropTarget] = useState<{ id: string; after: boolean } | null>(
     null
   )
-  const [menu, setMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null)
+  const [menu, setMenu] = useState<{
+    x: number
+    y: number
+    items: ContextMenuItem[]
+    /** A heading, for the menu that picks a column's colour. */
+    title?: string
+  } | null>(null)
   // The subtask Tab stepped onto inside the focused card (#1028), by id so a
   // rescan that rebuilds the records keeps it; null is the card itself.
   const [subFocusId, setSubFocusId] = useState<string | null>(null)
@@ -1440,11 +1460,52 @@ export function TasksKanban({
     [groupBy, setKanbanWipLimit]
   )
 
+  // ---- Column colours (#1037): the column menu, `C`, and `:color` --------
+  // One menu that picks from the palette, the current colour checked, so
+  // the cursor starts on it and Enter on a name sets it.
+  const openColumnColorMenu = useCallback(
+    (column: Column, x: number, y: number): void => {
+      const current = useStore.getState().kanbanColumnColors[columnOrderKey(groupBy, column.id)]
+      const items: ContextMenuItem[] = KANBAN_COLUMN_COLORS.map((color) => ({
+        label: color.label,
+        icon: (
+          <span
+            className="block h-2.5 w-2.5 rounded-full"
+            style={{ backgroundColor: kanbanColumnColorCss(color.id) }}
+            aria-hidden="true"
+          />
+        ),
+        checked: current === color.id,
+        keywords: color.id === 'gray' ? ['grey'] : color.id === 'teal' ? ['aqua'] : undefined,
+        onSelect: () => setKanbanColumnColor(groupBy, column.id, color.id)
+      }))
+      items.push(
+        { kind: 'separator' },
+        {
+          label: 'No color',
+          checked: !current,
+          keywords: ['none', 'clear', 'remove'],
+          onSelect: () => setKanbanColumnColor(groupBy, column.id, null)
+        }
+      )
+      setMenu({ x, y, items, title: `Color: ${column.label}` })
+    },
+    [groupBy, setKanbanColumnColor]
+  )
+
   const openColumnMenu = useCallback(
     (column: Column, x: number, y: number): void => {
-      const limit = useStore.getState().kanbanWipLimits[columnOrderKey(groupBy, column.id)]
+      const key = columnOrderKey(groupBy, column.id)
+      const limit = useStore.getState().kanbanWipLimits[key]
+      const color = useStore.getState().kanbanColumnColors[key]
       const items: ContextMenuItem[] = [
         { label: 'Rename column…', hint: 'Enter', onSelect: () => beginColumnRename(column) },
+        {
+          label: color ? `Color: ${kanbanColumnColorLabel(color)}…` : 'Color…',
+          hint: vimMode ? 'C' : undefined,
+          keywords: ['color', 'colour', 'hue', 'accent'],
+          onSelect: () => openColumnColorMenu(column, x, y)
+        },
         {
           label: limit ? 'Change WIP limit…' : 'Set WIP limit…',
           hint: vimMode ? 'W' : undefined,
@@ -1461,11 +1522,12 @@ export function TasksKanban({
       }
       setMenu({ x, y, items })
     },
-    [beginColumnRename, groupBy, promptWipLimit, setKanbanWipLimit, vimMode]
+    [beginColumnRename, groupBy, openColumnColorMenu, promptWipLimit, setKanbanWipLimit, vimMode]
   )
 
-  // The ex line's `:wip` acts on the column under the cursor, which only the
-  // board knows; the latest cursor is read when the command runs.
+  // The ex line's `:wip` and `:color` act on the column under the cursor,
+  // which only the board knows; the latest cursor is read when the command
+  // runs.
   const colIdxRef = useRef(colIdx)
   colIdxRef.current = colIdx
   useEffect(() => {
@@ -1477,13 +1539,20 @@ export function TasksKanban({
         if (!column) return null
         setKanbanWipLimit(useStore.getState().kanbanGroupBy, column.id, limit)
         return column.label
+      },
+      setFocusedColumnColor: (color) => {
+        const cols = columnsRef.current
+        const column = cols[Math.min(colIdxRef.current, cols.length - 1)]
+        if (!column) return null
+        setKanbanColumnColor(useStore.getState().kanbanGroupBy, column.id, color)
+        return column.label
       }
     }
     controlRef.current = control
     return () => {
       if (controlRef.current === control) controlRef.current = null
     }
-  }, [controlRef, setKanbanWipLimit])
+  }, [controlRef, setKanbanColumnColor, setKanbanWipLimit])
 
   // ---- Column reordering: drag a header, or Shift+`<` / Shift+`>` ----------
   // A click that started a header drag must not also fire the rename button.
@@ -2786,6 +2855,17 @@ export function TasksKanban({
             void promptWipLimit(focusedColumn)
           }
           return
+        // And its colour (#1037), picked from a menu below its header.
+        case 'C':
+          if (vimMode && focusedColumn) {
+            consume()
+            const header = Array.from(
+              rootRef.current?.querySelectorAll<HTMLElement>('[data-kanban-column-header]') ?? []
+            ).find((el) => el.parentElement?.dataset.kanbanColumnId === focusedColumn.id)
+            const rect = header?.getBoundingClientRect()
+            openColumnColorMenu(focusedColumn, (rect?.left ?? 0) + 12, (rect?.bottom ?? 0) + 2)
+          }
+          return
         case ' ':
         case 'x':
           if (actionTask) {
@@ -2853,6 +2933,7 @@ export function TasksKanban({
     moveFocusedColumn,
     onOpenTask,
     onToggleTask,
+    openColumnColorMenu,
     openKeyboardMenu,
     promptWipLimit,
     safeCardIdx,
@@ -2868,12 +2949,29 @@ export function TasksKanban({
       kanbanWipLimits[columnOrderKey(groupBy, column.id)]
     )
 
+  // A coloured column (#1037) carries its hue as a CSS variable; the column's
+  // top edge (index.css) and the header's dot draw from it.
+  const columnColorOf = (column: Column): KanbanColumnColor | undefined =>
+    kanbanColumnColors[columnOrderKey(groupBy, column.id)]
+  const columnColorAttrs = (
+    column: Column
+  ): { 'data-kanban-column-color'?: string; style?: React.CSSProperties } => {
+    const color = columnColorOf(column)
+    if (!color) return {}
+    return {
+      'data-kanban-column-color': color,
+      style: { '--kanban-column-hue': kanbanColumnColorVar(color) } as React.CSSProperties
+    }
+  }
+
   /** A column's header: its title (renamed in place), its WIP or count, its
    *  overdue badge. Without lanes it tops its column; with lanes it stands
    *  alone in the row above them, `alone`. */
   const renderColumnHeader = (column: Column, ci: number, alone: boolean): JSX.Element => {
     const isColumnFocused = ci === safeColIdx
-    const accent = fieldKey ? columnAccent(column.id) : null
+    // A colour the column was given wins over a field value's own accent.
+    const color = columnColorOf(column)
+    const accent = color ? kanbanColumnColorCss(color) : fieldKey ? columnAccent(column.id) : null
     const isMovableColumn = column.id !== NO_VALUE_COLUMN_ID
     // Reveal the underlying field value when a custom title would otherwise
     // hide it, so a renamed column can't masquerade as the stored value. (#389)
@@ -3045,6 +3143,7 @@ export function TasksKanban({
         onFocusSubtask={(subtask) => focusCard(subtask.id)}
         onToggleSubtask={onToggleTask}
         onOpenSubtask={onOpenTask}
+        columnColors={kanbanColumnColors}
       />
     )
   }
@@ -3142,6 +3241,7 @@ export function TasksKanban({
                 key={column.id}
                 data-kanban-column-id={column.id}
                 data-wip-over={wip?.over ? '' : undefined}
+                {...columnColorAttrs(column)}
                 className={[
                   'task-kanban-column flex w-72 shrink-0 flex-col rounded-lg border transition-opacity',
                   wip?.over
@@ -3193,6 +3293,7 @@ export function TasksKanban({
                     key={column.id}
                     data-kanban-column-id={column.id}
                     data-wip-over={wip?.over ? '' : undefined}
+                    {...columnColorAttrs(column)}
                     className={[
                       'task-kanban-column w-72 shrink-0 rounded-lg border transition-opacity',
                       wip?.over
@@ -3211,7 +3312,7 @@ export function TasksKanban({
               {lanes.map((lane, li) => {
                 const collapsed = collapsedLanes.has(lane.id)
                 const isLaneHeaderFocused = laneHeaderFocused && focusedLaneIdx === li
-                const dot = laneDotOf(laneBy, lane.id)
+                const dot = laneDotOf(laneBy, lane.id, kanbanColumnColors)
                 return (
                   <section key={lane.id} data-kanban-lane={lane.id} aria-label={`${lane.label} lane`}>
                     <button
@@ -3369,6 +3470,7 @@ export function TasksKanban({
               dragPreview.task,
               folded.subtasksByCard.get(dragPreview.task.id) ?? NO_SUBTASKS
             )}
+            columnColors={kanbanColumnColors}
           />
         </div>
       )}
@@ -3379,7 +3481,14 @@ export function TasksKanban({
       />
 
       {menu && (
-        <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />
+        <ContextMenu
+          key={menu.title ?? 'menu'}
+          x={menu.x}
+          y={menu.y}
+          title={menu.title}
+          items={menu.items}
+          onClose={() => setMenu(null)}
+        />
       )}
     </div>
   )
@@ -3420,6 +3529,9 @@ interface CardProps {
   onToggleSubtask?: (task: VaultTask) => void
   /** Opens the note at the subtask's line, where its text is edited. */
   onOpenSubtask?: (task: VaultTask) => void
+  /** The column colours (#1037): an `@key:value` chip takes the colour its
+   *  value's column on the `key` board was given. */
+  columnColors?: Record<string, KanbanColumnColor>
 }
 
 /** The card's subtask summary, always shown: a thin bar and `3/5 · 60%` for
@@ -3616,7 +3728,8 @@ function TaskCard({
   focusedSubtaskId = null,
   onFocusSubtask,
   onToggleSubtask,
-  onOpenSubtask
+  onOpenSubtask,
+  columnColors
 }: CardProps): JSX.Element {
   return (
     <div
@@ -3761,12 +3874,20 @@ function TaskCard({
         )}
         {task.fields &&
           Object.entries(task.fields).map(([k, v]) => {
+            const chosen = columnColors?.[`field:${k}:${v}`]
             const accent = columnAccent(v) ?? '#7f8c9a'
             return (
               <span
                 key={k}
                 className="shrink-0 rounded px-1.5 py-0.5 font-medium"
-                style={{ backgroundColor: `${accent}22`, color: accent }}
+                style={
+                  chosen
+                    ? {
+                        backgroundColor: `rgb(${kanbanColumnColorVar(chosen)} / 0.13)`,
+                        color: kanbanColumnColorCss(chosen)
+                      }
+                    : { backgroundColor: `${accent}22`, color: accent }
+                }
               >
                 @{k}:{v}
               </span>

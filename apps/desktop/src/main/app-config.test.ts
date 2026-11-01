@@ -136,6 +136,7 @@ describe('TOML serialization', () => {
       kanbanLanes: 'field:sprint',
       hideEmptyTasks: false,
       kanbanWipLimits: { 'status:in-progress': 3, 'field:status:review': 2 },
+      kanbanColumnColors: { 'status:in-progress': 'blue', 'field:status:done': 'green' },
       tasksListOrder: 'priority',
       timelineRange: 'month',
       gallerySort: 'title',
@@ -185,6 +186,14 @@ describe('TOML serialization', () => {
     expect(round.hideEmptyTasks).toBe(false)
     expect(text).toMatch(/\[kanban_wip_limits\]\n"status:in-progress" = 3\n"field:status:review" = 2/)
     expect(round.kanbanWipLimits).toEqual({ 'status:in-progress': 3, 'field:status:review': 2 })
+    // #1037: column colours travel as palette names, next to the titles.
+    expect(text).toMatch(
+      /\[kanban_column_colors\]\n"status:in-progress" = "blue"\n"field:status:done" = "green"/
+    )
+    expect(round.kanbanColumnColors).toEqual({
+      'status:in-progress': 'blue',
+      'field:status:done': 'green'
+    })
     expect(text).toContain('tasks_list_order = "priority"')
     expect(round.tasksListOrder).toBe('priority')
     // The Timeline panel's reach travels as [view].timeline_range (#1007).

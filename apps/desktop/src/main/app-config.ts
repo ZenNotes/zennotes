@@ -549,6 +549,14 @@ const MAP_TABLE_FIELDS: Partial<Record<PortablePrefKey, MapTableField>> = {
     comment: ['Kanban WIP limits (1 to 999), keyed by "<groupBy>:<columnId>".'],
     example: '"status:in-progress" = 3'
   },
+  kanbanColumnColors: {
+    table: 'kanban_column_colors',
+    comment: [
+      'Kanban column colors, keyed by "<groupBy>:<columnId>".',
+      'gray, red, yellow, green, teal, blue or purple, drawn in the theme\'s own shades.'
+    ],
+    example: '"status:in-progress" = "blue"'
+  },
   enabledOverrides: {
     table: 'overrides',
     comment: ['Enabled CSS overrides. List the filenames you want active.'],

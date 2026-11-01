@@ -5,6 +5,7 @@ import { isNoteEditingLocked, lockNoteEditing } from './lib/note-lifecycle-lock'
 import { create } from 'zustand'
 import { rewriteWikilinksForRename } from '@shared/wikilink-rename'
 import { useToastStore } from './lib/toast'
+import { parseKanbanColumnColor, type KanbanColumnColor } from './lib/kanban-column-colors'
 import type { EditorView } from '@codemirror/view'
 import {
   editorCursorPosition,
@@ -869,6 +870,10 @@ interface Prefs {
    *  `${groupBy}:${columnId}` like the column titles. Portable as the
    *  `[kanban_wip_limits]` table. (#1025) */
   kanbanWipLimits: Record<string, number>
+  /** Kanban column colours, palette names keyed by `${groupBy}:${columnId}`
+   *  like the column titles. Portable as the `[kanban_column_colors]` table.
+   *  (#1037) */
+  kanbanColumnColors: Record<string, KanbanColumnColor>
   /** A second field that splits the Kanban board into horizontal lanes, or
    *  'none'. Portable as `kanban_lanes` under [view], like the card order: a
    *  global display choice, not a per-vault override, which the Go server's
@@ -1069,7 +1074,8 @@ function normalizeKanbanColumnTitles(raw: unknown): Record<string, string> {
 /** The largest WIP limit a column takes; TasksKanban's parseWipLimitInput
  *  holds typed limits to the same bound. */
 export const MAX_KANBAN_WIP_LIMIT = 999
-const MAX_KANBAN_WIP_LIMIT_COLUMNS = 256
+// The most columns that keep a WIP limit, or a colour, before the rest drop.
+const MAX_KANBAN_SETTING_COLUMNS = 256
 
 function normalizeKanbanWipLimit(raw: unknown): number | null {
   // A hand-edited config.toml can quote the number; anything that is not a
@@ -1091,7 +1097,24 @@ export function normalizeKanbanWipLimits(raw: unknown): Record<string, number> {
     if (limit === null) continue
     out[key] = limit
     columns += 1
-    if (columns >= MAX_KANBAN_WIP_LIMIT_COLUMNS) break
+    if (columns >= MAX_KANBAN_SETTING_COLUMNS) break
+  }
+  return out
+}
+
+// Column colours (#1037): `{ "<groupBy>:<columnId>": "<palette name>" }`. A
+// hand-edited name the palette does not have is dropped, never guessed at.
+export function normalizeKanbanColumnColors(raw: unknown): Record<string, KanbanColumnColor> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  const out: Record<string, KanbanColumnColor> = {}
+  let columns = 0
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!isKanbanColumnKey(key)) continue
+    const color = parseKanbanColumnColor(value)
+    if (color === null) continue
+    out[key] = color
+    columns += 1
+    if (columns >= MAX_KANBAN_SETTING_COLUMNS) break
   }
   return out
 }
@@ -1420,6 +1443,7 @@ export const DEFAULT_PREFS: Prefs = {
   kanbanCardSort: 'manual',
   hideEmptyTasks: true,
   kanbanWipLimits: {},
+  kanbanColumnColors: {},
   kanbanLanes: 'none',
   kanbanCollapsedLanes: {},
   tasksListOrder: 'note',
@@ -1810,6 +1834,7 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
     hideEmptyTasks:
       typeof p.hideEmptyTasks === 'boolean' ? p.hideEmptyTasks : DEFAULT_PREFS.hideEmptyTasks,
     kanbanWipLimits: normalizeKanbanWipLimits(p.kanbanWipLimits),
+    kanbanColumnColors: normalizeKanbanColumnColors(p.kanbanColumnColors),
     kanbanLanes: normalizeKanbanLanes(p.kanbanLanes),
     kanbanCollapsedLanes: normalizeKanbanCollapsedLanes(p.kanbanCollapsedLanes),
     tasksListOrder: p.tasksListOrder === 'priority' ? 'priority' : 'note',
@@ -2797,6 +2822,7 @@ function collectPrefs(s: {
   kanbanCardSort: KanbanCardSort
   hideEmptyTasks: boolean
   kanbanWipLimits: Record<string, number>
+  kanbanColumnColors: Record<string, KanbanColumnColor>
   kanbanLanes: KanbanLaneBy
   kanbanCollapsedLanes: Record<string, string[]>
   tasksListOrder: TasksListOrder
@@ -2922,6 +2948,7 @@ function collectPrefs(s: {
     kanbanCardSort: s.kanbanCardSort,
     hideEmptyTasks: s.hideEmptyTasks,
     kanbanWipLimits: s.kanbanWipLimits,
+    kanbanColumnColors: s.kanbanColumnColors,
     kanbanLanes: s.kanbanLanes,
     kanbanCollapsedLanes: s.kanbanCollapsedLanes,
     tasksListOrder: s.tasksListOrder,
@@ -3621,6 +3648,8 @@ interface Store {
   hideEmptyTasks: boolean
   /** Per-column Kanban WIP limits, keyed `${groupBy}:${columnId}`. (#1025) */
   kanbanWipLimits: Record<string, number>
+  /** Per-column Kanban colours, keyed `${groupBy}:${columnId}`. (#1037) */
+  kanbanColumnColors: Record<string, KanbanColumnColor>
   /** The field that splits the board into lanes, or 'none'. (#1027) */
   kanbanLanes: KanbanLaneBy
   /** Collapsed lanes per board and lane field. (#1027) */
@@ -3915,6 +3944,12 @@ interface Store {
   setHideEmptyTasks: (hide: boolean) => void
   /** Set one column's WIP limit, or clear it with null. (#1025) */
   setKanbanWipLimit: (group: KanbanGroupBy, columnId: string, limit: number | null) => void
+  /** Set one column's colour, or clear it with null. (#1037) */
+  setKanbanColumnColor: (
+    group: KanbanGroupBy,
+    columnId: string,
+    color: KanbanColumnColor | null
+  ) => void
   /** Split the board into lanes by a second field, or 'none'. (#1027) */
   setKanbanLanes: (laneBy: KanbanLaneBy) => void
   /** The collapsed lanes of one board split by one field; empty clears. (#1027) */
@@ -6526,6 +6561,7 @@ export const useStore = create<Store>((set, get) => {
   kanbanCardSort: loadPrefs().kanbanCardSort,
   hideEmptyTasks: loadPrefs().hideEmptyTasks,
   kanbanWipLimits: loadPrefs().kanbanWipLimits,
+  kanbanColumnColors: loadPrefs().kanbanColumnColors,
   kanbanLanes: loadPrefs().kanbanLanes,
   kanbanCollapsedLanes: loadPrefs().kanbanCollapsedLanes,
   tasksListOrder: loadPrefs().tasksListOrder,
@@ -8086,6 +8122,15 @@ export const useStore = create<Store>((set, get) => {
     if (limit === null) delete next[key]
     else next[key] = limit
     set({ kanbanWipLimits: normalizeKanbanWipLimits(next) })
+    savePrefs(collectPrefs(get()))
+  },
+  // Kept like the WIP limits: global and portable, not a per-vault override.
+  setKanbanColumnColor: (group, columnId, color) => {
+    const key = `${group}:${columnId}`
+    const next: Record<string, KanbanColumnColor> = { ...get().kanbanColumnColors }
+    if (color === null) delete next[key]
+    else next[key] = color
+    set({ kanbanColumnColors: normalizeKanbanColumnColors(next) })
     savePrefs(collectPrefs(get()))
   },
   setKanbanLanes: (laneBy) => {
