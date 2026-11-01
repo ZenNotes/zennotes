@@ -19,6 +19,7 @@
  * stands down for this panel except for Ctrl+W and the leader.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useKeyboardCursor } from '../lib/keyboard-cursor'
 import type { NoteMeta } from '@shared/ipc'
 import { filterTasksForDisplay, inferDailyTaskDueDates, type VaultTask } from '@shared/tasks'
 import { useStore } from '../store'
@@ -113,6 +114,7 @@ export function TimelinePanel({
   fitWidth?: number
 }): JSX.Element {
   const notes = useStore((s) => s.notes)
+  const keyCursor = useKeyboardCursor()
   const vaultSettings = useStore((s) => s.vaultSettings)
   const vaultTasks = useStore((s) => s.vaultTasks)
   const tasksLoading = useStore((s) => s.tasksLoading)
@@ -430,7 +432,7 @@ export function TimelinePanel({
         </div>
       )
     }
-    const isCursor = panelFocused && index === cursorIdx
+    const isCursor = keyCursor && panelFocused && index === cursorIdx
     return (
       <div
         key={task.id}

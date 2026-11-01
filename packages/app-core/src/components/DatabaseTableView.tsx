@@ -10,6 +10,7 @@ import {
 import { createPortal } from 'react-dom'
 import type { DatabaseDoc, DbField, DbRow, DbView, FieldType, SelectOptionsSource } from '@shared/databases'
 import { viewRows } from '@shared/database-transforms'
+import { useKeyboardCursor } from '../lib/keyboard-cursor'
 import { resolveTemplateFolder } from '@shared/template-folder'
 import { useStore } from '../store'
 import { tagSourceSuggestions } from '../lib/link-candidates'
@@ -78,6 +79,7 @@ interface Props {
 
 export function DatabaseTableView({ csvPath, doc, view, isActive, onOpenColumns }: Props): JSX.Element {
   const updateDatabaseRows = useStore((s) => s.updateDatabaseRows)
+  const keyCursor = useKeyboardCursor()
   const updateDatabaseSchema = useStore((s) => s.updateDatabaseSchema)
   const deleteDatabaseRows = useStore((s) => s.deleteDatabaseRows)
   const openRecordPage = useStore((s) => s.openRecordPage)
@@ -752,7 +754,7 @@ export function DatabaseTableView({ csvPath, doc, view, isActive, onOpenColumns 
                 }}
                 className={[
                   'group/h min-w-32 max-w-[420px] border-r border-paper-300/40 px-2.5 py-2 text-left text-2xs font-medium uppercase tracking-wide text-ink-500',
-                  active.row < 0 && active.col === colIndex ? 'ring-2 ring-inset ring-accent' : '',
+                  keyCursor && active.row < 0 && active.col === colIndex ? 'ring-2 ring-inset ring-accent' : '',
                   // Drop indicator: the dragged column lands *before* this one.
                   dragOverFieldId === field.id ? 'border-l-2 border-l-accent bg-accent/5' : ''
                 ].join(' ')}
@@ -837,7 +839,7 @@ export function DatabaseTableView({ csvPath, doc, view, isActive, onOpenColumns 
                     // #335: cap the column so a long Text value truncates instead
                     // of stretching the column to fill the table.
                     'relative max-w-[420px] border-r border-paper-300/40 p-0 align-top',
-                    isActive ? 'ring-2 ring-inset ring-accent' : ''
+                    isActive && keyCursor ? 'ring-2 ring-inset ring-accent' : ''
                   ].join(' ')
                   // Keep keyboard focus on the grid container (not the inner
                   // button) so vim motions keep working; sync active to the click.

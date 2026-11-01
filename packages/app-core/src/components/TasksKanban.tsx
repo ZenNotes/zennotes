@@ -116,7 +116,7 @@ import { InlineMarkdown } from '../lib/inline-markdown'
 import { CloudTaskConflictIndicator } from './CloudTaskConflictIndicator'
 import { TaskStateBox } from './TaskStateBox'
 import { isImeComposing } from '../lib/ime'
-import { isTouchPrimaryDevice } from '../lib/cm-vim-ime-guard'
+import { useKeyboardCursor } from '../lib/keyboard-cursor'
 import { createDragAutoScroller } from '../lib/drag-autoscroll'
 import {
   getSequenceTokens,
@@ -1065,9 +1065,7 @@ export function TasksKanban({
   const cardSort = useStore((s) => s.kanbanCardSort)
   const hideEmptyTasks = useStore((s) => s.hideEmptyTasks)
   const kanbanWipLimits = useStore((s) => s.kanbanWipLimits)
-  // The ring and tint that mark the keyboard's card or header. A touch-first
-  // device (a phone) has no keyboard to move them, so its board draws none.
-  const keyCursor = useMemo(() => !isTouchPrimaryDevice(), [])
+  const keyCursor = useKeyboardCursor()
   const setKanbanWipLimit = useStore((s) => s.setKanbanWipLimit)
   const kanbanColumnColors = useStore((s) => s.kanbanColumnColors)
   const setKanbanColumnColor = useStore((s) => s.setKanbanColumnColor)

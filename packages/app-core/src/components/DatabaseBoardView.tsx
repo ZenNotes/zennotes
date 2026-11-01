@@ -26,7 +26,7 @@ import {
   type BoardCursor
 } from '../lib/database-board'
 import { isImeComposing } from '../lib/ime'
-import { isTouchPrimaryDevice } from '../lib/cm-vim-ime-guard'
+import { useKeyboardCursor } from '../lib/keyboard-cursor'
 import { PlusIcon, ArrowUpRightIcon } from './icons'
 import { IconButton } from './ui/Button'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
@@ -73,9 +73,7 @@ export function DatabaseBoardView({ csvPath, doc, view, isActive = true }: Props
     .filter((f): f is DbField => !!f && !f.hidden && f.id !== doc.idFieldId && f.id !== titleField?.id && f.id !== groupField?.id)
 
   const boardRef = useRef<HTMLDivElement | null>(null)
-  // The ring marks the keyboard's card. A touch-first device (a phone) has no
-  // keyboard to move it, so a new board there opens without one.
-  const cursorRing = isTouchPrimaryDevice() ? '' : 'group-focus/board:ring-1 group-focus/board:ring-accent/60'
+  const cursorRing = useKeyboardCursor() ? 'group-focus/board:ring-1 group-focus/board:ring-accent/60' : ''
   const [dragRow, setDragRow] = useState<string | null>(null)
   const [overCol, setOverCol] = useState<string | null>(null)
   const [addingOption, setAddingOption] = useState(false)

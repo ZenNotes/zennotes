@@ -14,6 +14,7 @@
  * rest of the codebase.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useKeyboardCursor } from '../lib/keyboard-cursor'
 import type { VaultTask } from '@shared/tasks'
 import {
   bucketTasksByDueDate,
@@ -109,6 +110,7 @@ export function TasksCalendar({
   hiddenEmpty = 0
 }: Props): JSX.Element {
   const monthAnchorIso = useStore((s) => s.tasksCalendarMonthAnchor)
+  const keyCursor = useKeyboardCursor()
   const setMonthAnchor = useStore((s) => s.setTasksCalendarMonthAnchor)
   const selectedDateIso = useStore((s) => s.tasksCalendarSelectedDate)
   const setSelectedDate = useStore((s) => s.setTasksCalendarSelectedDate)
@@ -832,7 +834,7 @@ export function TasksCalendar({
           <div className="space-y-1">
             {selectedTasks.map((task, i) =>
               renderTask(task, {
-                isActive: i === activeIdx,
+                isActive: keyCursor && i === activeIdx,
                 buttonRef: i === activeIdx ? focusedTaskRef : null
               })
             )}

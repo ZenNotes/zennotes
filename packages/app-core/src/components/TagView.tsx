@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useKeyboardCursor } from '../lib/keyboard-cursor'
 import { isTagsViewActive, useStore } from '../store'
 import type { NoteMeta } from '@shared/ipc'
 import type { TagBlock } from '@shared/tag-blocks'
@@ -61,6 +62,7 @@ function folderLabel(note: NoteMeta): string {
 
 export function TagView(): JSX.Element {
   const notes = useStore((s) => s.notes)
+  const keyCursor = useKeyboardCursor()
   const activeNote = useStore((s) => s.activeNote)
   const preambleFolder = useStore((s) =>
     resolveTypstPreambleFolder(s.vaultSettings?.typstPreambles?.folder)
@@ -682,7 +684,7 @@ export function TagView(): JSX.Element {
           </div>
         ) : (
           rows.map((row, i) => {
-            const isCursor = i === cursorIndex
+            const isCursor = keyCursor && i === cursorIndex
             if (row.kind === 'block') {
               const { note, block } = row
               return (
