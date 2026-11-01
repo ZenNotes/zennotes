@@ -46,6 +46,7 @@ const mocks = vi.hoisted(() => {
       ],
       folderTemplates: [],
       setTemplateFolder: vi.fn(),
+      toggleTasksIncludedFolder: vi.fn(),
       externalApplicationSchemes: [],
       setExternalApplicationSchemes: vi.fn(),
       darkSidebar: false,
@@ -418,20 +419,112 @@ describe("SettingsModal date note directories", () => {
     await act(async () => result!.click());
     const row = host.querySelector('[data-settings-search-id="templates-folder"]');
     expect(row?.textContent).toContain("stay out of Tasks");
-    const picker = row!.querySelector<HTMLButtonElement>("[data-template-folder-picker]")!;
-    expect(picker.textContent).toContain("None");
-    await act(async () => picker.click());
+    const picker = row!.querySelector<HTMLInputElement>("[data-template-folder-picker]")!;
+    expect(picker.value).toBe("");
+    expect(picker.placeholder).toBe("None");
+    await act(async () => picker.focus());
     // Folders inside an area, by their path on disk: never an area itself,
-    // never the Trash.
-    const options = [...document.querySelectorAll<HTMLButtonElement>("[data-template-folder-option]")];
-    expect(options.map((o) => o.dataset.templateFolderOption)).toEqual([
-      "",
-      "archive/Old",
+    // never the Trash. The folder picker (#1033) lists them on focus.
+    const options = [...document.querySelectorAll<HTMLButtonElement>("[data-folder-picker-option]")];
+    expect(options.map((o) => o.dataset.folderPickerOption)).toEqual([
       "inbox/Templates",
       "inbox/Templates/Work",
+      "archive/Old",
     ]);
-    await act(async () => options[2].click());
+    await act(async () => options[0].click());
     expect(mocks.state.setTemplateFolder).toHaveBeenCalledWith("inbox/Templates");
+  });
+
+  it("picks a Task folder from the vault's folders, by keys alone (#1033)", async () => {
+    await act(async () => root.render(createElement(SettingsModal)));
+    const search = host.querySelector<HTMLInputElement>('input[placeholder="Search settings…"]')!;
+    await act(async () => changeInput(search, "task folders"));
+    const result = [...host.querySelectorAll<HTMLButtonElement>("aside nav button")].find(
+      (button) => button.textContent?.includes("Task folders"),
+    );
+    await act(async () => result!.click());
+    const field = host.querySelector<HTMLInputElement>('[data-tasks-folder-picker="includedFolders"]')!;
+    expect(field).toBeTruthy();
+    const options = (): string[] =>
+      [...document.querySelectorAll<HTMLElement>("[data-folder-picker-option]")].map(
+        (o) => o.dataset.folderPickerOption ?? "",
+      );
+    const highlighted = (): string | null =>
+      document.querySelector<HTMLElement>('[data-folder-picker-option][aria-selected="true"]')
+        ?.dataset.folderPickerOption ?? null;
+    const press = async (key: string, init: KeyboardEventInit = {}): Promise<void> => {
+      await act(async () => {
+        field.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...init }));
+      });
+    };
+
+    // Focus lists every folder by its vault path, the areas too; never the Trash.
+    await act(async () => field.focus());
+    expect(options()).toEqual([
+      "inbox",
+      "inbox/Templates",
+      "inbox/Templates/Work",
+      "quick",
+      "archive",
+      "archive/Old",
+    ]);
+    expect(highlighted()).toBeNull();
+
+    // Typing narrows and highlights the first match; Ctrl+N moves on.
+    await act(async () => changeInput(field, "temp"));
+    expect(options()).toEqual(["inbox/Templates", "inbox/Templates/Work"]);
+    expect(highlighted()).toBe("inbox/Templates");
+    await press("n", { ctrlKey: true });
+    expect(highlighted()).toBe("inbox/Templates/Work");
+
+    // Escape closes the list and leaves Settings open.
+    await press("Escape");
+    expect(options()).toEqual([]);
+    expect(mocks.setSettingsOpen).not.toHaveBeenCalled();
+
+    // ArrowDown opens it again; Enter adds the highlighted folder.
+    await press("ArrowDown");
+    expect(highlighted()).toBe("inbox/Templates");
+    await press("Enter");
+    expect(mocks.state.toggleTasksIncludedFolder).toHaveBeenCalledWith("inbox/Templates");
+    expect(field.value).toBe("");
+  });
+
+  it("offers the primary area's folders for a specific drawings folder and saves a pick", async () => {
+    const original = mocks.state.vaultSettings;
+    try {
+      mocks.state.vaultSettings = {
+        ...original,
+        drawingsLocation: { mode: "folder", folder: "Drawings" },
+      } as typeof original;
+      await act(async () => root.render(createElement(SettingsModal)));
+      const search = host.querySelector<HTMLInputElement>('input[placeholder="Search settings…"]')!;
+      await act(async () => changeInput(search, "drawings folder"));
+      const result = [...host.querySelectorAll<HTMLButtonElement>("aside nav button")].find(
+        (button) => button.textContent?.includes("Default drawings location"),
+      );
+      await act(async () => result!.click());
+      const row = host.querySelector('[data-settings-search-id="drawings-folder"]')!;
+      expect(row.textContent).toContain("New drawings go to `inbox/Drawings/`.");
+      const field = row.querySelector<HTMLInputElement>('input[role="combobox"]')!;
+      expect(field.value).toBe("Drawings");
+      await act(async () => field.focus());
+      // Inbox subpaths, the form the setting stores: no area, no `inbox/`.
+      const options = [...document.querySelectorAll<HTMLButtonElement>("[data-folder-picker-option]")];
+      expect(options.map((o) => o.dataset.folderPickerOption)).toEqual([
+        "Templates",
+        "Templates/Work",
+      ]);
+      await act(async () => options[1].click());
+      expect(mocks.setVaultSettings).toHaveBeenCalledWith(
+        expect.objectContaining({
+          drawingsLocation: { mode: "folder", folder: "Templates/Work" },
+        }),
+      );
+      expect(field.value).toBe("Templates/Work");
+    } finally {
+      mocks.state.vaultSettings = original;
+    }
   });
 
   it("offers the template folder on a server vault only when the server keeps it", async () => {

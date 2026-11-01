@@ -113,6 +113,13 @@ import {
   type DropdownRect,
 } from "../lib/dropdown-placement";
 import {
+  folderNameChoices,
+  primaryFolderChoices,
+  vaultFolderPathChoices,
+  type FolderChoice,
+} from "../lib/folder-picker";
+import { FolderPickerInput } from "./FolderPickerInput";
+import {
   DEFAULT_SYSTEM_FOLDER_LABELS,
   getSystemFolderLabel,
 } from "../lib/system-folder-labels";
@@ -133,7 +140,6 @@ import {
   normalizeMonthlyNotesDirectory,
   reservedCreateFolderTop,
   specificFolderDestination,
-  vaultRelativeFolderPath,
 } from "../lib/vault-layout";
 import { BUILTIN_TEMPLATES } from "@shared/builtin-templates";
 import {
@@ -864,6 +870,13 @@ export function SettingsModal(): JSX.Element {
       remoteWorkspaceInfo?.capabilities?.supportsSharesLocation === true);
   const remoteWorkspaceProfiles = useStore((s) => s.remoteWorkspaceProfiles);
   const vaultSettings = useStore((s) => s.vaultSettings);
+  const folders = useStore((s) => s.folders);
+  // The `Specific folder` rows name a folder inside the primary notes area,
+  // so their pickers offer exactly those (#1033).
+  const primaryFolders = useMemo(
+    () => primaryFolderChoices(folders, vaultSettings),
+    [folders, vaultSettings],
+  );
   const persistVaultSettings = useStore((s) => s.setVaultSettings);
   const openVaultPicker = useStore((s) => s.openVaultPicker);
   const connectRemoteWorkspace = useStore((s) => s.connectRemoteWorkspace);
@@ -4971,6 +4984,7 @@ export function SettingsModal(): JSX.Element {
                     value={vaultSettings.drawingsLocation?.folder ?? ""}
                     placeholder="Drawings"
                     settingId="drawings-folder"
+                    folderChoices={primaryFolders}
                     commitOnBlur
                     onChange={(next) =>
                       void persistVaultSettings({
@@ -5010,6 +5024,7 @@ export function SettingsModal(): JSX.Element {
                     value={vaultSettings.databasesLocation?.folder ?? ""}
                     placeholder="Databases"
                     settingId="databases-folder"
+                    folderChoices={primaryFolders}
                     commitOnBlur
                     onChange={(next) =>
                       void persistVaultSettings({
@@ -5046,6 +5061,7 @@ export function SettingsModal(): JSX.Element {
                     value={vaultSettings.tasksLocation?.folder ?? ""}
                     placeholder="Tasks"
                     settingId="tasks-folder"
+                    folderChoices={primaryFolders}
                     commitOnBlur
                     onChange={(next) =>
                       void persistVaultSettings({
@@ -5082,6 +5098,7 @@ export function SettingsModal(): JSX.Element {
                       value={vaultSettings.sharesLocation?.folder ?? ""}
                       placeholder="Clippings"
                       settingId="shares-folder"
+                      folderChoices={primaryFolders}
                       commitOnBlur
                       onChange={(next) =>
                         void persistVaultSettings({
@@ -7739,6 +7756,9 @@ function QuickCaptureHotkeyRow({
   );
 }
 
+const TEXT_INPUT_ROW_FIELD_CLASS =
+  "w-[23rem] max-w-full shrink-0 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3 py-2 text-sm text-ink-900 outline-none placeholder:text-ink-400 focus:border-accent/45";
+
 function TextInputRow({
   label,
   description,
@@ -7747,6 +7767,7 @@ function TextInputRow({
   settingId,
   commitOnBlur = false,
   issue,
+  folderChoices,
   onChange,
 }: {
   label: string;
@@ -7758,6 +7779,9 @@ function TextInputRow({
   /** Why the last value was refused. Shown under the description, in place of
    *  the field quietly reverting and leaving the user to guess. */
   issue?: string | null;
+  /** The vault's folders, listed under the field for a row that names one
+   *  (#1033). A pick saves at once; a typed path saves as before. */
+  folderChoices?: readonly FolderChoice[];
   onChange: (next: string | null) => void;
 }): JSX.Element {
   const [draft, setDraft] = useState(value);
@@ -7776,6 +7800,15 @@ function TextInputRow({
     const next = raw.trim();
     if (commitOnBlur && next === value) return;
     onChange(next ? next : null);
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
+    if (!commitOnBlur) return;
+    if (e.key === "Enter" && !isImeComposing(e)) e.currentTarget.blur();
+    if (e.key === "Escape") {
+      setDraft(value);
+      e.currentTarget.blur();
+    }
   };
 
   // The field wraps under the label when the row is too narrow, as the Vault
@@ -7803,28 +7836,46 @@ function TextInputRow({
           </div>
         )}
       </div>
-      <input
-        value={draft}
-        onFocus={() => setFocused(true)}
-        onChange={(e) => {
-          setDraft(e.target.value);
-          if (!commitOnBlur) commit(e.target.value);
-        }}
-        onBlur={(e) => {
-          setFocused(false);
-          if (commitOnBlur) commit(e.target.value);
-        }}
-        onKeyDown={(e) => {
-          if (!commitOnBlur) return;
-          if (e.key === "Enter" && !isImeComposing(e)) e.currentTarget.blur();
-          if (e.key === "Escape") {
-            setDraft(value);
-            e.currentTarget.blur();
-          }
-        }}
-        placeholder={placeholder}
-        className="w-[23rem] max-w-full shrink-0 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3 py-2 text-sm text-ink-900 outline-none placeholder:text-ink-400 focus:border-accent/45"
-      />
+      {folderChoices ? (
+        <FolderPickerInput
+          value={draft}
+          choices={folderChoices}
+          current={value}
+          aria-label={label}
+          onFocus={() => setFocused(true)}
+          onChange={(next) => {
+            setDraft(next);
+            if (!commitOnBlur) commit(next);
+          }}
+          onPick={(next) => {
+            setDraft(next);
+            commit(next);
+          }}
+          onBlur={(e) => {
+            setFocused(false);
+            if (commitOnBlur) commit(e.target.value);
+          }}
+          onKeyDown={onKeyDown}
+          placeholder={placeholder}
+          className={TEXT_INPUT_ROW_FIELD_CLASS}
+        />
+      ) : (
+        <input
+          value={draft}
+          onFocus={() => setFocused(true)}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            if (!commitOnBlur) commit(e.target.value);
+          }}
+          onBlur={(e) => {
+            setFocused(false);
+            if (commitOnBlur) commit(e.target.value);
+          }}
+          onKeyDown={onKeyDown}
+          placeholder={placeholder}
+          className={TEXT_INPUT_ROW_FIELD_CLASS}
+        />
+      )}
     </div>
   );
 }
@@ -8053,14 +8104,13 @@ function TemplateSelectRow({
   );
 }
 
-const NO_TEMPLATE_FOLDER = "\0none";
-
 /**
- * Settings editor for the vault's template folder (#1024): a picker over the
- * vault's folders (by their path on disk, which is what vault.json stores),
- * plus None. The sidebar folder menu ("Use as Template Folder", `m` in Vim
- * mode) is the other way in. Saved to vault.json, so it travels with the vault
- * and every runtime agrees on which notes are templates.
+ * Settings editor for the vault's template folder (#1024): a folder picker
+ * over the vault's folders, by their path on disk, which is what vault.json
+ * stores (#1033). An empty field is None. The sidebar folder menu ("Use as
+ * Template Folder", `m` in Vim mode) is the other way in. Saved to vault.json,
+ * so it travels with the vault and every runtime agrees on which notes are
+ * templates.
  */
 function TemplateFolderRow({ settingId }: { settingId?: string }): JSX.Element {
   const vaultSettings = useStore((s) => s.vaultSettings);
@@ -8068,127 +8118,30 @@ function TemplateFolderRow({ settingId }: { settingId?: string }): JSX.Element {
   const folderTemplates = useStore((s) => s.folderTemplates);
   const setTemplateFolder = useStore((s) => s.setTemplateFolder);
   const current = resolveTemplateFolder(vaultSettings);
+  const saved = current ?? "";
 
   // Every folder inside an area, as its path on disk. The areas themselves
   // (a whole Inbox or Archive of templates) and the Trash are not offered.
-  const paths = useMemo(() => {
-    const seen = new Set<string>();
-    for (const entry of folders) {
-      if (entry.folder === "trash" || !entry.subpath) continue;
-      const rel = vaultRelativeFolderPath(entry.folder, entry.subpath, vaultSettings);
-      if (rel) seen.add(rel);
-    }
-    return [...seen].sort((a, b) => a.localeCompare(b));
-  }, [folders, vaultSettings]);
-  const missing = !!current && !paths.includes(current);
-  const items = useMemo(
-    () => [
-      NO_TEMPLATE_FOLDER,
-      ...(missing && current ? [current] : []),
-      ...paths,
-    ],
-    [paths, missing, current],
+  const choices = useMemo(
+    () => vaultFolderPathChoices(folders, vaultSettings, { areaRoots: false }),
+    [folders, vaultSettings],
   );
-  const labelFor = (item: string): string =>
-    item === NO_TEMPLATE_FOLDER
-      ? "None"
-      : item === current && missing
-        ? `${item} (missing)`
-        : item;
+  const missing = !!current && !choices.some((c) => c.value === current);
 
-  const [open, setOpen] = useState(false);
-  const [activeIdx, setActiveIdx] = useState(0);
-  const buttonRef = useRef<HTMLButtonElement | null>(null);
-  const listRef = useRef<HTMLDivElement | null>(null);
-  const [rect, setRect] = useState<DropdownRect | null>(null);
-
+  const [draft, setDraft] = useState(saved);
+  const [focused, setFocused] = useState(false);
+  // Escape puts the saved folder back; the blur it ends with must not then
+  // save what was typed.
+  const discarding = useRef(false);
   useEffect(() => {
-    if (!open) return;
-    const at = items.indexOf(current ?? NO_TEMPLATE_FOLDER);
-    setActiveIdx(at >= 0 ? at : 0);
-  }, [open, items, current]);
+    if (!focused) setDraft(saved);
+  }, [focused, saved]);
 
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent): void => {
-      const target = e.target as Node;
-      if (buttonRef.current?.contains(target)) return;
-      if (
-        document.getElementById("zen-template-folder-portal")?.contains(target)
-      )
-        return;
-      setOpen(false);
-    };
-    window.addEventListener("mousedown", onDown);
-    return () => window.removeEventListener("mousedown", onDown);
-  }, [open]);
-
-  useLayoutEffect(() => {
-    if (!open) return;
-    const update = (): void => {
-      const el = buttonRef.current;
-      if (!el) return;
-      setRect(dropdownRectForElement(el, { estHeight: items.length * 32 + 8 }));
-    };
-    update();
-    window.addEventListener("resize", update);
-    window.addEventListener("scroll", update, true);
-    return () => {
-      window.removeEventListener("resize", update);
-      window.removeEventListener("scroll", update, true);
-    };
-  }, [open, items.length]);
-
-  useEffect(() => {
-    if (!open || !listRef.current) return;
-    listRef.current
-      .querySelector<HTMLElement>(`[data-idx="${activeIdx}"]`)
-      ?.scrollIntoView({ block: "nearest" });
-  }, [activeIdx, open]);
-
-  const commit = (item: string): void => {
-    setOpen(false);
-    buttonRef.current?.focus();
-    void setTemplateFolder(item === NO_TEMPLATE_FOLDER ? null : item);
-  };
-
-  const onTriggerKeyDown = (
-    e: React.KeyboardEvent<HTMLButtonElement>,
-  ): void => {
-    if (!open) {
-      if (
-        e.key === "ArrowDown" ||
-        e.key === "ArrowUp" ||
-        e.key === "Enter" ||
-        e.key === " "
-      ) {
-        e.preventDefault();
-        setOpen(true);
-      }
-      return;
-    }
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      setActiveIdx((i) => Math.min(items.length - 1, i + 1));
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setActiveIdx((i) => Math.max(0, i - 1));
-    } else if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      const picked = items[activeIdx];
-      if (picked !== undefined) commit(picked);
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      // Close the list only; Escape reaching Settings would close it too.
-      e.stopPropagation();
-      setOpen(false);
-    } else if (e.key === "Home") {
-      e.preventDefault();
-      setActiveIdx(0);
-    } else if (e.key === "End") {
-      e.preventDefault();
-      setActiveIdx(items.length - 1);
-    }
+  // An empty field is no template folder.
+  const commit = (raw: string): void => {
+    const next = raw.trim();
+    if (next === saved) return;
+    void setTemplateFolder(next ? next : null);
   };
 
   const count = folderTemplates.length;
@@ -8209,84 +8162,34 @@ function TemplateFolderRow({ settingId }: { settingId?: string }): JSX.Element {
           </div>
         )}
       </div>
-      <button
-        ref={buttonRef}
-        type="button"
-        aria-haspopup="listbox"
-        aria-expanded={open}
+      <FolderPickerInput
+        value={draft}
+        choices={choices}
+        current={current}
         aria-label="Template folder"
         data-template-folder-picker=""
-        onClick={() => setOpen((o) => !o)}
-        onKeyDown={onTriggerKeyDown}
-        className="flex w-[23rem] max-w-full shrink-0 items-center justify-between gap-2 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3 py-2 text-left text-sm text-ink-900 outline-none transition-colors hover:bg-paper-200 focus:border-accent/45"
-      >
-        <span className={`truncate ${current ? "" : "text-ink-500"}`}>
-          {current ? labelFor(current) : "None"}
-        </span>
-        <svg
-          width="12"
-          height="12"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className="shrink-0 text-ink-500"
-          aria-hidden="true"
-        >
-          <path d="m6 9 6 6 6-6" />
-        </svg>
-      </button>
-
-      {open &&
-        rect &&
-        createPortal(
-          <div
-            id="zen-template-folder-portal"
-            role="listbox"
-            aria-label="Template folder"
-            className="fixed z-popover flex flex-col overflow-hidden rounded-xl border border-paper-300 bg-paper-100 shadow-float"
-            style={{
-              left: rect.left,
-              top: rect.top,
-              bottom: rect.bottom,
-              width: rect.width,
-              maxHeight: rect.maxHeight,
-            }}
-          >
-            <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto py-1">
-              {items.map((item, idx) => {
-                const isSelected = item === (current ?? NO_TEMPLATE_FOLDER);
-                return (
-                  <button
-                    key={item}
-                    type="button"
-                    role="option"
-                    aria-selected={isSelected}
-                    data-idx={idx}
-                    data-template-folder-option={
-                      item === NO_TEMPLATE_FOLDER ? "" : item
-                    }
-                    onClick={() => commit(item)}
-                    onMouseMove={() => setActiveIdx(idx)}
-                    className={[
-                      "flex w-full items-center px-3 py-1.5 text-left text-sm",
-                      activeIdx === idx
-                        ? "bg-paper-200 text-ink-900"
-                        : isSelected
-                          ? "text-ink-900"
-                          : "text-ink-700",
-                    ].join(" ")}
-                  >
-                    <span className="truncate">{labelFor(item)}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>,
-          document.body,
-        )}
+        placeholder="None"
+        onFocus={() => setFocused(true)}
+        onChange={setDraft}
+        onPick={(next) => {
+          setDraft(next);
+          commit(next);
+        }}
+        onBlur={(e) => {
+          setFocused(false);
+          if (discarding.current) discarding.current = false;
+          else commit(e.target.value);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !isImeComposing(e)) e.currentTarget.blur();
+          if (e.key === "Escape") {
+            discarding.current = true;
+            setDraft(saved);
+            e.currentTarget.blur();
+          }
+        }}
+        className={TEXT_INPUT_ROW_FIELD_CLASS}
+      />
     </div>
   );
 }
@@ -8744,6 +8647,13 @@ function slugifyStatus(name: string): string {
 function KanbanFolderRootRow({ settingId }: { settingId?: string }): JSX.Element {
   const root = useStore((s) => s.kanbanFolderRoot);
   const setKanbanFolderRoot = useStore((s) => s.setKanbanFolderRoot);
+  const folders = useStore((s) => s.folders);
+  const vaultSettings = useStore((s) => s.vaultSettings);
+  // The root is a folder inside the primary notes area, like `Specific folder`.
+  const choices = useMemo(
+    () => primaryFolderChoices(folders, vaultSettings),
+    [folders, vaultSettings],
+  );
   const [draft, setDraft] = useState(root);
   useEffect(() => {
     setDraft(root);
@@ -8763,13 +8673,18 @@ function KanbanFolderRootRow({ settingId }: { settingId?: string }): JSX.Element
         file-level key.
       </div>
       <div className="mt-3 flex items-center gap-2">
-        <input
+        <FolderPickerInput
           type="text"
           value={draft}
+          choices={choices}
+          current={root}
+          aria-label="Group by the folders inside"
           placeholder="Projects"
-          spellCheck={false}
-          autoComplete="off"
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={setDraft}
+          onPick={(next) => {
+            setDraft(next);
+            setKanbanFolderRoot(next);
+          }}
           onBlur={commit}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
@@ -8937,15 +8852,28 @@ function TasksFolderListRow({
       ? s.toggleTasksIncludedFolder
       : s.toggleTasksExcludedFolder,
   );
+  const vaultFolders = useStore((s) => s.folders);
+  const vaultSettings = useStore((s) => s.vaultSettings);
   const [draft, setDraft] = useState("");
   const included = list === "includedFolders";
+  // Both lists store paths from the vault root, and an area itself is a fair
+  // pick (the sidebar offers its menu items on an area too). Folders already
+  // listed are not offered again.
+  const choices = useMemo(
+    () =>
+      vaultFolderPathChoices(vaultFolders, vaultSettings, {
+        areaRoots: true,
+      }).filter((choice) => !folders.includes(choice.value)),
+    [vaultFolders, vaultSettings, folders],
+  );
 
-  const addDraft = (): void => {
-    const cleaned = normalizeTasksExcludedFolder(draft);
+  const add = (raw: string): void => {
+    const cleaned = normalizeTasksExcludedFolder(raw);
     if (!cleaned || folders.includes(cleaned)) return;
     setDraft("");
     void toggle(cleaned);
   };
+  const addDraft = (): void => add(draft);
 
   return (
     <div className="px-5 py-4" {...settingsSearchTargetProps(settingId)}>
@@ -9001,25 +8929,24 @@ function TasksFolderListRow({
         ))}
       </div>
       <div className="mt-3 flex items-center gap-2">
-        <input
+        <FolderPickerInput
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          choices={choices}
+          onChange={setDraft}
+          onPick={add}
           onKeyDown={(e) => {
-            if (e.key === "Enter") {
+            if (e.key === "Enter" && !isImeComposing(e)) {
               e.preventDefault();
               addDraft();
             }
           }}
-          placeholder={
-            included
-              ? "Folder path, e.g. Tasks"
-              : "Folder path, e.g. inbox/Books"
-          }
+          placeholder="Pick a folder or type its path"
           aria-label={
             included
-              ? "Folder path to use as a Task folder"
-              : "Folder path to exclude from Tasks"
+              ? "Folder to use as a Task folder"
+              : "Folder to exclude from Tasks"
           }
+          data-tasks-folder-picker={list}
           className="min-w-0 flex-1 rounded-md border border-paper-300 bg-paper-100 px-2.5 py-1.5 text-sm text-ink-900 outline-none focus:border-accent/60"
         />
         <button
@@ -9048,6 +8975,10 @@ function TypstPreambleFolderRow({
 }): JSX.Element {
   const stored = useStore((s) => s.vaultSettings.typstPreambles?.folder);
   const setTypstPreambleFolder = useStore((s) => s.setTypstPreambleFolder);
+  const folders = useStore((s) => s.folders);
+  // The setting is one folder name matched at any depth, so the picker
+  // offers the vault's folder names rather than paths.
+  const choices = useMemo(() => folderNameChoices(folders), [folders]);
   const effective = resolveTypstPreambleFolder(stored);
   const [draft, setDraft] = useState(effective);
   // Someone else (another window, a hand edit of vault.json) can move the
@@ -9079,9 +9010,15 @@ function TypstPreambleFolderRow({
         and the self-hosted server agree.
       </div>
       <div className="mt-3 flex items-center gap-2">
-        <input
+        <FolderPickerInput
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          choices={choices}
+          current={effective}
+          onChange={setDraft}
+          onPick={(next) => {
+            setDraft(next);
+            void setTypstPreambleFolder(next);
+          }}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               e.preventDefault();
