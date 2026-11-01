@@ -5060,7 +5060,7 @@ export function SettingsModal(): JSX.Element {
                 )}
                 <SegmentedRow
                   label="Default databases location"
-                  description="Same options as drawings, applied to new databases."
+                  description="Where new databases and Kanban boards are created."
                   value={vaultSettings.databasesLocation?.mode ?? "primary"}
                   settingId="databases-location"
                   options={[
