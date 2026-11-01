@@ -4356,7 +4356,7 @@ export function SettingsModal(): JSX.Element {
           id: "databases-location",
           title: "Default databases location",
           description:
-            "Where new databases are created: your primary notes area, the active note's folder, or a folder you name.",
+            "Where new databases and Kanban boards are created: your primary notes area, the active note's folder, or a folder you name.",
           keywords: [
             "databases",
             "database folder",
