@@ -407,4 +407,17 @@ describe('ContextMenu key hints on a touch-first device', () => {
     pointer(true)
     expect(await sides()).toEqual(['Open page', '●', '2026-11-01'])
   })
+
+  it('lights the cursor row only where there is a keyboard', async () => {
+    const lit = (): number =>
+      [...document.querySelectorAll('[data-ctx-menu] button')].filter((b) => b.className.includes('bg-paper-200 ')).length
+    pointer(false)
+    await sides()
+    expect(lit()).toBe(1)
+    pointer(true)
+    await sides()
+    expect(lit()).toBe(0)
+    // The cursor itself stays, for a keyboard attached later.
+    expect(document.querySelector('[data-ctx-menu] [data-ctx-active]')).not.toBeNull()
+  })
 })

@@ -328,6 +328,10 @@ export function ContextMenu({ x, y, items, title, findPlaceholder, anchorTop, on
             )
           }
           const active = i === visibleActive
+          // The cursor's highlight is for the keyboard, like the key hints: a
+          // phone opened every menu with its first row lit. The cursor itself
+          // stays, so a keyboard attached later still starts there.
+          const lit = active && keyHints
           return (
             <button
               key={`${originalIdx}-${item.label}`}
@@ -346,10 +350,10 @@ export function ContextMenu({ x, y, items, title, findPlaceholder, anchorTop, on
                 item.disabled
                   ? 'cursor-default text-ink-400'
                   : item.danger
-                    ? active
+                    ? lit
                       ? 'bg-red-500/90 text-white'
                       : 'text-[rgb(var(--z-red))] hover:bg-red-500/10'
-                    : active
+                    : lit
                       ? 'bg-paper-200 text-ink-900'
                       : 'text-ink-800 hover:bg-paper-200/70'
               ].join(' ')}
@@ -362,7 +366,7 @@ export function ContextMenu({ x, y, items, title, findPlaceholder, anchorTop, on
                 <span
                   className={[
                     'shrink-0 text-xs',
-                    active && !item.danger ? 'text-ink-600' : 'text-ink-400'
+                    lit && !item.danger ? 'text-ink-600' : 'text-ink-400'
                   ].join(' ')}
                 >
                   {item.mark ?? item.hint}
