@@ -105,6 +105,29 @@ describe('the database grid, Delete and Backspace', () => {
   })
 })
 
+describe('the database Table on a touch screen', () => {
+  it("leaves each row's Open to hover, since the page glyph opens the page everywhere", async () => {
+    await render(database())
+    const rows = [...host.querySelectorAll('tbody tr.group\\/row')]
+    expect(rows).toHaveLength(3)
+    for (const row of rows) {
+      const opens = [...row.querySelectorAll<HTMLButtonElement>('button[title^="Open page"]')]
+      const overlay = opens.find((button) => button.textContent?.trim() === 'Open')
+      const glyph = opens.find((button) => button !== overlay)
+      expect(overlay?.classList.contains('zn-hover-only')).toBe(true)
+      expect(overlay?.classList.contains('zn-hover-reveal')).toBe(false)
+      expect(glyph?.className).not.toMatch(/zn-hover/)
+    }
+  })
+
+  it('keeps the select column 40 px wide when a long title widens the table', async () => {
+    await render(database())
+    const select = [host.querySelector('thead th'), ...host.querySelectorAll('tbody tr.group\\/row > td:first-child')]
+    expect(select).toHaveLength(4)
+    for (const cell of select) expect(cell?.classList.contains('min-w-10')).toBe(true)
+  })
+})
+
 describe('the database grid, dd with Vim mode on', () => {
   it('hands the keyboard back to the grid once the row is gone', async () => {
     useStore.setState({ vimMode: true })
