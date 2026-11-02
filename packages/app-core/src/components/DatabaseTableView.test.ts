@@ -128,6 +128,21 @@ describe('the database Table on a touch screen', () => {
   })
 })
 
+describe('the database Table, opening', () => {
+  it('leaves the scroll alone until the cursor moves', async () => {
+    // A first cell wider than a narrow pane would otherwise scroll the select
+    // column out of sight the moment the Table opens.
+    const scrollIntoView = vi.fn()
+    Element.prototype.scrollIntoView = scrollIntoView
+    const grid = await render(database())
+    expect(scrollIntoView).not.toHaveBeenCalled()
+
+    await press(grid, 'ArrowDown')
+
+    expect(scrollIntoView).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('the database grid, dd with Vim mode on', () => {
   it('hands the keyboard back to the grid once the row is gone', async () => {
     useStore.setState({ vimMode: true })

@@ -260,8 +260,12 @@ export function DatabaseTableView({ csvPath, doc, view, isActive, onOpenColumns 
     }))
   }, [rows.length, columns.length])
 
-  // Scroll the active cell into view as it moves.
+  // Scroll the active cell into view as it moves, and only then: on opening, a
+  // first cell wider than a narrow pane would push the select column out of sight.
+  const scrolledTo = useRef(active)
   useEffect(() => {
+    if (scrolledTo.current.row === active.row && scrolledTo.current.col === active.col) return
+    scrolledTo.current = active
     const el = gridRef.current?.querySelector('[data-active-cell="true"]') as HTMLElement | null
     el?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   }, [active])
