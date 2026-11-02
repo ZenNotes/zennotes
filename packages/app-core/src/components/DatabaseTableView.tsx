@@ -707,7 +707,7 @@ export function DatabaseTableView({ csvPath, doc, view, isActive, onOpenColumns 
         <table className="w-full border-collapse text-sm">
           <thead className="sticky top-0 z-10 bg-paper-100">
             <tr className="border-b border-paper-300/70">
-              <th className="group/sa w-10 border-r border-paper-300/40 align-middle">
+              <th className="group/sa w-10 min-w-10 border-r border-paper-300/40 align-middle">
                 <div
                   className={[
                     'flex items-center justify-center',
@@ -823,7 +823,7 @@ export function DatabaseTableView({ csvPath, doc, view, isActive, onOpenColumns 
                   isSel ? 'bg-accent/8' : 'hover:bg-paper-200/30'
                 ].join(' ')}
               >
-                <td className="w-10 border-r border-paper-300/40 align-middle">
+                <td className="w-10 min-w-10 border-r border-paper-300/40 align-middle">
                   <div
                     className={[
                       'flex items-center justify-center',
