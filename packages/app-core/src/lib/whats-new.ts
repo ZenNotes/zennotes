@@ -40,6 +40,15 @@ export const CLOUD_ANNOUNCEMENT = {
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    version: '2.81.1',
+    highlights: [
+      {
+        title: 'Databases in a narrow pane',
+        body: '+ Row and the header menu stay on screen, and a Table with a long name opens at its first column. On a touch screen, a row no longer hides the end of its name behind Open.'
+      }
+    ]
+  },
+  {
     version: '2.81.0',
     highlights: [
       {
