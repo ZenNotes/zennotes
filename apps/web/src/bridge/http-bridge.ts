@@ -786,7 +786,7 @@ const dbOps = createDatabaseOps({
 })
 
 const {
-  openDatabase,
+  openDatabase: openDatabaseOrThrow,
   writeDatabaseRows,
   writeDatabaseSchema,
   createDatabase,
@@ -794,6 +794,20 @@ const {
   renameDatabase,
   listDatabases
 } = dbOps
+
+/** The bridge contract answers null for a database that is gone, as the
+ *  desktop's main process does, and core then forgets it and closes its tab.
+ *  The shared ops throw "Database not found" for it instead, which the grid
+ *  showed as an error. Anything else (a file that cannot be read, a schema
+ *  that cannot be parsed) still throws. */
+async function openDatabase(relPath: string): ReturnType<ZenBridge['openDatabase']> {
+  try {
+    return await openDatabaseOrThrow(relPath)
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith('Database not found')) return null
+    throw err
+  }
+}
 
 // --------------------------------------------------------------------
 // Demo tour
