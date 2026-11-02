@@ -3514,8 +3514,10 @@ interface Store {
   templatePaletteOpen: boolean
   /** "Embed existing drawing" picker visibility. */
   embedDrawingPaletteOpen: boolean
-  /** The Notion import dialog. The run itself lives in main and outlasts it. */
-  notionImportOpen: boolean
+  /** The Import window and what it's showing. A run lives in main and outlasts it. */
+  importDialog: 'choose' | 'notion' | 'obsidian' | null
+  /** Where the last import this session landed, for onboarding to say so. */
+  lastImportFolder: string | null
   /** The note the cover picker is open for, or null while it is closed. */
   noteCoverPickerPath: string | null
   /** The tab and search the picker opens on (`:cover unsplash fog`, Space l u);
@@ -4417,7 +4419,8 @@ interface Store {
   openThisMonthMonthlyNote: (options?: PeriodicNoteOpenOptions) => Promise<void>
   setTemplatePaletteOpen: (open: boolean) => void
   setEmbedDrawingPaletteOpen: (open: boolean) => void
-  setNotionImportOpen: (open: boolean) => void
+  setImportDialog: (dialog: 'choose' | 'notion' | 'obsidian' | null) => void
+  setLastImportFolder: (folder: string | null) => void
   setNoteCoverPickerPath: (
     path: string | null,
     start?: { tab: 'covers' | 'unsplash'; query: string } | null
@@ -6593,7 +6596,8 @@ export const useStore = create<Store>((set, get) => {
   outlinePaletteOpen: false,
   templatePaletteOpen: false,
   embedDrawingPaletteOpen: false,
-  notionImportOpen: false,
+  importDialog: null,
+  lastImportFolder: null,
   noteCoverPickerPath: null,
   noteCoverPickerStart: null,
   noteCoverReposition: null,
@@ -9954,7 +9958,8 @@ export const useStore = create<Store>((set, get) => {
     }),
   setBufferPaletteOpen: (open) => set({ bufferPaletteOpen: open }),
   setEmbedDrawingPaletteOpen: (open) => set({ embedDrawingPaletteOpen: open }),
-  setNotionImportOpen: (open) => set({ notionImportOpen: open }),
+  setImportDialog: (dialog) => set({ importDialog: dialog }),
+  setLastImportFolder: (folder) => set({ lastImportFolder: folder }),
   setNoteCoverPickerPath: (path, start = null) =>
     set({ noteCoverPickerPath: path, noteCoverPickerStart: path ? start : null }),
   setNoteCoverReposition: (reposition) => set({ noteCoverReposition: reposition }),

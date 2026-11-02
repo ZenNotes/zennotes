@@ -307,6 +307,7 @@ import {
 import { sendUsageCount } from "./usage-count";
 import { unsplash } from "./unsplash";
 import { notionImport } from "./notion-import";
+import { obsidianImport } from "./obsidian-import";
 import {
   hideTray,
   parseTraySyncStatus,
@@ -3890,6 +3891,22 @@ function registerIpc(): void {
   handle(IPC.APP_USAGE_COUNT, async (_e, event: unknown) => await sendUsageCount(event));
   // The vault comes from main-process state, like every other handler. A token
   // goes in and never comes back out.
+  handle(IPC.OBSIDIAN_IMPORT_STATUS, () => obsidianImport.status());
+  handle(IPC.OBSIDIAN_IMPORT_PICK, async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const vault = isRemoteWorkspaceActive() ? null : win ? windowVaults.vaultForWindow(win.id) : currentVault;
+    return await obsidianImport.pick(win, vault?.root ?? null);
+  });
+  handle(IPC.OBSIDIAN_IMPORT_START, async (_e, options: { includeTasks?: unknown; excluded?: unknown } | undefined) => {
+    if (isRemoteWorkspaceActive()) throw new Error("Imports write to a local vault.");
+    await obsidianImport.start(requireVault().root, options ?? {});
+  });
+  handle(IPC.OBSIDIAN_IMPORT_STOP, () => {
+    obsidianImport.stop();
+  });
+  handle(IPC.OBSIDIAN_IMPORT_DISMISS, () => {
+    obsidianImport.dismiss();
+  });
   handle(IPC.NOTION_IMPORT_STATUS, async () => {
     const remote = isRemoteWorkspaceActive();
     const win = currentIpcWindow();

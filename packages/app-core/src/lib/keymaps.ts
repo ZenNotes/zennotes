@@ -56,7 +56,7 @@ export type KeymapId =
   | "vim.leaderPrefix"
   | "vim.leaderOpenBuffers"
   | "vim.leaderWorkflows"
-  | "vim.leaderNotionImport"
+  | "vim.leaderImport"
   | "vim.leaderCloudConflicts"
   | "vim.leaderAtlas"
   | "vim.leaderSearchNotes"
@@ -611,13 +611,13 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     maxTokens: 1,
   },
   {
-    id: "vim.leaderNotionImport",
+    id: "vim.leaderImport",
     kind: "sequence",
     scope: "leader",
     group: "vim",
-    title: "Leader: import from Notion",
+    title: "Leader: import notes",
     // Lowercase `i` already inserts a template.
-    description: "Open the Notion import dialog.",
+    description: "Open the Import window.",
     defaultBinding: "I",
     vimOnly: true,
     maxTokens: 1,

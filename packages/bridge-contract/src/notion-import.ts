@@ -49,4 +49,26 @@ export interface NotionImportTree {
   items: NotionTreeItem[]
 }
 
+/** One line in the Obsidian picker: the whole vault's shape is known up front. */
+export interface ObsidianTreeItem {
+  /** Path from the vault's top. */
+  id: string
+  title: string
+  kind: 'folder' | 'note'
+  noteCount?: number
+  fileCount?: number
+  children?: ObsidianTreeItem[]
+}
+
+export interface ObsidianImportScan {
+  /** The folder, shown to the person and used to open it as its own vault. */
+  path: string
+  name: string
+  /** It holds a `.obsidian` settings folder. */
+  isObsidian: boolean
+  notes: number
+  files: number
+  tree: ObsidianTreeItem[]
+}
+
 export type NotionImportTokenResult = { ok: true } | { ok: false; error: string }

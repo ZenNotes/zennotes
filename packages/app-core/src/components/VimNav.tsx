@@ -1098,13 +1098,13 @@ export function VimNav(): JSX.Element | null {
           return
         }
         if (
-          window.zen.getCapabilities().supportsNotionImport === true &&
-          matchesSequenceToken(e, overrides, 'vim.leaderNotionImport')
+          window.zen.getCapabilities().supportsImport === true &&
+          matchesSequenceToken(e, overrides, 'vim.leaderImport')
         ) {
           e.preventDefault()
           e.stopImmediatePropagation()
           resetLeader()
-          state.setNotionImportOpen(true)
+          state.setImportDialog('choose')
           return
         }
         if (state.workflowsEnabled && matchesSequenceToken(e, overrides, 'vim.leaderWorkflows')) {

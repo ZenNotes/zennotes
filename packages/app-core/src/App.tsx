@@ -239,9 +239,9 @@ const EmbedDrawingPalette = lazy(async () => {
   const module = await import('./components/EmbedDrawingPalette')
   return { default: module.EmbedDrawingPalette }
 })
-const NotionImportModal = lazy(async () => {
-  const module = await import('./components/NotionImportModal')
-  return { default: module.NotionImportModal }
+const ImportModal = lazy(async () => {
+  const module = await import('./components/ImportModal')
+  return { default: module.ImportModal }
 })
 const NoteCoverPicker = lazy(async () => {
   const module = await import('./components/NoteCoverPicker')
@@ -359,7 +359,7 @@ function App(): JSX.Element {
   const setTemplatePaletteOpen = useStore((s) => s.setTemplatePaletteOpen)
   const embedDrawingPaletteOpen = useStore((s) => s.embedDrawingPaletteOpen)
   const noteCoverPickerPath = useStore((s) => s.noteCoverPickerPath)
-  const notionImportOpen = useStore((s) => s.notionImportOpen)
+  const importDialog = useStore((s) => s.importDialog)
   const setEmbedDrawingPaletteOpen = useStore((s) => s.setEmbedDrawingPaletteOpen)
   const sidebarOpen = useStore((s) => s.sidebarOpen)
   const noteListOpen = useStore((s) => s.noteListOpen)
@@ -1271,6 +1271,7 @@ function App(): JSX.Element {
         {!zenMode && <TitleBar standalone />}
         <Suspense fallback={<div className="flex-1" />}>
           <OnboardingWizard />
+          {importDialog && <ImportModal />}
         </Suspense>
         <PromptHost />
         <ConfirmHost />
@@ -1360,9 +1361,9 @@ function App(): JSX.Element {
           <EmbedDrawingPalette />
         </Suspense>
       )}
-      {notionImportOpen && (
+      {importDialog && (
         <Suspense fallback={null}>
-          <NotionImportModal />
+          <ImportModal />
         </Suspense>
       )}
       {noteCoverPickerPath && (

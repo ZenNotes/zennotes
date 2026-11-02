@@ -8,21 +8,27 @@ import {
   type WorkspaceMode
 } from '@shared/ipc'
 import { normalizeDailyNotesDirectory } from '../lib/vault-layout'
+import { VaultGlyph, WorkspaceGlyph } from './ImportGlyphs'
 import { Button } from './ui/Button'
 import appIcon from '../assets/zennotes-app-icon.png'
 
-type StepId = 'welcome' | 'vim' | 'theme' | 'vault' | 'layout' | 'done'
+type StepId = 'welcome' | 'vim' | 'theme' | 'vault' | 'layout' | 'import' | 'done'
 
-const STEP_ORDER: StepId[] = ['welcome', 'vim', 'theme', 'vault', 'layout', 'done']
+const STEP_ORDER: StepId[] = ['welcome', 'vim', 'theme', 'vault', 'layout', 'import', 'done']
 
 /**
  * The steps this wizard shows. A vault on a ZenNotes Server was set up where
  * it lives, and its layout is the server's, shared with every other app
  * connected to it, so there is no layout to choose: the wizard goes from the
  * vault straight to the end. A folder on this machine still gets the step.
+ * Importing writes to a local vault, from a host that can run one.
  */
-function visibleSteps(workspaceMode: WorkspaceMode): StepId[] {
-  return workspaceMode === 'remote' ? STEP_ORDER.filter((step) => step !== 'layout') : STEP_ORDER
+function visibleSteps(workspaceMode: WorkspaceMode, canImport: boolean): StepId[] {
+  return STEP_ORDER.filter((step) => {
+    if (step === 'layout') return workspaceMode !== 'remote'
+    if (step === 'import') return workspaceMode !== 'remote' && canImport
+    return true
+  })
 }
 
 /** The step after `step` among `steps`, which may not include `step` itself. */
@@ -36,6 +42,7 @@ const STEP_LABELS: Record<StepId, string> = {
   theme: 'Theme',
   vault: 'Vault',
   layout: 'Layout',
+  import: 'Import',
   done: 'Done'
 }
 
@@ -145,7 +152,7 @@ export function OnboardingWizard(): JSX.Element {
   const isServerVaultSetup =
     appInfo.runtime === 'web' && !capabilities.supportsLocalFilesystemPickers
   const canConnectRemote = appInfo.runtime === 'desktop' && capabilities.supportsRemoteWorkspace
-  const steps = visibleSteps(workspaceMode)
+  const steps = visibleSteps(workspaceMode, capabilities.supportsImport === true)
 
   // Start where the user actually needs to act: past the vault step if a
   // vault is already connected (returning user who never finished onboarding).
@@ -201,6 +208,8 @@ export function OnboardingWizard(): JSX.Element {
   // Enter to advance, Esc to skip, ←/→ to navigate.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
+      // The Import window opens over this step and has its own keys.
+      if (document.querySelector('[data-import-dialog]')) return
       const target = e.target as HTMLElement | null
       const inEditable =
         !!target &&
@@ -288,6 +297,7 @@ export function OnboardingWizard(): JSX.Element {
               onNext={goNext}
             />
           )}
+          {stepId === 'import' && <ImportStep hasVault={!!vault} onBack={goBack} onNext={goNext} />}
           {stepId === 'done' && (
             <DoneStep
               hasVault={!!vault}
@@ -921,6 +931,101 @@ function LayoutStep({
 
       <StepFooter primaryLabel="Continue →" onPrimary={onNext} onBack={onBack} />
     </div>
+  )
+}
+
+function ImportStep({
+  hasVault,
+  onBack,
+  onNext
+}: {
+  hasVault: boolean
+  onBack: () => void
+  onNext: () => void
+}): JSX.Element {
+  const setImportDialog = useStore((s) => s.setImportDialog)
+  const lastImportFolder = useStore((s) => s.lastImportFolder)
+
+  if (!hasVault) {
+    return (
+      <div>
+        <StepHeading
+          eyebrow="Step 5"
+          title="Bring your notes"
+          subtitle="Pick a vault first: imported notes go inside it."
+        />
+        <StepFooter primaryLabel="Continue →" onPrimary={onNext} onBack={onBack} />
+      </div>
+    )
+  }
+  return (
+    <div>
+      <StepHeading
+        eyebrow="Step 5"
+        title="Bring your notes"
+        subtitle="Coming from another app? Choose what comes over. Nothing changes in the app you're leaving, and you can do this any time from the command palette."
+      />
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <ImportSourceCard
+          id="notion"
+          title="From Notion"
+          description="Sign in, then pick pages, databases and files."
+          icon={<WorkspaceGlyph width={20} height={20} />}
+          onClick={() => setImportDialog('notion')}
+        />
+        <ImportSourceCard
+          id="obsidian"
+          title="From Obsidian"
+          description="Copy a vault in, or open it as it is."
+          icon={<VaultGlyph width={20} height={20} />}
+          onClick={() => setImportDialog('obsidian')}
+        />
+      </div>
+      {lastImportFolder && (
+        <div
+          className="mt-4 rounded-xl border border-accent/30 bg-accent/10 px-4 py-3 text-sm text-ink-800"
+          data-onboarding-imported
+        >
+          Imported into {lastImportFolder}.
+        </div>
+      )}
+      <StepFooter
+        primaryLabel={lastImportFolder ? 'Continue →' : 'Start fresh →'}
+        onPrimary={onNext}
+        onBack={onBack}
+      />
+    </div>
+  )
+}
+
+function ImportSourceCard({
+  id,
+  title,
+  description,
+  icon,
+  onClick
+}: {
+  id: string
+  title: string
+  description: string
+  icon: JSX.Element
+  onClick: () => void
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      data-onboarding-import={id}
+      className="flex items-start gap-3 rounded-2xl border border-paper-300/60 bg-paper-100/60 px-4 py-4 text-left transition-colors hover:bg-paper-200/60"
+    >
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-paper-300/60 bg-paper-50 text-ink-700">
+        {icon}
+      </span>
+      <span className="min-w-0">
+        <span className="block text-sm font-medium text-ink-900">{title}</span>
+        <span className="mt-1 block text-xs leading-5 text-ink-600">{description}</span>
+      </span>
+    </button>
   )
 }
 

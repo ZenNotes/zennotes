@@ -231,12 +231,28 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       run: () => getState().createAndOpen('inbox', '', { focusTitle: true })
     },
     {
+      id: 'vault.import',
+      title: 'Import Notes…',
+      category: 'Vault',
+      keywords: 'import migrate bring notes notion obsidian move from',
+      when: () => window.zen.getCapabilities().supportsImport === true,
+      run: () => getState().setImportDialog('choose')
+    },
+    {
       id: 'vault.import-notion',
       title: 'Import from Notion…',
       category: 'Vault',
       keywords: 'notion import migrate workspace pages databases',
-      when: () => window.zen.getCapabilities().supportsNotionImport === true,
-      run: () => getState().setNotionImportOpen(true)
+      when: () => window.zen.getCapabilities().supportsImport === true,
+      run: () => getState().setImportDialog('notion')
+    },
+    {
+      id: 'vault.import-obsidian',
+      title: 'Import from Obsidian…',
+      category: 'Vault',
+      keywords: 'obsidian import migrate vault folder copy',
+      when: () => window.zen.getCapabilities().supportsImport === true,
+      run: () => getState().setImportDialog('obsidian')
     },
     {
       id: 'database.new',

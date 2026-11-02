@@ -47,7 +47,8 @@ import type {
   NotionImportStatus,
   NotionImportTokenResult,
   NotionImportTree,
-  NotionTreeItem
+  NotionTreeItem,
+  ObsidianImportScan
 } from './notion-import.js'
 import type { CustomTemplateFile, WriteTemplateInput } from './templates.js'
 import type {
@@ -126,9 +127,9 @@ export interface ZenCapabilities {
   supportsLocalFilesystemPickers: boolean
   supportsRemoteWorkspace: boolean
   supportsCloudSync?: boolean
-  /** Importing a Notion workspace into a local vault. Desktop only: the run
-   *  needs a main process to reach Notion and write the vault. */
-  supportsNotionImport?: boolean
+  /** Importing Notion or Obsidian into a local vault. Desktop only: a run
+   *  needs a main process to reach Notion, read a folder and write the vault. */
+  supportsImport?: boolean
   supportsCliInstall: boolean
   /** Custom templates require local-filesystem CRUD; false on web/remote. */
   supportsCustomTemplates: boolean
@@ -203,6 +204,13 @@ export interface ZenBridge {
   /** Unsplash photo search for the cover picker, sent straight to
    *  api.unsplash.com with the person's own access key. A host without it
    *  shows no Unsplash tab. Never rejects: a failure comes back as its reason. */
+  obsidianImportStatus?(): Promise<{ running: boolean; progress: NotionImportProgress | null }>
+  /** Opens the system's folder dialog. Null when the person cancels. */
+  obsidianImportPick?(): Promise<ObsidianImportScan | null>
+  obsidianImportStart?(options: { includeTasks: boolean; excluded: string[] }): Promise<void>
+  obsidianImportStop?(): Promise<void>
+  obsidianImportDismiss?(): Promise<void>
+  onObsidianImportProgress?(cb: (progress: NotionImportProgress) => void): () => void
   notionImportStatus?(): Promise<NotionImportStatus>
   notionImportSaveToken?(token: string): Promise<NotionImportTokenResult>
   notionImportSignIn?(): Promise<void>

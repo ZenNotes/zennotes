@@ -173,7 +173,7 @@ async function pathExists(target: string): Promise<boolean> {
   }
 }
 
-async function unusedFolderName(parent: string, base: string): Promise<string> {
+export async function unusedFolderName(parent: string, base: string): Promise<string> {
   let name = base
   let n = 1
   while (await pathExists(path.join(parent, name))) {
@@ -183,7 +183,7 @@ async function unusedFolderName(parent: string, base: string): Promise<string> {
   return name
 }
 
-async function moveIntoVault(from: string, to: string): Promise<void> {
+export async function moveIntoVault(from: string, to: string): Promise<void> {
   try {
     await fs.rename(from, to)
     return

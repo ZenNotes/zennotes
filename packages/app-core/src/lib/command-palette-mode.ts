@@ -33,7 +33,6 @@ export const COMMAND_OVERLAY_FLAGS = [
   'outlinePaletteOpen',
   'templatePaletteOpen',
   'embedDrawingPaletteOpen',
-  'notionImportOpen',
   'whatsNewOpen'
 ] as const
 
@@ -42,9 +41,10 @@ export type CommandOverlayFlag = (typeof COMMAND_OVERLAY_FLAGS)[number]
 /**
  * The same, for overlays the store tracks as a value that is non-null while
  * they are up: the cover picker (the note it is for) and a cover in
- * reposition mode, which takes the keyboard on the cover itself.
+ * reposition mode, which takes the keyboard on the cover itself, and the Import
+ * window (what it's showing).
  */
-export const COMMAND_OVERLAY_FIELDS = ['noteCoverPickerPath', 'noteCoverReposition'] as const
+export const COMMAND_OVERLAY_FIELDS = ['noteCoverPickerPath', 'noteCoverReposition', 'importDialog'] as const
 
 export type CommandOverlayField = (typeof COMMAND_OVERLAY_FIELDS)[number]
 

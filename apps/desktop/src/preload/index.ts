@@ -21,7 +21,8 @@ import type {
   NotionImportStatus,
   NotionImportTokenResult,
   NotionImportTree,
-  NotionTreeItem
+  NotionTreeItem,
+  ObsidianImportScan
 } from '@zennotes/bridge-contract/notion-import'
 import type {
   CloudAccountConnectResult,
@@ -140,7 +141,7 @@ const DESKTOP_CAPABILITIES: ZenCapabilities = {
   supportsLocalFilesystemPickers: true,
   supportsRemoteWorkspace: true,
   supportsCloudSync: true,
-  supportsNotionImport: true,
+  supportsImport: true,
   // CLI install is supported on macOS and Linux via /usr/local/bin or
   // ~/.local/bin symlinks. Windows uses a different model (PATH munging)
   // and is gated to a follow-up.
@@ -280,6 +281,18 @@ const api: ZenBridge = {
   getAppUpdateState: (): Promise<AppUpdateState> => ipcRenderer.invoke(IPC.APP_UPDATER_GET_STATE),
   checkForAppUpdates: (): Promise<AppUpdateState> => ipcRenderer.invoke(IPC.APP_UPDATER_CHECK),
   sendUsageCount: (event: 'install' | 'update'): Promise<void> => ipcRenderer.invoke(IPC.APP_USAGE_COUNT, event),
+  obsidianImportStatus: (): Promise<{ running: boolean; progress: NotionImportProgress | null }> =>
+    ipcRenderer.invoke(IPC.OBSIDIAN_IMPORT_STATUS),
+  obsidianImportPick: (): Promise<ObsidianImportScan | null> => ipcRenderer.invoke(IPC.OBSIDIAN_IMPORT_PICK),
+  obsidianImportStart: (options: { includeTasks: boolean; excluded: string[] }): Promise<void> =>
+    ipcRenderer.invoke(IPC.OBSIDIAN_IMPORT_START, options),
+  obsidianImportStop: (): Promise<void> => ipcRenderer.invoke(IPC.OBSIDIAN_IMPORT_STOP),
+  obsidianImportDismiss: (): Promise<void> => ipcRenderer.invoke(IPC.OBSIDIAN_IMPORT_DISMISS),
+  onObsidianImportProgress: (cb: (progress: NotionImportProgress) => void): (() => void) => {
+    const listener = (_: unknown, progress: NotionImportProgress): void => cb(progress)
+    ipcRenderer.on(IPC.OBSIDIAN_IMPORT_ON_PROGRESS, listener)
+    return () => ipcRenderer.removeListener(IPC.OBSIDIAN_IMPORT_ON_PROGRESS, listener)
+  },
   notionImportStatus: (): Promise<NotionImportStatus> => ipcRenderer.invoke(IPC.NOTION_IMPORT_STATUS),
   notionImportSaveToken: (token: string): Promise<NotionImportTokenResult> =>
     ipcRenderer.invoke(IPC.NOTION_IMPORT_SAVE_TOKEN, token),

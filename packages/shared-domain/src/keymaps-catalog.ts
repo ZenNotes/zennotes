@@ -89,7 +89,7 @@ export const KEYMAP_CATALOG: KeymapCatalogEntry[] = [
   { id: "vim.leaderOpenBuffers", group: "vim", defaultBinding: "o", title: "Leader: open buffers" },
   { id: "vim.leaderCloudConflicts", group: "vim", defaultBinding: "r", title: "Leader: review Cloud conflicts" },
   { id: "vim.leaderWorkflows", group: "vim", defaultBinding: "a", title: "Leader: open workflows" },
-  { id: "vim.leaderNotionImport", group: "vim", defaultBinding: "I", title: "Leader: import from Notion" },
+  { id: "vim.leaderImport", group: "vim", defaultBinding: "I", title: "Leader: import notes" },
   { id: "vim.leaderAtlas", group: "vim", defaultBinding: "g", title: "Leader: open atlas" },
   { id: "vim.leaderSearchNotes", group: "vim", defaultBinding: "f", title: "Leader: search notes" },
   { id: "vim.leaderSearchGroup", group: "vim", defaultBinding: "s", title: "Leader: search…" },
