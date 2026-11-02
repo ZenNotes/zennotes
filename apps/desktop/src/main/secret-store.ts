@@ -344,6 +344,81 @@ export async function deleteCloudAccountKeySecrets(baseUrl: string): Promise<voi
   })
 }
 
+const NOTION_KEYTAR_SERVICE = 'ZenNotes Notion'
+const NOTION_TOKEN_NAME = 'notion:token'
+
+const NOTION_SESSION_NAME = 'notion:session'
+
+/** The Sign in with Notion session, as JSON: access and refresh tokens. */
+export async function getNotionSessionSecret(): Promise<string | null> {
+  const keytar = await loadKeytar()
+  if (keytar) return keytar.getPassword(NOTION_KEYTAR_SERVICE, NOTION_SESSION_NAME)
+  const encoded = (await loadFallbackSecrets())[NOTION_SESSION_NAME]
+  return encoded ? decodeSecret(encoded) : null
+}
+
+export async function setNotionSessionSecret(session: string): Promise<boolean> {
+  const keytar = await loadKeytar()
+  if (keytar) {
+    await keytar.setPassword(NOTION_KEYTAR_SERVICE, NOTION_SESSION_NAME, session)
+    return true
+  }
+  const encoded = encodeSecret(session)
+  if (!encoded) return false
+  await updateFallbackSecrets((fallback) => {
+    fallback[NOTION_SESSION_NAME] = encoded
+  })
+  return true
+}
+
+export async function deleteNotionSessionSecret(): Promise<void> {
+  const keytar = await loadKeytar()
+  if (keytar) {
+    await keytar.deletePassword(NOTION_KEYTAR_SERVICE, NOTION_SESSION_NAME)
+    return
+  }
+  if (!(NOTION_SESSION_NAME in (await loadFallbackSecrets()))) return
+  await updateFallbackSecrets((fallback) => {
+    delete fallback[NOTION_SESSION_NAME]
+  })
+}
+
+/** The person's Notion integration token, for importing a workspace. */
+export async function getNotionTokenSecret(): Promise<string | null> {
+  const keytar = await loadKeytar()
+  if (keytar) return keytar.getPassword(NOTION_KEYTAR_SERVICE, NOTION_TOKEN_NAME)
+  const encoded = (await loadFallbackSecrets())[NOTION_TOKEN_NAME]
+  return encoded ? decodeSecret(encoded) : null
+}
+
+export async function setNotionTokenSecret(token: string): Promise<boolean> {
+  const normalized = token.trim()
+  if (!normalized) return false
+  const keytar = await loadKeytar()
+  if (keytar) {
+    await keytar.setPassword(NOTION_KEYTAR_SERVICE, NOTION_TOKEN_NAME, normalized)
+    return true
+  }
+  const encoded = encodeSecret(normalized)
+  if (!encoded) return false
+  await updateFallbackSecrets((fallback) => {
+    fallback[NOTION_TOKEN_NAME] = encoded
+  })
+  return true
+}
+
+export async function deleteNotionTokenSecret(): Promise<void> {
+  const keytar = await loadKeytar()
+  if (keytar) {
+    await keytar.deletePassword(NOTION_KEYTAR_SERVICE, NOTION_TOKEN_NAME)
+    return
+  }
+  if (!(NOTION_TOKEN_NAME in (await loadFallbackSecrets()))) return
+  await updateFallbackSecrets((fallback) => {
+    delete fallback[NOTION_TOKEN_NAME]
+  })
+}
+
 const UNSPLASH_KEYTAR_SERVICE = 'ZenNotes Unsplash'
 const UNSPLASH_ACCESS_KEY_NAME = 'unsplash:access-key'
 

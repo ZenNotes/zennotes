@@ -239,6 +239,10 @@ const EmbedDrawingPalette = lazy(async () => {
   const module = await import('./components/EmbedDrawingPalette')
   return { default: module.EmbedDrawingPalette }
 })
+const NotionImportModal = lazy(async () => {
+  const module = await import('./components/NotionImportModal')
+  return { default: module.NotionImportModal }
+})
 const NoteCoverPicker = lazy(async () => {
   const module = await import('./components/NoteCoverPicker')
   return { default: module.NoteCoverPicker }
@@ -355,6 +359,7 @@ function App(): JSX.Element {
   const setTemplatePaletteOpen = useStore((s) => s.setTemplatePaletteOpen)
   const embedDrawingPaletteOpen = useStore((s) => s.embedDrawingPaletteOpen)
   const noteCoverPickerPath = useStore((s) => s.noteCoverPickerPath)
+  const notionImportOpen = useStore((s) => s.notionImportOpen)
   const setEmbedDrawingPaletteOpen = useStore((s) => s.setEmbedDrawingPaletteOpen)
   const sidebarOpen = useStore((s) => s.sidebarOpen)
   const noteListOpen = useStore((s) => s.noteListOpen)
@@ -1353,6 +1358,11 @@ function App(): JSX.Element {
       {embedDrawingPaletteOpen && (
         <Suspense fallback={null}>
           <EmbedDrawingPalette />
+        </Suspense>
+      )}
+      {notionImportOpen && (
+        <Suspense fallback={null}>
+          <NotionImportModal />
         </Suspense>
       )}
       {noteCoverPickerPath && (

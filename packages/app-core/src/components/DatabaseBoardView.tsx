@@ -15,6 +15,7 @@ import {
   optionLabel,
   splitMultiSelect,
   splitNoteLinks,
+  noteLinkTitle,
   isCheckboxTrue
 } from '../lib/database-cells'
 import {
@@ -367,7 +368,7 @@ export function DatabaseBoardView({ csvPath, doc, view, isActive = true }: Props
                           else if (f.type === 'date') content = formatDate(v)
                           else if (f.type === 'multiSelect') content = splitMultiSelect(v).map((x) => optionLabel(f, x)).join(', ')
                           else if (f.type === 'select') content = optionLabel(f, v)
-                          else if (f.type === 'note' || f.type === 'noteMulti') content = splitNoteLinks(v).join(', ')
+                          else if (f.type === 'note' || f.type === 'noteMulti') content = splitNoteLinks(v).map(noteLinkTitle).join(', ')
                           else content = v
                           if (!content) return null
                           return (

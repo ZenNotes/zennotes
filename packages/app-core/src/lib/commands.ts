@@ -231,6 +231,14 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       run: () => getState().createAndOpen('inbox', '', { focusTitle: true })
     },
     {
+      id: 'vault.import-notion',
+      title: 'Import from Notion…',
+      category: 'Vault',
+      keywords: 'notion import migrate workspace pages databases',
+      when: () => window.zen.getCapabilities().supportsNotionImport === true,
+      run: () => getState().setNotionImportOpen(true)
+    },
+    {
       id: 'database.new',
       title: 'New Database',
       category: 'Note',

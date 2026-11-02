@@ -9,6 +9,7 @@ import {
   splitMultiSelect,
   joinMultiSelect,
   splitNoteLinks,
+  noteLinkTitle,
   joinNoteLinks,
   isCheckboxTrue
 } from '@shared/database-transforms'
@@ -22,7 +23,7 @@ import type {
   SelectOptionsSource
 } from '@shared/databases'
 
-export { splitMultiSelect, joinMultiSelect, splitNoteLinks, joinNoteLinks, isCheckboxTrue }
+export { splitMultiSelect, joinMultiSelect, splitNoteLinks, noteLinkTitle, joinNoteLinks, isCheckboxTrue }
 // Record-level pure ops moved to shared-domain so the zn CLI shares them (#556).
 export {
   addRow,

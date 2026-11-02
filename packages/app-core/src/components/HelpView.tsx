@@ -120,6 +120,7 @@ function resolveShortcutKeys(
     }
     if (action === 'Switch vault') return leaderShortcut(overrides, 'vim.leaderSwitchVault')
     if (action === 'Open workflows') return leaderShortcut(overrides, 'vim.leaderWorkflows')
+    if (action === 'Import from Notion') return leaderShortcut(overrides, 'vim.leaderNotionImport')
     if (action === 'Review Cloud conflicts') {
       return leaderShortcut(overrides, 'vim.leaderCloudConflicts')
     }

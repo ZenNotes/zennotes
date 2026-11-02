@@ -1097,6 +1097,16 @@ export function VimNav(): JSX.Element | null {
           void state.openAtlasView()
           return
         }
+        if (
+          window.zen.getCapabilities().supportsNotionImport === true &&
+          matchesSequenceToken(e, overrides, 'vim.leaderNotionImport')
+        ) {
+          e.preventDefault()
+          e.stopImmediatePropagation()
+          resetLeader()
+          state.setNotionImportOpen(true)
+          return
+        }
         if (state.workflowsEnabled && matchesSequenceToken(e, overrides, 'vim.leaderWorkflows')) {
           e.preventDefault()
           e.stopImmediatePropagation()

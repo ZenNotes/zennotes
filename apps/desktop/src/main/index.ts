@@ -306,6 +306,7 @@ import {
 } from "./raycast-integration";
 import { sendUsageCount } from "./usage-count";
 import { unsplash } from "./unsplash";
+import { notionImport } from "./notion-import";
 import {
   hideTray,
   parseTraySyncStatus,
@@ -3887,6 +3888,37 @@ function registerIpc(): void {
   handle(IPC.APP_UPDATER_GET_STATE, () => getAppUpdateState());
   handle(IPC.APP_UPDATER_CHECK, async () => await checkForAppUpdates());
   handle(IPC.APP_USAGE_COUNT, async (_e, event: unknown) => await sendUsageCount(event));
+  // The vault comes from main-process state, like every other handler. A token
+  // goes in and never comes back out.
+  handle(IPC.NOTION_IMPORT_STATUS, async () => {
+    const remote = isRemoteWorkspaceActive();
+    const win = currentIpcWindow();
+    const vault = win ? windowVaults.vaultForWindow(win.id) : currentVault;
+    return await notionImport.status(remote ? null : (vault?.root ?? null), remote);
+  });
+  handle(IPC.NOTION_IMPORT_SAVE_TOKEN, async (_e, token: unknown) => await notionImport.saveToken(token));
+  handle(IPC.NOTION_IMPORT_SIGN_IN, async () => {
+    await notionImport.signIn();
+  });
+  handle(IPC.NOTION_IMPORT_CANCEL_SIGN_IN, () => {
+    notionImport.cancelSignIn();
+  });
+  handle(IPC.NOTION_IMPORT_SIGN_OUT, async () => {
+    await notionImport.signOut();
+  });
+  handle(IPC.NOTION_IMPORT_TREE, async () => await notionImport.tree());
+  handle(IPC.NOTION_IMPORT_TREE_CHILDREN, async (_e, pageId: unknown) => await notionImport.treeChildren(pageId));
+  handle(IPC.NOTION_IMPORT_START, async (_e, options: { includeTasks?: unknown; excluded?: unknown } | undefined) => {
+    if (isRemoteWorkspaceActive()) throw new Error("Imports write to a local vault.");
+    await notionImport.start(requireVault().root, options ?? {});
+  });
+  handle(IPC.NOTION_IMPORT_STOP, () => {
+    notionImport.stop();
+  });
+  handle(IPC.NOTION_IMPORT_DISCARD, async () => {
+    if (isRemoteWorkspaceActive()) return;
+    await notionImport.discard(requireVault().root);
+  });
   handle(IPC.UNSPLASH_SEARCH, async (_e, query: unknown, page: unknown) => await unsplash.search(query, page));
   handle(IPC.UNSPLASH_TRACK_DOWNLOAD, async (_e, downloadLocation: unknown) => {
     await unsplash.trackDownload(downloadLocation);

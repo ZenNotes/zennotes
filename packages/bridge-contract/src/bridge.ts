@@ -42,6 +42,13 @@ import type {
   VaultTextSearchMatch,
   VaultTextSearchToolPaths
 } from './ipc.js'
+import type {
+  NotionImportProgress,
+  NotionImportStatus,
+  NotionImportTokenResult,
+  NotionImportTree,
+  NotionTreeItem
+} from './notion-import.js'
 import type { CustomTemplateFile, WriteTemplateInput } from './templates.js'
 import type {
   UnsplashKeyCheck,
@@ -119,6 +126,9 @@ export interface ZenCapabilities {
   supportsLocalFilesystemPickers: boolean
   supportsRemoteWorkspace: boolean
   supportsCloudSync?: boolean
+  /** Importing a Notion workspace into a local vault. Desktop only: the run
+   *  needs a main process to reach Notion and write the vault. */
+  supportsNotionImport?: boolean
   supportsCliInstall: boolean
   /** Custom templates require local-filesystem CRUD; false on web/remote. */
   supportsCustomTemplates: boolean
@@ -193,6 +203,17 @@ export interface ZenBridge {
   /** Unsplash photo search for the cover picker, sent straight to
    *  api.unsplash.com with the person's own access key. A host without it
    *  shows no Unsplash tab. Never rejects: a failure comes back as its reason. */
+  notionImportStatus?(): Promise<NotionImportStatus>
+  notionImportSaveToken?(token: string): Promise<NotionImportTokenResult>
+  notionImportSignIn?(): Promise<void>
+  notionImportCancelSignIn?(): Promise<void>
+  notionImportSignOut?(): Promise<void>
+  notionImportTree?(): Promise<NotionImportTree>
+  notionImportTreeChildren?(pageId: string): Promise<NotionTreeItem[]>
+  notionImportStart?(options: { includeTasks: boolean; excluded: string[] }): Promise<void>
+  notionImportStop?(): Promise<void>
+  notionImportDiscard?(): Promise<void>
+  onNotionImportProgress?(cb: (progress: NotionImportProgress) => void): () => void
   searchUnsplash?(query: string, page: number): Promise<UnsplashSearchResult>
   /** Unsplash's download tracking: a photo became a cover. Fire and forget. */
   trackUnsplashDownload?(downloadLocation: string): Promise<void>

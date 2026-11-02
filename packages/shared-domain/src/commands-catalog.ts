@@ -30,6 +30,7 @@ export const COMMAND_LEADER_TOKEN = 'Leader'
 export const COMMAND_CATALOG: CommandCatalogEntry[] = [
   { id: "note.new.quick", title: "New Quick Note", category: "Note", keywords: "scratch capture jot" },
   { id: "note.new.inbox", title: "New Note in Inbox", category: "Note", keywords: "create add write" },
+  { id: "vault.import-notion", title: "Import from Notion…", category: "Vault", keywords: "notion import migrate workspace pages databases" },
   { id: "database.new", title: "New Database", category: "Note", keywords: "database table csv records spreadsheet board kanban base" },
   { id: "database.new.kanban", title: "New Kanban", category: "Note", keywords: "kanban board columns cards todo doing done project database base" },
   { id: "task.new", title: "New Task", category: "Note", keywords: "task todo checkbox tasknotes taskforge new add create file due priority" },

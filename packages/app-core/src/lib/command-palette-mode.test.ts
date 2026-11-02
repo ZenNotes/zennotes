@@ -34,6 +34,7 @@ describe('shouldRefocusEditorAfterCommand', () => {
     outlinePaletteOpen: false,
     templatePaletteOpen: false,
     embedDrawingPaletteOpen: false,
+    notionImportOpen: false,
     whatsNewOpen: false,
     noteCoverPickerPath: null,
     noteCoverReposition: null

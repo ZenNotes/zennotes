@@ -77,6 +77,21 @@ export async function readNoteCreatedAt(
   }
 }
 
+/** Record a created date a note brought with it, from an import. */
+export async function writeNoteCreatedAt(
+  root: string,
+  rel: string,
+  createdAt: number,
+): Promise<void> {
+  if (!/\.(md|excalidraw)$/i.test(rel)) return
+  const metadata = await noteMetadataPath(root, rel)
+  await fs.mkdir(path.dirname(metadata), { recursive: true })
+  await fs.writeFile(
+    metadata,
+    JSON.stringify({ version: 1, createdAt: Math.trunc(createdAt) }) + '\n',
+  )
+}
+
 export async function prepareNoteCreation(
   root: string,
   rel: string,

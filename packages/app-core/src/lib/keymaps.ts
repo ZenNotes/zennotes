@@ -56,6 +56,7 @@ export type KeymapId =
   | "vim.leaderPrefix"
   | "vim.leaderOpenBuffers"
   | "vim.leaderWorkflows"
+  | "vim.leaderNotionImport"
   | "vim.leaderCloudConflicts"
   | "vim.leaderAtlas"
   | "vim.leaderSearchNotes"
@@ -606,6 +607,18 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     // `w` already belongs to the weekly note, so this takes `a` for automation.
     description: "Open the Workflows canvas.",
     defaultBinding: "a",
+    vimOnly: true,
+    maxTokens: 1,
+  },
+  {
+    id: "vim.leaderNotionImport",
+    kind: "sequence",
+    scope: "leader",
+    group: "vim",
+    title: "Leader: import from Notion",
+    // Lowercase `i` already inserts a template.
+    description: "Open the Notion import dialog.",
+    defaultBinding: "I",
     vimOnly: true,
     maxTokens: 1,
   },

@@ -33,6 +33,7 @@ export const COMMAND_OVERLAY_FLAGS = [
   'outlinePaletteOpen',
   'templatePaletteOpen',
   'embedDrawingPaletteOpen',
+  'notionImportOpen',
   'whatsNewOpen'
 ] as const
 

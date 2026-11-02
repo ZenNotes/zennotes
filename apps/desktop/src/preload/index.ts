@@ -17,6 +17,13 @@ import type {
   UnsplashSearchResult
 } from '@zennotes/bridge-contract/unsplash'
 import type {
+  NotionImportProgress,
+  NotionImportStatus,
+  NotionImportTokenResult,
+  NotionImportTree,
+  NotionTreeItem
+} from '@zennotes/bridge-contract/notion-import'
+import type {
   CloudAccountConnectResult,
   CloudAccountStatus,
   CloudBackupItemsPage,
@@ -133,6 +140,7 @@ const DESKTOP_CAPABILITIES: ZenCapabilities = {
   supportsLocalFilesystemPickers: true,
   supportsRemoteWorkspace: true,
   supportsCloudSync: true,
+  supportsNotionImport: true,
   // CLI install is supported on macOS and Linux via /usr/local/bin or
   // ~/.local/bin symlinks. Windows uses a different model (PATH munging)
   // and is gated to a follow-up.
@@ -272,6 +280,24 @@ const api: ZenBridge = {
   getAppUpdateState: (): Promise<AppUpdateState> => ipcRenderer.invoke(IPC.APP_UPDATER_GET_STATE),
   checkForAppUpdates: (): Promise<AppUpdateState> => ipcRenderer.invoke(IPC.APP_UPDATER_CHECK),
   sendUsageCount: (event: 'install' | 'update'): Promise<void> => ipcRenderer.invoke(IPC.APP_USAGE_COUNT, event),
+  notionImportStatus: (): Promise<NotionImportStatus> => ipcRenderer.invoke(IPC.NOTION_IMPORT_STATUS),
+  notionImportSaveToken: (token: string): Promise<NotionImportTokenResult> =>
+    ipcRenderer.invoke(IPC.NOTION_IMPORT_SAVE_TOKEN, token),
+  notionImportSignIn: (): Promise<void> => ipcRenderer.invoke(IPC.NOTION_IMPORT_SIGN_IN),
+  notionImportCancelSignIn: (): Promise<void> => ipcRenderer.invoke(IPC.NOTION_IMPORT_CANCEL_SIGN_IN),
+  notionImportSignOut: (): Promise<void> => ipcRenderer.invoke(IPC.NOTION_IMPORT_SIGN_OUT),
+  notionImportTree: (): Promise<NotionImportTree> => ipcRenderer.invoke(IPC.NOTION_IMPORT_TREE),
+  notionImportTreeChildren: (pageId: string): Promise<NotionTreeItem[]> =>
+    ipcRenderer.invoke(IPC.NOTION_IMPORT_TREE_CHILDREN, pageId),
+  notionImportStart: (options: { includeTasks: boolean; excluded: string[] }): Promise<void> =>
+    ipcRenderer.invoke(IPC.NOTION_IMPORT_START, options),
+  notionImportStop: (): Promise<void> => ipcRenderer.invoke(IPC.NOTION_IMPORT_STOP),
+  notionImportDiscard: (): Promise<void> => ipcRenderer.invoke(IPC.NOTION_IMPORT_DISCARD),
+  onNotionImportProgress: (cb: (progress: NotionImportProgress) => void): (() => void) => {
+    const listener = (_: unknown, progress: NotionImportProgress): void => cb(progress)
+    ipcRenderer.on(IPC.NOTION_IMPORT_ON_PROGRESS, listener)
+    return () => ipcRenderer.removeListener(IPC.NOTION_IMPORT_ON_PROGRESS, listener)
+  },
   searchUnsplash: (query: string, page: number): Promise<UnsplashSearchResult> =>
     ipcRenderer.invoke(IPC.UNSPLASH_SEARCH, query, page),
   trackUnsplashDownload: (downloadLocation: string): Promise<void> =>

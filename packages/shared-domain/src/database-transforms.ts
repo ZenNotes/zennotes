@@ -24,6 +24,13 @@ export function isCheckboxTrue(cell: string): boolean {
   return TRUE_VALUES.has(cell.trim().toLowerCase())
 }
 
+/** What a note link is called on screen: a target may be a whole path, which
+ *  a Board card has no room for. */
+export function noteLinkTitle(target: string): string {
+  const leaf = target.slice(target.lastIndexOf('/') + 1)
+  return leaf.replace(/\.md$/i, '') || target
+}
+
 /**
  * Extract the `[[wikilink]]` targets of a note / noteMulti cell, in order.
  * Bracket-delimited on purpose: unlike multiSelect's comma joins, a target

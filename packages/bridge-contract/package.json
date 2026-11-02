@@ -18,7 +18,8 @@
     "./custom-code-languages": "./src/custom-code-languages.ts",
     "./app-config": "./src/app-config.ts",
     "./platform": "./src/platform.ts",
-    "./unsplash": "./src/unsplash.ts"
+    "./unsplash": "./src/unsplash.ts",
+    "./notion-import": "./src/notion-import.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
