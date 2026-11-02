@@ -52,6 +52,11 @@ import {
 import { useStore, refreshCustomThemes, refreshOverrides } from "../store";
 import { vaultFolderName } from "../lib/rename-vault";
 import {
+  canOpenCurrentVaultFolder,
+  fileManagerName,
+  openVaultFolder,
+} from "../lib/vault-folder";
+import {
   WORKFLOW_PRESETS,
   hiddenPresetsInOrder,
 } from "@shared/workflows/presets";
@@ -4308,14 +4313,14 @@ export function SettingsModal(): JSX.Element {
       title: "Vault",
       description:
         "Vault location, note organization, periodic notes, and folder labels.",
-      keywords: ["folder", "root", "location", "open vault", "change"],
+      keywords: ["folder", "root", "location", "open vault", "change", "finder", "explorer", "file manager", "reveal"],
       searchItems: [
         {
           id: "vault-location",
           title: "Vault location",
           description:
             "ZenNotes reads markdown directly from the selected vault folder.",
-          keywords: ["folder", "root", "location", "open vault", "change"],
+          keywords: ["folder", "root", "location", "open vault", "change", "finder", "explorer", "file manager", "reveal"],
         },
         {
           id: "vault-name",
@@ -4822,6 +4827,14 @@ export function SettingsModal(): JSX.Element {
                       )}
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
+                    {vault && canOpenCurrentVaultFolder({ vault, workspaceMode }) && (
+                      <button
+                        onClick={() => void openVaultFolder(vault.root)}
+                        className="shrink-0 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
+                      >
+                        Open in {fileManagerName()}
+                      </button>
+                    )}
                     <button
                       onClick={() =>
                         void (workspaceMode === "remote"
@@ -7440,14 +7453,6 @@ function ConfigFileSection(): JSX.Element {
     };
   }, []);
 
-  const platform = window.zen.platformSync();
-  const revealLabel =
-    platform === "darwin"
-      ? "Finder"
-      : platform === "win32"
-        ? "File Explorer"
-        : "file manager";
-
   return (
     <Section
       title="Configuration file"
@@ -7457,7 +7462,7 @@ function ConfigFileSection(): JSX.Element {
       <div className="flex flex-col gap-3 px-5 py-4">
         <div className="flex flex-wrap items-center gap-2">
           <Button onClick={() => void window.zen.revealConfigFile()}>
-            Reveal in {revealLabel}
+            Reveal in {fileManagerName()}
           </Button>
           {configPath && (
             <Button

@@ -172,6 +172,21 @@ describe('WindowVaultRegistry', () => {
     expect(registry.localVaultsExcept(rootA)).toEqual([{ root: rootB, name: 'B' }])
   })
 
+  it('lists the roots open as local vaults, never a remote window\'s', () => {
+    const registry = new WindowVaultRegistry({
+      makeWatcher: () => new TestWatcher(),
+      invalidateVault: () => {},
+      sendVaultChange: () => {}
+    })
+
+    const rootA = path.resolve('/tmp/zennotes-roots-a')
+    registry.setLocalVault(1, { root: rootA, name: 'A' })
+    registry.setLocalVault(2, { root: rootA, name: 'A' })
+    registry.setRemoteVault(3, { root: '/srv/remote-vault', name: 'R' })
+
+    expect(registry.localRoots()).toEqual([rootA])
+  })
+
   it('renames a local vault in every window on that root without touching its watcher (#692)', () => {
     const watchers: TestWatcher[] = []
     const registry = new WindowVaultRegistry({

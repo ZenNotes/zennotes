@@ -675,6 +675,8 @@ const api: ZenBridge = {
   revealFolderTarget: (folder: NoteFolder, subpath: string): Promise<void> =>
     ipcRenderer.invoke(IPC.VAULT_REVEAL_FOLDER_TARGET, folder, subpath),
   revealAssetsDir: (): Promise<void> => ipcRenderer.invoke(IPC.VAULT_REVEAL_ASSETS_DIR),
+  openVaultInFileManager: (root: string): Promise<void> =>
+    ipcRenderer.invoke(IPC.VAULT_OPEN_IN_FILE_MANAGER, root),
   getPathForFile: (file: File): string | null => {
     try {
       return webUtils.getPathForFile(file) || null

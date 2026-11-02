@@ -479,6 +479,10 @@ export interface ZenBridge {
   /** Open the original target directory of a symlinked folder in the OS file manager. */
   revealFolderTarget(folder: NoteFolder, subpath: string): Promise<void>
   revealAssetsDir(): Promise<void>
+  /** Open a local vault's folder in the OS file manager. `root` only names
+   *  which vault: the host refuses anything but a vault it already knows.
+   *  Desktop-only, a host without local folders leaves it out. */
+  openVaultInFileManager?(root: string): Promise<void>
   getPathForFile(file: File): string | null
   /** Open a folder as a temporary session (drag a folder onto the app to read
    *  it without turning it into a vault). Desktop-only. */

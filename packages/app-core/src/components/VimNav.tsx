@@ -25,6 +25,11 @@ import {
   shouldYieldToHomeNav
 } from '../lib/vim-nav'
 import { isCalendarToggleAvailable } from '../lib/vault-layout'
+import {
+  canOpenCurrentVaultFolder,
+  fileManagerName,
+  openVaultFolder
+} from '../lib/vault-folder'
 import { focusPanel, focusPaneInDirection } from '../lib/pane-nav'
 import {
   findPositionByIndex,
@@ -266,6 +271,7 @@ export function VimNav(): JSX.Element | null {
     window.zen.getAppInfo().runtime === 'desktop' &&
     (window.zen.getCapabilities().supportsLocalFilesystemPickers ||
       window.zen.getCapabilities().supportsRemoteWorkspace)
+  const canOpenFolder = useStore(canOpenCurrentVaultFolder)
   const resetLeader = useCallback(() => {
     leaderPending.current = null
     commandLeaderPrefix.current = []
@@ -434,6 +440,15 @@ export function VimNav(): JSX.Element | null {
               keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderSwitchVault'),
               label: 'Switch vault',
               detail: 'Open the command palette vault switcher for local and remote vaults.'
+            }
+          ]
+        : []),
+      ...(canOpenFolder
+        ? [
+            {
+              keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderOpenVaultFolder'),
+              label: 'Open vault folder',
+              detail: `Open this vault’s folder in ${fileManagerName()}.`
             }
           ]
         : []),
@@ -1170,6 +1185,16 @@ export function VimNav(): JSX.Element | null {
           e.stopImmediatePropagation()
           resetLeader()
           state.setCommandPaletteOpen(true, 'vault')
+          return
+        }
+        if (
+          canOpenCurrentVaultFolder(state) &&
+          matchesSequenceToken(e, overrides, 'vim.leaderOpenVaultFolder')
+        ) {
+          e.preventDefault()
+          e.stopImmediatePropagation()
+          resetLeader()
+          void openVaultFolder(state.vault!.root)
           return
         }
         if (matchesSequenceToken(e, overrides, 'vim.leaderNoteActions') && editorNormalMode) {

@@ -90,6 +90,7 @@ export const IPC = {
   VAULT_FETCH_LINK_METADATA: 'vault:fetch-link-metadata',
   VAULT_REVEAL_FOLDER_TARGET: 'vault:reveal-folder-target',
   VAULT_REVEAL_ASSETS_DIR: 'vault:reveal-assets-dir',
+  VAULT_OPEN_IN_FILE_MANAGER: 'vault:open-in-file-manager',
   VAULT_SCAN_TASKS: 'vault:scan-tasks',
   VAULT_SCAN_TASKS_FOR: 'vault:scan-tasks-for',
   VAULT_OPEN_DATABASE: 'vault:open-database',

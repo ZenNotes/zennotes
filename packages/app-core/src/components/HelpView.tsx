@@ -106,6 +106,7 @@ function resolveShortcutKeys(
     if (action === 'Unresolved links') return leaderShortcut(overrides, 'vim.leaderUnresolvedLinks')
     if (action === 'Folder gallery') return leaderShortcut(overrides, 'vim.leaderFolderGallery')
     if (action === 'New Kanban') return leaderShortcut(overrides, 'vim.leaderNewKanban')
+    if (action === 'Open vault folder') return leaderShortcut(overrides, 'vim.leaderOpenVaultFolder')
     if (action === 'Callout type') {
       return chord(
         leaderShortcut(overrides, 'vim.leaderNoteActions'),
@@ -216,6 +217,7 @@ function resolveVimCommandLabel(command: string, overrides: KeymapOverrides): st
   if (command === '<Space> e') return leaderShortcut(overrides, 'vim.leaderToggleSidebar')
   if (command === '<Space> p') return leaderShortcut(overrides, 'vim.leaderNoteOutline')
   if (command === '<Space> v') return leaderShortcut(overrides, 'vim.leaderSwitchVault')
+  if (command === '<Space> F') return leaderShortcut(overrides, 'vim.leaderOpenVaultFolder')
   return command
 }
 

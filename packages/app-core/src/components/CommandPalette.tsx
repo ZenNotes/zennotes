@@ -26,6 +26,7 @@ import {
   type BrowseVaultSwitcherEntry,
   type VaultSwitcherEntry
 } from '../lib/vault-switcher'
+import { canOpenVaultFolders, fileManagerName, openVaultFolder } from '../lib/vault-folder'
 import { runWorkflowById } from '../lib/workflow-trigger'
 import type { WorkflowIndexEntry } from '../lib/workflow-index'
 import {
@@ -69,6 +70,8 @@ export function CommandPalette(): JSX.Element {
   const supportsRemoteWorkspace =
     window.zen.getAppInfo().runtime === 'desktop' &&
     window.zen.getCapabilities().supportsRemoteWorkspace
+
+  const canOpenFolders = canOpenVaultFolders()
 
   const [mode, setMode] = useState<Mode>(initialMode)
   // Whether the vault picker switches the current window or opens a new one (#244).
@@ -503,6 +506,15 @@ export function CommandPalette(): JSX.Element {
                 e.preventDefault()
                 const cmd = commandResults[active]
                 if (cmd) startRecording(cmd)
+              } else if (e.key === 'Enter' && e.shiftKey && mode === 'vault' && canOpenFolders) {
+                // Never falls through to switching: this key asked to look, and
+                // a remote row or Browse… has no folder to show.
+                e.preventDefault()
+                const vault = vaultResults[active]
+                if (vault?.kind === 'local') {
+                  closePalette()
+                  void openVaultFolder(vault.root)
+                }
               } else if (e.key === 'Enter') {
                 e.preventDefault()
                 if (mode === 'main') {
@@ -699,6 +711,12 @@ export function CommandPalette(): JSX.Element {
                 ? 'keep theme'
                 : 'switch'}
           </span>
+          {mode === 'vault' && canOpenFolders && (
+            <span data-palette-open-folder-hint="">
+              <kbd className="rounded bg-paper-200 px-1">{formatKeyToken('Shift+Enter')}</kbd> open
+              in {fileManagerName()}
+            </span>
+          )}
           {mode === 'main' && (
             <span data-palette-bind-hint="">
               <kbd className="rounded bg-paper-200 px-1">{formatKeyToken('Alt+Enter')}</kbd> set key

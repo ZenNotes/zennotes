@@ -144,6 +144,8 @@ import {
   type SidebarCursorAnchor,
 } from "../lib/sidebar-cursor";
 import { buildVaultSwitcherEntries } from "../lib/vault-switcher";
+import { canOpenVaultFolders, fileManagerName, openVaultFolder } from "../lib/vault-folder";
+import { formatKeyToken } from "../lib/keymaps";
 import {
   registerSidebarActionHost,
   type SidebarSelectionSnapshot,
@@ -2752,6 +2754,11 @@ export function Sidebar(): JSX.Element {
 
   const vaultMenuItems = useMemo<ContextMenuItem[]>(() => {
     const items: ContextMenuItem[] = [];
+    const canOpenFolders = canOpenVaultFolders();
+    const openFolderLabel = `Open in ${fileManagerName()}`;
+    const currentLocalEntry = vaultSwitcherEntries.find(
+      (entry) => entry.current && entry.kind === "local",
+    );
 
     if (vaultSwitcherEntries.length === 0) {
       items.push({
@@ -2772,6 +2779,15 @@ export function Sidebar(): JSX.Element {
             }
             if (entry.id) await connectRemoteWorkspaceProfile(entry.id);
           },
+          rowAction:
+            canOpenFolders && entry.kind === "local"
+              ? {
+                  label: openFolderLabel,
+                  icon: <FolderGlyphIcon />,
+                  hint: formatKeyToken("Shift+Enter"),
+                  onSelect: () => openVaultFolder(entry.root),
+                }
+              : undefined,
         });
       }
     }
@@ -2784,6 +2800,16 @@ export function Sidebar(): JSX.Element {
         onSelect: async () => {
           await renameVaultWithPrompt();
         },
+      });
+    }
+    // The current vault's row is disabled, so the cursor never lands on it:
+    // this is how the keyboard reaches its folder from here.
+    if (canOpenFolders && currentLocalEntry?.kind === "local") {
+      items.push({
+        label: openFolderLabel,
+        icon: <FolderGlyphIcon />,
+        keywords: ["finder", "explorer", "file manager", "reveal", "folder"],
+        onSelect: () => openVaultFolder(currentLocalEntry.root),
       });
     }
     if (canCloseCurrentVault) {

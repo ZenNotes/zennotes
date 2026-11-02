@@ -96,6 +96,7 @@ export const KEYMAP_CATALOG: KeymapCatalogEntry[] = [
   { id: "vim.leaderToggleSidebar", group: "vim", defaultBinding: "e", title: "Leader: toggle sidebar" },
   { id: "vim.leaderNoteOutline", group: "vim", defaultBinding: "p", title: "Leader: note outline" },
   { id: "vim.leaderSwitchVault", group: "vim", defaultBinding: "v", title: "Leader: switch vault" },
+  { id: "vim.leaderOpenVaultFolder", group: "vim", defaultBinding: "F", title: "Leader: open vault in file manager" },
   { id: "vim.leaderNoteActions", group: "vim", defaultBinding: "l", title: "Leader: note actions" },
   { id: "vim.leaderFormatNote", group: "vim", defaultBinding: "f", title: "Leader note action: format note" },
   { id: "vim.leaderCopyMarkdown", group: "vim", defaultBinding: "y", title: "Leader note action: copy note as Markdown" },

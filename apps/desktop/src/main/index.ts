@@ -252,6 +252,7 @@ import type {
 } from "@shared/databases";
 import { VaultWatcher } from "./watcher";
 import { WindowVaultRegistry } from "./window-vaults";
+import { resolveKnownVaultRoot } from "./known-vault-root";
 import { registerEphemeralRoot, isEphemeralRoot } from "./ephemeral-vaults";
 import {
   clearUndoHistories,
@@ -2616,6 +2617,17 @@ async function listLocalVaults(): Promise<LocalVaultEntry[]> {
     }
   }
   return entries;
+}
+
+/** Every local folder this app is known to treat as a vault: what the windows
+ *  have open, a temporary folder session included, and what the switcher lists. */
+async function knownLocalVaultRoots(): Promise<string[]> {
+  const cfg = await loadConfig();
+  return [
+    ...windowVaults.localRoots(),
+    ...cfg.localVaults.map((entry) => entry.root),
+    ...(cfg.vaultRoot ? [cfg.vaultRoot] : []),
+  ];
 }
 
 async function setRemoteWorkspace(
@@ -5199,6 +5211,21 @@ function registerIpc(): void {
     }
     const v = requireVault();
     await shell.openPath(v.root);
+  });
+
+  // Any listed vault, not only this window's, so no requireVault() and no
+  // remote check: a remote window can still open a local vault from its
+  // switcher. The argument only picks from main's own list.
+  handle(IPC.VAULT_OPEN_IN_FILE_MANAGER, async (_e, requested: unknown) => {
+    const root = resolveKnownVaultRoot(requested, await knownLocalVaultRoots());
+    if (!root) throw new Error("That folder is not one of your vaults.");
+    const stat = await fsp.stat(root).catch(() => null);
+    if (!stat?.isDirectory()) {
+      throw new Error(`This vault's folder is missing: ${root}`);
+    }
+    // openPath reports a failure by resolving with its message.
+    const failure = await shell.openPath(root);
+    if (failure) throw new Error(failure);
   });
 
   // Route window chrome controls to the window that actually sent the
