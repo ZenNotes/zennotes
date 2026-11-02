@@ -108,12 +108,33 @@ describe('Enter in a list keeps it tight', () => {
   it('ends the list on an empty second item instead of pushing it down', () => {
     const view = mount('- one\n- |')
     pressEnter(view)
-    expect(marked(view)).toBe('- one\n|')
+    expect(marked(view)).toBe('- one\n\n|')
   })
 
-  it('ends the list on an empty later item, as before', () => {
+  it('ends the list on an empty later item', () => {
     const view = mount('- one\n- two\n- |')
     pressEnter(view)
-    expect(marked(view)).toBe('- one\n- two\n|')
+    expect(marked(view)).toBe('- one\n- two\n\n|')
+  })
+
+  it('leaves a blank line after the list, so what is typed next is not part of the last item', () => {
+    // Without it, Markdown reads the typed line as a lazy continuation of
+    // "Bread" and Read mode shows "Bread Done by Saturday." (2.81.0 Android walk).
+    const view = mount('- Milk\n- Bread\n- |')
+    pressEnter(view)
+    type(view, 'Done by Saturday.')
+    expect(view.state.doc.toString()).toBe('- Milk\n- Bread\n\nDone by Saturday.')
+  })
+
+  it('ends a task list the same way', () => {
+    const view = mount('- [ ] one\n- [ ] |')
+    pressEnter(view)
+    expect(marked(view)).toBe('- [ ] one\n\n|')
+  })
+
+  it('outdents a nested empty item without adding a line', () => {
+    const view = mount('- one\n  - two\n  - |')
+    pressEnter(view)
+    expect(view.state.doc.toString()).not.toContain('\n\n')
   })
 })
