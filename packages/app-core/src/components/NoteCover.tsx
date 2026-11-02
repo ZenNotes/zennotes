@@ -285,7 +285,7 @@ export function NoteCover({ notePath, cover, variant, claimable }: NoteCoverProp
           </div>
         </>
       ) : (
-        <div className="absolute bottom-3 right-3 flex gap-1.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+        <div className="zn-hover-reveal absolute bottom-3 right-3 flex gap-1.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
           <Button className="bg-paper-50/90" onClick={() => openPicker(notePath)}>
             Change cover
           </Button>

@@ -1,5 +1,10 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
+  // Hover styles apply only where a pointer can hover. On a phone a tap left
+  // whatever slid under the finger tinted until the next tap (the iPhone walk
+  // of 2.81.0). Controls that appear on hover carry zn-hover-reveal, which
+  // index.css shows where nothing can hover.
+  future: { hoverOnlyWhenSupported: true },
   theme: {
     extend: {
       colors: {

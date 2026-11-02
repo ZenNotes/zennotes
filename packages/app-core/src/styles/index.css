@@ -1607,6 +1607,17 @@ textarea,
     opacity: 1;
   }
 }
+/* Hover styles apply only where a pointer can hover (the Tailwind preset's
+   hoverOnlyWhenSupported, which reads "(hover: hover) and (pointer: fine)").
+   Elsewhere a control that appears on hover would never appear, so the ones
+   people need (row actions, a tab's close, the Table's select boxes, Open)
+   carry zn-hover-reveal and show all the time, as the cover credit above
+   does. Tooltips and key hints carry no class and stay out of sight there. */
+@media not all and (hover: hover) and (pointer: fine) {
+  .zn-hover-reveal {
+    opacity: 1 !important;
+  }
+}
 /* In the editor the cover lives in a block widget inside the capped text
    column; the bleed variables (measured by cm-note-cover.ts) widen it to the
    whole pane. The gap under it is padding: CodeMirror measures a block widget

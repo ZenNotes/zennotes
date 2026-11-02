@@ -387,7 +387,7 @@ export function TrashView(): JSX.Element {
                         {note.excerpt || 'Empty note'}
                       </div>
                     </div>
-                    <div className="flex shrink-0 items-center gap-1.5 self-center opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
+                    <div className="zn-hover-reveal flex shrink-0 items-center gap-1.5 self-center opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
                       <button
                         type="button"
                         onClick={(e) => {
@@ -454,7 +454,7 @@ export function TrashView(): JSX.Element {
                     </div>
                     <div className="mt-0.5 truncate text-xs text-ink-500">{asset.path}</div>
                   </div>
-                  <div className="flex shrink-0 items-center gap-1.5 self-center opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
+                  <div className="zn-hover-reveal flex shrink-0 items-center gap-1.5 self-center opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
                     <button
                       type="button"
                       onClick={() => void restoreAsset(asset)}

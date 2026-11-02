@@ -711,7 +711,7 @@ export function DatabaseTableView({ csvPath, doc, view, isActive, onOpenColumns 
                 <div
                   className={[
                     'flex items-center justify-center',
-                    anySelected ? '' : 'opacity-0 group-hover/sa:opacity-100'
+                    anySelected ? '' : 'zn-hover-reveal opacity-0 group-hover/sa:opacity-100'
                   ].join(' ')}
                 >
                   <DbCheckbox checked={allSelected} onChange={toggleAll} title="Select all" />
@@ -791,7 +791,7 @@ export function DatabaseTableView({ csvPath, doc, view, isActive, onOpenColumns 
                     </button>
                     <IconButton
                       size="sm"
-                      className="opacity-0 group-hover/h:opacity-100"
+                      className="zn-hover-reveal opacity-0 group-hover/h:opacity-100"
                       title="Field options"
                       onClick={(e) => {
                         const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
@@ -827,7 +827,7 @@ export function DatabaseTableView({ csvPath, doc, view, isActive, onOpenColumns 
                   <div
                     className={[
                       'flex items-center justify-center',
-                      isSel || anySelected ? '' : 'opacity-0 group-hover/row:opacity-100'
+                      isSel || anySelected ? '' : 'zn-hover-reveal opacity-0 group-hover/row:opacity-100'
                     ].join(' ')}
                   >
                     <DbCheckbox checked={isSel} onChange={() => toggleRow(row.id)} title="Select row" />
@@ -909,7 +909,7 @@ export function DatabaseTableView({ csvPath, doc, view, isActive, onOpenColumns 
                           openPage(row.id)
                         }}
                         title="Open page"
-                        className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-1 rounded-md border border-paper-300 bg-paper-100 px-2 py-1 text-2xs font-medium text-ink-600 opacity-0 shadow-sm transition hover:border-paper-400 hover:text-ink-900 group-hover/row:opacity-100"
+                        className="zn-hover-reveal absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-1 rounded-md border border-paper-300 bg-paper-100 px-2 py-1 text-2xs font-medium text-ink-600 opacity-0 shadow-sm transition hover:border-paper-400 hover:text-ink-900 group-hover/row:opacity-100"
                       >
                         <ArrowUpRightIcon className="h-3 w-3" /> Open
                       </button>

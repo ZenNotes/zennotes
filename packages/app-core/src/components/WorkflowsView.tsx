@@ -6168,7 +6168,7 @@ function WorkflowGallery({
                         hidePreset(item.id)
                       }}
                       className={`transition-opacity ${
-                        index === cursor ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                        index === cursor ? 'opacity-100' : 'zn-hover-reveal opacity-0 group-hover:opacity-100'
                       }`}
                     >
                       <CloseIcon className="h-3.5 w-3.5" />

@@ -337,7 +337,7 @@ export function AssetsView(): JSX.Element {
                           e.stopPropagation()
                           if (await confirmMoveToTrash(asset.name)) await deleteAsset(asset.path)
                         }}
-                        className="flex h-6 w-6 items-center justify-center justify-self-end rounded text-ink-400 opacity-0 transition hover:bg-paper-300/60 hover:text-danger group-hover:opacity-100"
+                        className="zn-hover-reveal flex h-6 w-6 items-center justify-center justify-self-end rounded text-ink-400 opacity-0 transition hover:bg-paper-300/60 hover:text-danger group-hover:opacity-100"
                       >
                         <TrashIcon width={14} height={14} />
                       </button>

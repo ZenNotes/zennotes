@@ -347,7 +347,7 @@ export function DatabaseBoardView({ csvPath, doc, view, isActive = true }: Props
                       <IconButton
                         size="sm"
                         variant="ghost"
-                        className="shrink-0 opacity-0 group-hover/card:opacity-100"
+                        className="zn-hover-reveal shrink-0 opacity-0 group-hover/card:opacity-100"
                         title="Open as page"
                         onClick={(e) => {
                           e.stopPropagation()

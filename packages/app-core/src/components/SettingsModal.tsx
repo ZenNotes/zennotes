@@ -1939,7 +1939,7 @@ export function SettingsModal(): JSX.Element {
                               </span>
                             </button>
                           )}
-                          <div className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-0.5 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100">
+                          <div className="zn-hover-reveal absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-0.5 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100">
                             <button
                               type="button"
                               onClick={() => revealCustomTheme(theme)}
@@ -2132,7 +2132,7 @@ export function SettingsModal(): JSX.Element {
                             </span>
                           )}
                         </label>
-                        <div className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-0.5 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100">
+                        <div className="zn-hover-reveal absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-0.5 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100">
                           <button
                             type="button"
                             onClick={() => revealOverride(override)}

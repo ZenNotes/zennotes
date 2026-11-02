@@ -4131,7 +4131,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                 'flex h-4 w-4 shrink-0 items-center justify-center rounded-sm transition',
                 active
                   ? 'text-ink-500 hover:bg-paper-200 hover:text-ink-900'
-                  : 'opacity-0 hover:bg-paper-300/70 group-hover:opacity-100 focus-visible:opacity-100'
+                  : 'zn-hover-reveal opacity-0 hover:bg-paper-300/70 group-hover:opacity-100 focus-visible:opacity-100'
               ].join(' ')}
             >
               <CloseIcon width={12} height={12} />
