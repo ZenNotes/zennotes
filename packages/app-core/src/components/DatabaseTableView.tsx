@@ -909,7 +909,7 @@ export function DatabaseTableView({ csvPath, doc, view, isActive, onOpenColumns 
                           openPage(row.id)
                         }}
                         title="Open page"
-                        className="zn-hover-reveal absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-1 rounded-md border border-paper-300 bg-paper-100 px-2 py-1 text-2xs font-medium text-ink-600 opacity-0 shadow-sm transition hover:border-paper-400 hover:text-ink-900 group-hover/row:opacity-100"
+                        className="zn-hover-only absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-1 rounded-md border border-paper-300 bg-paper-100 px-2 py-1 text-2xs font-medium text-ink-600 opacity-0 shadow-sm transition hover:border-paper-400 hover:text-ink-900 group-hover/row:opacity-100"
                       >
                         <ArrowUpRightIcon className="h-3 w-3" /> Open
                       </button>

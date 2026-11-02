@@ -1617,6 +1617,12 @@ textarea,
   .zn-hover-reveal {
     opacity: 1 !important;
   }
+  /* A hover shortcut for something already on screen: the Table row's Open,
+     which would sit over the end of a long name (the row's page glyph opens
+     the page on every device). Gone there, so no unseen button takes a tap. */
+  .zn-hover-only {
+    display: none !important;
+  }
 }
 /* In the editor the cover lives in a block widget inside the capped text
    column; the bleed variables (measured by cm-note-cover.ts) widen it to the
