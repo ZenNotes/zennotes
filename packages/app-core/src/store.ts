@@ -3838,6 +3838,10 @@ interface Store {
   /** In-flight load flags keyed by `.csv` path. */
   databasesDeletingRows: Record<string, boolean>
   databasesLoading: Record<string, boolean>
+  /** Why the last load of a database failed, keyed by `.csv` path, until a
+   *  load starts again: the open view shows it with Try again rather than
+   *  retrying (and toasting) on every render. */
+  databasesLoadError: Record<string, string>
 
   /** Tags currently selected in the Tags view. The view shows every non-
    *  trash note carrying *all* (or, in `any` mode, any) of these, depending on
@@ -5280,6 +5284,7 @@ function rewriteFolderWorkspace(
         : {})
     })),
     databasesLoading: remap(s.databasesLoading, () => false),
+    databasesLoadError: {},
     noteBackstack: history(s.noteBackstack),
     noteForwardstack: history(s.noteForwardstack),
     closedTabStack: s.closedTabStack.flatMap((entry) => {
@@ -6748,6 +6753,7 @@ export const useStore = create<Store>((set, get) => {
   databases: {},
   databasesDeletingRows: {},
   databasesLoading: {},
+  databasesLoadError: {},
   selectedTags: [],
   tagMatchMode: 'all',
   tagViewFilterSeed: null,
@@ -7083,7 +7089,10 @@ export const useStore = create<Store>((set, get) => {
     const version = databaseLoadVersions.get(csvPath) ?? 0
     const generation = workspaceGeneration()
     const isCurrent = () => generation === workspaceGeneration() && contextIsCurrent() && (databaseLoadVersions.get(csvPath) ?? 0) === version
-    set((s) => ({ databasesLoading: { ...s.databasesLoading, [csvPath]: true } }))
+    set((s) => {
+      const { [csvPath]: _cleared, ...databasesLoadError } = s.databasesLoadError
+      return { databasesLoading: { ...s.databasesLoading, [csvPath]: true }, databasesLoadError }
+    })
     try {
       const doc = await window.zen.openDatabase(csvPath)
       if (!isCurrent()) return
@@ -7101,10 +7110,10 @@ export const useStore = create<Store>((set, get) => {
       // the console. Whatever the cause (server unreachable, bad schema),
       // say so where the user is looking.
       console.error('loadDatabase failed', err)
+      const message = humanIpcError(err, 'Could not open database')
+      set((s) => ({ databasesLoadError: { ...s.databasesLoadError, [csvPath]: message } }))
       const { useToastStore } = await import('./lib/toast')
-      useToastStore
-        .getState()
-        .addToast(humanIpcError(err, 'Could not open database'), 'error')
+      useToastStore.getState().addToast(message, 'error')
     } finally {
       set((s) =>
         csvPath in s.databasesLoading
@@ -7497,12 +7506,14 @@ export const useStore = create<Store>((set, get) => {
     }
     // Drop the cached doc + loading flag so nothing re-reads a file that's gone.
     set((s) => {
-      if (!(csvPath in s.databases) && !(csvPath in s.databasesLoading)) return {}
+      if (!(csvPath in s.databases) && !(csvPath in s.databasesLoading) && !(csvPath in s.databasesLoadError)) return {}
       const databases = { ...s.databases }
       const databasesLoading = { ...s.databasesLoading }
+      const databasesLoadError = { ...s.databasesLoadError }
       delete databases[csvPath]
       delete databasesLoading[csvPath]
-      return { databases, databasesLoading }
+      delete databasesLoadError[csvPath]
+      return { databases, databasesLoading, databasesLoadError }
     })
   },
   openRecordPage: trackNoteWrite(undefined, async (csvPath, rowId) => {

@@ -20,7 +20,7 @@ export async function runWorkspaceTransition(work: () => Promise<void>, silentIf
   pending = true
   generation += 1
   // These belong to navigation invalidated by this generation, even if a picker cancels.
-  useStore.setState({ workspaceTransitioning: true, loadingNote: false, pendingJumpLocation: null, databasesLoading: {} })
+  useStore.setState({ workspaceTransitioning: true, loadingNote: false, pendingJumpLocation: null, databasesLoading: {}, databasesLoadError: {} })
   let unlock: (() => void) | undefined
   try {
     // Let operations already dispatched finish in their original vault. Then

@@ -1696,6 +1696,29 @@ describe('note jump history for offset opens (#484)', () => {
   })
 })
 
+describe('a database load that fails', () => {
+  it('records the failure until a load starts again, so the view stops retrying', async () => {
+    // The view loads while a database is missing and nothing is loading; a
+    // failure that left no trace made it retry, and toast, on every render
+    // (1,089 times on the Android walk of 2.81.0).
+    const csvPath = 'inbox/Board.base/data.csv'
+    const doc = { path: csvPath, title: 'Board', rows: [], columns: [], views: [] }
+    const openDatabase = vi.fn().mockRejectedValueOnce(new Error('Disk unreadable')).mockResolvedValue(doc)
+    installZen({ openDatabase })
+    const { useStore } = await loadStore()
+
+    await useStore.getState().loadDatabase(csvPath)
+    expect(useStore.getState().databases[csvPath]).toBeUndefined()
+    expect(useStore.getState().databasesLoadError[csvPath]).toBeTruthy()
+    expect(useStore.getState().databasesLoading[csvPath]).toBe(false)
+
+    // Try again clears it and loads.
+    await useStore.getState().loadDatabase(csvPath)
+    expect(useStore.getState().databases[csvPath]).toBeTruthy()
+    expect(useStore.getState().databasesLoadError[csvPath]).toBeUndefined()
+  })
+})
+
 describe('database deletion', () => {
   it('forgets a deleted database instead of re-reading the gone file', async () => {
     const csvPath = 'quick/Untitled Database.csv'

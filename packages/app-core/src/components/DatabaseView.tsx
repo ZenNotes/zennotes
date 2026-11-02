@@ -50,6 +50,7 @@ export function DatabaseView({
   const locked = useSyncExternalStore(subscribeNoteEditingLocks, () => isNoteEditingLocked(vault, csvPath))
   const deletingRows = useStore((s) => !!(csvPath && s.databasesDeletingRows[csvPath]))
   const loading = useStore((s) => (csvPath ? !!s.databasesLoading[csvPath] : false))
+  const loadError = useStore((s) => (csvPath ? s.databasesLoadError[csvPath] : undefined))
   const loadDatabase = useStore((s) => s.loadDatabase)
   const updateDatabaseRows = useStore((s) => s.updateDatabaseRows)
   const updateDatabaseSchema = useStore((s) => s.updateDatabaseSchema)
@@ -76,9 +77,12 @@ export function DatabaseView({
   const canRenameTitle = !!csvPath && !!formDirFromCsvPath(csvPath)
 
   const transitioning = useStore(s => s.workspaceTransitioning)
+  // A load that failed stays failed until Try again: retrying on every
+  // render toasted the same error without end (1,089 times on the Android
+  // walk of 2.81.0, for a database deleted outside the app).
   useEffect(() => {
-    if (csvPath && !doc && !loading && !transitioning) void loadDatabase(csvPath)
-  }, [csvPath, doc, loading, loadDatabase, transitioning])
+    if (csvPath && !doc && !loading && !transitioning && !loadError) void loadDatabase(csvPath)
+  }, [csvPath, doc, loading, loadDatabase, transitioning, loadError])
 
   const activeViewId = doc ? (doc.views.find((v) => v.id === doc.activeViewId) ?? doc.views[0])?.id : undefined
   const activeViewType = doc?.views.find((v) => v.id === activeViewId)?.type
@@ -138,8 +142,19 @@ export function DatabaseView({
   }
   if (!doc) {
     return (
-      <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-ink-500">
-        {loading ? 'Loading database…' : 'Opening…'}
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 text-sm text-ink-500">
+        {loading ? (
+          'Loading database…'
+        ) : loadError ? (
+          <>
+            <span>Could not open this database.</span>
+            <Button variant="secondary" size="sm" onClick={() => csvPath && void loadDatabase(csvPath)}>
+              Try again
+            </Button>
+          </>
+        ) : (
+          'Opening…'
+        )}
       </div>
     )
   }
