@@ -422,7 +422,7 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
   {
     title: 'Kanban column colors',
     body:
-      'Give a column a color: right-click its header and choose **Color…**, then pick Gray, Red, Yellow, Green, Teal, Blue or Purple (No color takes it off). The header gets a dot and a colored top edge, and the cards’ `@field:value` chips for that column take the same color. Each color comes from the active theme, so it fits light and dark themes alike. From the keyboard, `Shift+F10` on a column’s header opens its menu; in Vim mode, `C` opens the colors for the focused column, `:color blue` sets one, and a bare `:color` clears it. Colors are kept per board and column, in config.toml’s `[kanban_column_colors]` table, such as `"status:in-progress" = "blue"`.'
+      'Both kinds of board have them: a Tasks Kanban keeps its colors in your settings, and a board made with New Kanban keeps them on the column’s option in the database, so they go wherever the database goes and show on its chips in the Table too. On a database board, right-click a column’s header and choose Color…, press `C` in Vim mode, or run Set Board Column Color… from the palette; with Vim off, `Shift+F10` on a card or an Add card slot reaches it too. The rest is about Tasks boards, which also have `:color`. Give a column a color: right-click its header and choose **Color…**, then pick Gray, Red, Yellow, Green, Teal, Blue or Purple (No color takes it off). The header gets a dot and a colored top edge, and the cards’ `@field:value` chips for that column take the same color. Each color comes from the active theme, so it fits light and dark themes alike. From the keyboard, `Shift+F10` on a column’s header opens its menu; in Vim mode, `C` opens the colors for the focused column, `:color blue` sets one, and a bare `:color` clears it. Colors are kept per board and column, in config.toml’s `[kanban_column_colors]` table, such as `"status:in-progress" = "blue"`.'
   },
   {
     title: 'Swimlanes on the Kanban board',
@@ -865,7 +865,7 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
       { keys: 'v', action: 'View menu', detail: 'Tasks view: open the View menu (Hide empty tasks, and the board\'s Lanes).' },
       { keys: '?', action: 'Keys', detail: 'Tasks view: list the current view’s keys. Esc closes it.' },
       { keys: 'W', action: 'Set a WIP limit', detail: 'Tasks board only: set the focused column’s WIP limit. Same as `:wip <limit>`.' },
-      { keys: 'C', action: 'Color a column', detail: 'Tasks board only: pick the focused column’s color. Same as Color… in the column menu, or `:color <name>`.' },
+      { keys: 'C', action: 'Color a column', detail: 'Pick the focused column’s color. Same as Color… in the column menu, or `:color <name>`.' },
       { keys: 'S', action: 'Pick the board\'s lanes', detail: 'Tasks board only: step the lanes through None, Priority, Folder, Tag and your @fields. Same as Lanes in the View menu, or `:lanes <field>`.' },
       { keys: 'za / zM / zR', action: 'Collapse lanes', detail: 'Tasks board with lanes: `za` collapses or expands the lane under the cursor, `zM` collapses every lane, `zR` expands them all. Enter on a lane\'s header does what `za` does.' },
       { keys: ':', action: 'Open local ex prompt', detail: 'Run the view-specific command line inside Tasks or Tags.' },
@@ -957,7 +957,8 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
       { keys: 'Enter', action: 'Open the card’s page', detail: 'In either mode; o in Vim mode. On Add card, or in an empty column, it opens the field for a new card.' },
       { keys: 'a', action: 'Add a card', detail: 'Vim mode. Opens Add card in the cursor’s column. Enter adds the card and keeps the field open for the next; Escape closes it.' },
       { keys: 'H / L', action: 'Move the card a column left / right', detail: 'Vim mode. Sets the card’s status; the cursor follows it. In either mode, drag the card or use Move to in its menu.' },
-      { keys: 'Shift+F10', action: 'Open the card menu', detail: 'In either mode, or the Context Menu key; m in Vim mode. Open page, Move to each other column, and Delete card (which asks first).' }
+      { keys: 'C', action: 'Color the column', detail: 'Vim mode. Pick the cursor’s column’s color, kept on its option in the database. Right-click a column’s header for the same, in either mode, or use Column color… in the card menu.' },
+      { keys: 'Shift+F10', action: 'Open the card menu', detail: 'In either mode, or the Context Menu key; m in Vim mode. On Add card it opens the column’s menu instead. Open page, Move to each other column, and Delete card (which asks first).' }
     ]
   }
 ]

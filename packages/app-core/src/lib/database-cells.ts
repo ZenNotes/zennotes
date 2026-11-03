@@ -31,6 +31,7 @@ export {
   composePageBody,
   deleteRow,
   ensureSelectOption,
+  setSelectOptionColor,
   fieldsById,
   planRecordPages,
   recordPageToAdopt,

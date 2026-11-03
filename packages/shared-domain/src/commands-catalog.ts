@@ -123,6 +123,7 @@ export const COMMAND_CATALOG: CommandCatalogEntry[] = [
   { id: "editor.reflow-paragraph", title: "Reflow Paragraph", category: "Editor", keywords: "reflow join lines unwrap hard wrap word wrap format paragraph gq fill" },
   { id: "database.create-record-pages", title: "Create Pages for All Records", category: "Database", keywords: "database base records rows pages notes link wikilink bulk all csv" },
   { id: "database.columns", title: "Choose Database Columns", category: "Database", keywords: "database base table columns fields show hide visible choose pick view" },
+  { id: "database.column-color", title: "Set Board Column Color…", category: "Database", keywords: "database board kanban column color colour hue accent" },
   { id: "database.new-table-view", title: "New Table View", category: "Database", keywords: "database base view table add create new saved columns" },
   { id: "database.duplicate-view", title: "Duplicate View", category: "Database", keywords: "database base view copy duplicate clone saved table board" },
   { id: "database.pick-selected", title: "Show Only Selected Rows", category: "Database", keywords: "database base rows records pick picked picks selected selection only view subset" },

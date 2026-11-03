@@ -6,6 +6,7 @@ import { useStore } from '../store'
 import {
   setCell,
   ensureSelectOption,
+  setSelectOptionColor,
   updateView,
   clearViewPicks,
   pickedRowCount,
@@ -26,10 +27,19 @@ import {
   visibleBoardColumns,
   type BoardCursor
 } from '../lib/database-board'
+import { useDatabaseViewCommand } from '../lib/database-view-commands'
 import { isImeComposing } from '../lib/ime'
 import { useKeyboardCursor } from '../lib/keyboard-cursor'
+import {
+  kanbanColumnColorCss,
+  kanbanColumnColorLabel,
+  kanbanColumnColorVar,
+  selectOptionChipStyle,
+  selectOptionColor
+} from '../lib/kanban-column-colors'
 import { PlusIcon, ArrowUpRightIcon } from './icons'
 import { IconButton } from './ui/Button'
+import { columnColorMenuItems } from './ColumnColorMenu'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { DatabasePicksStrip } from './DatabasePicksStrip'
 
@@ -87,6 +97,20 @@ export function DatabaseBoardView({ csvPath, doc, view, isActive = true }: Props
   // before the unmount's blur can land, so that blur never adds the card.
   const addCardOpen = useRef<string | null>(null)
   const [cardMenu, setCardMenu] = useState<{ x: number; y: number; rowId: string } | null>(null)
+  // A column's header menu, or its colors, once one is open.
+  const [columnMenu, setColumnMenu] = useState<{
+    x: number
+    y: number
+    columnKey: string
+    picking: boolean
+  } | null>(null)
+  // Set below, once the columns are known: the palette command's handler has
+  // to be registered ahead of the board's early return.
+  const colorCursorColumn = useRef<() => void>(() => undefined)
+
+  useDatabaseViewCommand(csvPath, isActive, (command) => {
+    if (command === 'column-color') colorCursorColumn.current()
+  })
 
   // The board takes the keyboard whenever its pane's content does, as the
   // Table grid does (DatabaseTableView's claimFocus, which explains the
@@ -176,6 +200,57 @@ export function DatabaseBoardView({ csvPath, doc, view, isActive = true }: Props
     setCardMenu({ x: rect ? rect.left + 12 : 0, y: rect ? rect.bottom : 0, rowId })
   }
 
+  /** Open a column's menu, or its colors, below its header. */
+  const openColumnMenuAt = (columnKey: string, picking: boolean, point?: { x: number; y: number }): void => {
+    const header = boardRef.current?.querySelector<HTMLElement>(
+      `[data-db-board-column="${CSS.escape(columnKey)}"] [data-db-board-column-header]`
+    )
+    const rect = header?.getBoundingClientRect()
+    setColumnMenu({
+      x: point?.x ?? (rect ? rect.left + 12 : 0),
+      y: point?.y ?? (rect ? rect.bottom : 0),
+      columnKey,
+      picking
+    })
+  }
+
+  // "No status" gathers cards with no value, so it has no option to color.
+  const colorColumn = (columnKey: string): void => {
+    if (columnKey !== EMPTY_GROUP) openColumnMenuAt(columnKey, true)
+  }
+  colorCursorColumn.current = () => {
+    if (columns[at.column]) colorColumn(columns[at.column].key)
+  }
+
+  const columnColorOf = (columnKey: string) =>
+    columnKey === EMPTY_GROUP ? null : selectOptionColor(groupField, columnKey)
+
+  const columnMenuItems = (columnKey: string): ContextMenuItem[] => {
+    const color = columnColorOf(columnKey)
+    const items: ContextMenuItem[] = [
+      {
+        label: 'Add card',
+        icon: <PlusIcon className="h-3.5 w-3.5" />,
+        hint: vimMode ? 'a' : undefined,
+        onSelect: () => startAddingCard(columnKey)
+      }
+    ]
+    if (columnKey !== EMPTY_GROUP) {
+      items.push({
+        label: color ? `Color: ${kanbanColumnColorLabel(color)}…` : 'Color…',
+        hint: vimMode ? 'C' : undefined,
+        keywords: ['color', 'colour', 'hue', 'accent'],
+        onSelect: () => openColumnMenuAt(columnKey, true)
+      })
+    }
+    return items
+  }
+
+  const columnColorItems = (columnKey: string): ContextMenuItem[] =>
+    columnColorMenuItems(columnColorOf(columnKey), (color) => {
+      updateDatabaseSchema(csvPath, setSelectOptionColor(latestDoc(), groupField.id, columnKey, color))
+    })
+
   const cardMenuItems = (rowId: string): ContextMenuItem[] => {
     const row = doc.rows.find((r) => r.id === rowId)
     const here = columns.find((c) => c.rows.some((r) => r.id === rowId))?.key
@@ -196,6 +271,19 @@ export function DatabaseBoardView({ csvPath, doc, view, isActive = true }: Props
             setCursor({ columnKey: c.key, rowId })
           }
         })),
+      // The one way to a column's colors for a keyboard with Vim mode off, on a
+      // column that has cards.
+      ...(here && here !== EMPTY_GROUP
+        ? ([
+            { kind: 'separator' },
+            {
+              label: 'Column color…',
+              hint: vimMode ? 'C' : undefined,
+              keywords: ['color', 'colour', 'hue', 'accent'],
+              onSelect: () => colorColumn(here)
+            }
+          ] satisfies ContextMenuItem[])
+        : []),
       { kind: 'separator' },
       {
         label: 'Delete card…',
@@ -238,6 +326,10 @@ export function DatabaseBoardView({ csvPath, doc, view, isActive = true }: Props
         return
       case 'menu':
         if (focusedRowId) openCardMenu(focusedRowId)
+        else if (columns[at.column]) openColumnMenuAt(columns[at.column].key, false)
+        return
+      case 'color':
+        if (columns[at.column]) colorColumn(columns[at.column].key)
         return
     }
   }
@@ -287,10 +379,17 @@ export function DatabaseBoardView({ csvPath, doc, view, isActive = true }: Props
       >
         {columns.map((col, colIdx) => {
           const columnFocused = colIdx === at.column
+          const columnColor = columnColorOf(col.key)
           return (
           <div
             key={col.key}
             data-db-board-column={col.key}
+            data-kanban-column-color={columnColor ?? undefined}
+            style={
+              columnColor
+                ? ({ '--kanban-column-hue': kanbanColumnColorVar(columnColor) } as React.CSSProperties)
+                : undefined
+            }
             onDragOver={(e) => {
               e.preventDefault()
               setOverCol(col.key)
@@ -309,9 +408,29 @@ export function DatabaseBoardView({ csvPath, doc, view, isActive = true }: Props
               overCol === col.key ? 'border-accent/60' : 'border-paper-300/60'
             ].join(' ')}
           >
-            <div className="flex shrink-0 items-center justify-between gap-2 border-b border-paper-300/45 px-3 py-2">
-              <span className="truncate text-xs font-semibold uppercase tracking-wide text-ink-600">
-                {columnLabel(col.key)}
+            <div
+              data-db-board-column-header
+              onContextMenu={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                // The cursor moves here first, so the menu and the keyboard
+                // agree on which column is being acted on.
+                setCursor({ columnKey: col.key, rowId: null })
+                openColumnMenuAt(col.key, false, { x: e.clientX, y: e.clientY })
+              }}
+              className="flex shrink-0 items-center justify-between gap-2 border-b border-paper-300/45 px-3 py-2"
+            >
+              <span className="flex min-w-0 items-center gap-1.5">
+                {columnColor && (
+                  <span
+                    className="block h-2 w-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: kanbanColumnColorCss(columnColor) }}
+                    aria-hidden="true"
+                  />
+                )}
+                <span className="truncate text-xs font-semibold uppercase tracking-wide text-ink-600">
+                  {columnLabel(col.key)}
+                </span>
               </span>
               <span className="text-xs text-ink-500">{col.rows.length}</span>
             </div>
@@ -371,8 +490,13 @@ export function DatabaseBoardView({ csvPath, doc, view, isActive = true }: Props
                           else if (f.type === 'note' || f.type === 'noteMulti') content = splitNoteLinks(v).map(noteLinkTitle).join(', ')
                           else content = v
                           if (!content) return null
+                          const chipColor = f.type === 'select' ? selectOptionColor(f, v) : null
                           return (
-                            <span key={f.id} className="truncate">
+                            <span
+                              key={f.id}
+                              className="truncate"
+                              style={chipColor ? { color: selectOptionChipStyle(chipColor).color } : undefined}
+                            >
                               {content}
                             </span>
                           )
@@ -464,6 +588,24 @@ export function DatabaseBoardView({ csvPath, doc, view, isActive = true }: Props
           )}
         </div>
       </div>
+
+      {columnMenu && (
+        <ContextMenu
+          key={columnMenu.picking ? 'colors' : 'column'}
+          x={columnMenu.x}
+          y={columnMenu.y}
+          title={columnMenu.picking ? `Color: ${columnLabel(columnMenu.columnKey)}` : undefined}
+          items={
+            columnMenu.picking
+              ? columnColorItems(columnMenu.columnKey)
+              : columnMenuItems(columnMenu.columnKey)
+          }
+          onClose={() => {
+            setColumnMenu(null)
+            focusBoard()
+          }}
+        />
+      )}
 
       {cardMenu && (
         <ContextMenu

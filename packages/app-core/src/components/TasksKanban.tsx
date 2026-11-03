@@ -101,13 +101,13 @@ import { isOverlayOrDialogOpen } from '../lib/overlay-open'
 import { isKeyboardContextMenuKey, keyboardMenuPosition } from '../lib/keyboard-context-menu'
 import { listViewBindingMatches } from '../lib/list-view-keys'
 import {
-  KANBAN_COLUMN_COLORS,
   kanbanColumnColorCss,
   kanbanColumnColorLabel,
   kanbanColumnColorVar,
   type KanbanColumnColor
 } from '../lib/kanban-column-colors'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
+import { columnColorMenuItems } from './ColumnColorMenu'
 import { buildTaskMenuItems, chooseTaskDueDate } from '../lib/task-context-menu'
 import { chooseTaskRemind, chooseTaskRepeat } from '../lib/task-recurrence-pickers'
 import { AlertTriangleIcon, ArrowUpRightIcon, ChevronRightIcon, PencilIcon } from './icons'
@@ -1471,28 +1471,7 @@ export function TasksKanban({
   const openColumnColorMenu = useCallback(
     (column: Column, x: number, y: number): void => {
       const current = useStore.getState().kanbanColumnColors[columnOrderKey(groupBy, column.id)]
-      const items: ContextMenuItem[] = KANBAN_COLUMN_COLORS.map((color) => ({
-        label: color.label,
-        icon: (
-          <span
-            className="block h-2.5 w-2.5 rounded-full"
-            style={{ backgroundColor: kanbanColumnColorCss(color.id) }}
-            aria-hidden="true"
-          />
-        ),
-        checked: current === color.id,
-        keywords: color.id === 'gray' ? ['grey'] : color.id === 'teal' ? ['aqua'] : undefined,
-        onSelect: () => setKanbanColumnColor(groupBy, column.id, color.id)
-      }))
-      items.push(
-        { kind: 'separator' },
-        {
-          label: 'No color',
-          checked: !current,
-          keywords: ['none', 'clear', 'remove'],
-          onSelect: () => setKanbanColumnColor(groupBy, column.id, null)
-        }
-      )
+      const items = columnColorMenuItems(current, (color) => setKanbanColumnColor(groupBy, column.id, color))
       setMenu({ x, y, items, title: `Color: ${column.label}` })
     },
     [groupBy, setKanbanColumnColor]

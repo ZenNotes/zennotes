@@ -1384,6 +1384,14 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       run: () => runDatabaseViewCommand('columns')
     },
     {
+      id: 'database.column-color',
+      title: 'Set Board Column Color…',
+      category: 'Database',
+      keywords: 'database board kanban column color colour hue accent',
+      when: () => activeDatabaseView()?.view.type === 'board',
+      run: () => runDatabaseViewCommand('column-color')
+    },
+    {
       id: 'database.new-table-view',
       title: 'New Table View',
       category: 'Database',

@@ -3,7 +3,7 @@
  *
  * The keys follow the Tasks Kanban board, so one muscle memory drives both:
  * h / l across columns, j / k between cards, H / L carry the card a column,
- * o opens its page, a adds a card, m opens its menu. Like every list in the
+ * o opens its page, a adds a card, m opens its menu, C colors the column. Like every list in the
  * app the letters are Vim mode's alone; with Vim mode off the arrows move,
  * Enter opens (or adds a card in an empty column), and Shift+F10 or the
  * Context Menu key opens the card's menu, which can also move it. A chord is
@@ -26,6 +26,7 @@ export type DatabaseBoardKeyAction =
   | 'open'
   | 'add'
   | 'menu'
+  | 'color'
 
 export interface BoardKey {
   key: string
@@ -53,7 +54,8 @@ const VIM_ONLY = new Map<string, DatabaseBoardKeyAction>(Object.entries({
   L: 'move-right',
   o: 'open',
   a: 'add',
-  m: 'menu'
+  m: 'menu',
+  C: 'color'
 }) as Array<[string, DatabaseBoardKeyAction]>)
 
 export function databaseBoardKeyAction(e: BoardKey, vimMode: boolean): DatabaseBoardKeyAction | null {

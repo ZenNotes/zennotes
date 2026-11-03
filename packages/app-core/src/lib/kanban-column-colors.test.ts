@@ -4,7 +4,9 @@ import {
   kanbanColumnColorCss,
   kanbanColumnColorLabel,
   kanbanColumnColorVar,
-  parseKanbanColumnColor
+  parseKanbanColumnColor,
+  selectOptionChipStyle,
+  selectOptionColor
 } from './kanban-column-colors'
 
 describe('kanban column colours (#1037)', () => {
@@ -43,5 +45,27 @@ describe('kanban column colours (#1037)', () => {
     for (const block of blocks) {
       for (const color of KANBAN_COLUMN_COLORS) expect(block).toContain(`${color.token}:`)
     }
+  })
+})
+
+describe('select option colors', () => {
+  const field = { options: [{ value: 'Done', color: 'Green' }, { value: 'Old', color: '#ff0000' }, { value: 'Plain' }] }
+
+  it('reads a color the palette has, in any case', () => {
+    expect(selectOptionColor(field, 'Done')).toBe('green')
+  })
+
+  it('drops one it does not, and an option with none', () => {
+    expect(selectOptionColor(field, 'Old')).toBeNull()
+    expect(selectOptionColor(field, 'Plain')).toBeNull()
+    expect(selectOptionColor(field, 'Missing')).toBeNull()
+    expect(selectOptionColor(undefined, 'Done')).toBeNull()
+  })
+
+  it('tints a chip from the theme, never a fixed hex', () => {
+    const style = selectOptionChipStyle('blue')
+    expect(style.backgroundColor).toBe('rgb(var(--z-blue) / 0.15)')
+    expect(style.color).toBe('rgb(var(--z-blue))')
+    expect(style['--tw-ring-color']).toBe('rgb(var(--z-blue) / 0.3)')
   })
 })

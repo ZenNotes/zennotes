@@ -13,6 +13,12 @@ const row = (id: string): DbRow => ({ id, cells: { id } })
 const column = (key: string, ids: string[]): BoardColumn => ({ key, rows: ids.map(row) })
 
 describe('databaseBoardKeyAction', () => {
+  it('colors a column on C, with Vim mode on only', () => {
+    expect(databaseBoardKeyAction({ key: 'C', shiftKey: true }, true)).toBe('color')
+    expect(databaseBoardKeyAction({ key: 'C', shiftKey: true }, false)).toBeNull()
+    expect(databaseBoardKeyAction({ key: 'c' }, true)).toBeNull()
+  })
+
   it('answers the Tasks board letters only with Vim mode on', () => {
     const vim: Array<[string, string]> = [
       ['h', 'left'],

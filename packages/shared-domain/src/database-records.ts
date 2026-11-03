@@ -188,6 +188,35 @@ export function deleteRow(doc: DatabaseDoc, rowId: string): DatabaseDoc {
   return { ...doc, rows: doc.rows.filter((r) => r.id !== rowId) }
 }
 
+/**
+ * Give a select option a palette color, or take it off with `null`. The color
+ * lives on the option, in schema.json, so it travels with the database and every
+ * Board and Table draws the same one. A column can show a value no option names
+ * yet (a hand-edited CSV), so the option is made if it's missing.
+ */
+export function setSelectOptionColor(
+  doc: DatabaseDoc,
+  fieldId: string,
+  value: string,
+  color: string | null
+): DatabaseDoc {
+  const withOption = ensureSelectOption(doc, fieldId, value)
+  return {
+    ...withOption,
+    fields: withOption.fields.map((f) => {
+      if (f.id !== fieldId) return f
+      return {
+        ...f,
+        options: (f.options ?? []).map((option) => {
+          if (option.value !== value.trim().replace(/,/g, ' ')) return option
+          const { color: _old, ...rest } = option
+          return color ? { ...rest, color } : rest
+        })
+      }
+    })
+  }
+}
+
 export function ensureSelectOption(doc: DatabaseDoc, fieldId: string, rawValue: string): DatabaseDoc {
   const value = rawValue.trim().replace(/,/g, ' ') // option values may not contain commas
   if (!value) return doc

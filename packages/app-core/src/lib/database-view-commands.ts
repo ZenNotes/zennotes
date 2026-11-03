@@ -17,6 +17,7 @@ export type DatabaseViewCommand =
   | 'duplicate-view'
   | 'pick-selected'
   | 'show-all-rows'
+  | 'column-color'
 
 export const DATABASE_VIEW_COMMAND_EVENT = 'zen:database-view-command'
 

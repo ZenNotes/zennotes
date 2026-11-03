@@ -51,6 +51,7 @@ import { isOverlayOrDialogOpen } from '../lib/overlay-open'
 import { databaseGridKeyAction } from '../lib/database-grid-keys'
 import { useDatabaseViewCommand } from '../lib/database-view-commands'
 import { useToastStore } from '../lib/toast'
+import { selectOptionChipStyle, selectOptionColor } from '../lib/kanban-column-colors'
 import { resolveWikilinkTarget } from '../lib/wikilinks'
 import { followLinkTarget } from '../lib/follow-link'
 import { NoteSuggestRows, stepSuggestIndex, useNoteSuggestions } from './DatabaseNoteSuggest'
@@ -1214,14 +1215,21 @@ function SelectCell({ field, value, editing, onStartEdit, onEndEdit, onCommit }:
       {selected.length === 0 ? (
         <span className="text-ink-400">None</span>
       ) : (
-        selected.map((v) => (
-          <span
-            key={v}
-            className="rounded-full bg-accent/15 px-2 py-0.5 text-2xs font-medium text-accent ring-1 ring-accent/30"
-          >
-            {optionLabel(field, v)}
-          </span>
-        ))
+        selected.map((v) => {
+          const color = selectOptionColor(field, v)
+          return (
+            <span
+              key={v}
+              style={color ? (selectOptionChipStyle(color) as React.CSSProperties) : undefined}
+              className={[
+                'rounded-full px-2 py-0.5 text-2xs font-medium ring-1',
+                color ? '' : 'bg-accent/15 text-accent ring-accent/30'
+              ].join(' ')}
+            >
+              {optionLabel(field, v)}
+            </span>
+          )
+        })
       )}
     </div>
   )

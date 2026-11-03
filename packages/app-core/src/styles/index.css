@@ -69,7 +69,8 @@
    border plus an inset line, so no column shifts by a pixel. The ring vars
    keep Tailwind's ring-* drop highlight; the drop-target rule below wins
    while a card hovers. */
-.task-kanban-column[data-kanban-column-color] {
+.task-kanban-column[data-kanban-column-color],
+[data-db-board-column][data-kanban-column-color] {
   border-top-color: rgb(var(--kanban-column-hue));
   box-shadow:
     inset 0 1px 0 0 rgb(var(--kanban-column-hue)),

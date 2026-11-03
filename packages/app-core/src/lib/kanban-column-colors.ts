@@ -43,3 +43,23 @@ export function kanbanColumnColorVar(color: KanbanColumnColor): string {
 export function kanbanColumnColorCss(color: KanbanColumnColor): string {
   return `rgb(${kanbanColumnColorVar(color)})`
 }
+
+/** The palette color a select option carries, or null: one that names nothing
+ *  in the palette is dropped rather than guessed, as in config.toml. */
+export function selectOptionColor(
+  field: { options?: Array<{ value: string; color?: string }> } | undefined,
+  value: string
+): KanbanColumnColor | null {
+  return parseKanbanColumnColor(field?.options?.find((option) => option.value === value)?.color)
+}
+
+/** The inline look of a chip for an option with a color: the same quiet tint as
+ *  the accent chip, in that hue. */
+export function selectOptionChipStyle(color: KanbanColumnColor): Record<string, string> {
+  const hue = kanbanColumnColorVar(color)
+  return {
+    backgroundColor: `rgb(${hue} / 0.15)`,
+    color: `rgb(${hue})`,
+    '--tw-ring-color': `rgb(${hue} / 0.3)`
+  }
+}
