@@ -65,6 +65,7 @@ export type KeymapId =
   | "vim.leaderToggleSidebar"
   | "vim.leaderNoteOutline"
   | "vim.leaderSwitchVault"
+  | "vim.leaderOpenVaultFolder"
   | "vim.leaderNoteActions"
   | "vim.leaderFormatNote"
   | "vim.leaderCopyMarkdown"
@@ -698,6 +699,17 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: "Leader: switch vault",
     description: "Open the command palette vault switcher.",
     defaultBinding: "v",
+    vimOnly: true,
+    maxTokens: 1,
+  },
+  {
+    id: "vim.leaderOpenVaultFolder",
+    kind: "sequence",
+    scope: "leader",
+    group: "vim",
+    title: "Leader: open vault in file manager",
+    description: "Open the current vault's folder in Finder, File Explorer or your file manager.",
+    defaultBinding: "F",
     vimOnly: true,
     maxTokens: 1,
   },

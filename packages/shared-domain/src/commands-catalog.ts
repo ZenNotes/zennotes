@@ -229,7 +229,7 @@ export const COMMAND_CATALOG: CommandCatalogEntry[] = [
   { id: "vault.rename", title: "Rename Vault…", category: "Vault", keywords: "vault name display name rename label switcher sidebar header folder" },
   { id: "app.workspace.remote", title: "Connect to Remote Vault…", category: "Vault", keywords: "vault remote server workspace self-hosted" },
   { id: "app.workspace.local", title: "Switch to Local Vault", category: "Vault", keywords: "vault local workspace disconnect return" },
-  { id: "app.assets.reveal", title: "Reveal Vault Root", category: "App" },
+  { id: "app.assets.reveal", title: "Open Vault in File Manager", category: "Vault", keywords: "vault folder finder explorer file manager reveal root show location" },
   { id: "cli.check-updates", title: "Check for zn Updates…", category: "CLI", keywords: "cli zn terminal command line update upgrade version release" },
   { id: "cli.install", title: "Install Command-Line Tool (zn)", category: "CLI", keywords: "cli zn terminal shell command line install symlink path bin" },
   { id: "cli.uninstall", title: "Uninstall Command-Line Tool (zn)", category: "CLI", keywords: "cli zn terminal shell command line uninstall remove symlink" },

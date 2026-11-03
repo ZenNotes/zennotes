@@ -111,6 +111,16 @@ export class WindowVaultRegistry {
     return changed
   }
 
+  /** Every root a window has open as a local vault. A remote window's root is
+   *  a path on its server, so it never counts. */
+  localRoots(): string[] {
+    const roots = new Set<string>()
+    for (const session of this.sessions.values()) {
+      if (session.mode === 'local' && session.vault) roots.add(normalizeRoot(session.vault.root))
+    }
+    return [...roots]
+  }
+
   localVaultsExcept(root: string): VaultInfo[] {
     const excluded = normalizeRoot(root)
     const out = new Map<string, VaultInfo>()

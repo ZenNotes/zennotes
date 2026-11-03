@@ -68,6 +68,7 @@ import {
 } from './database-view-commands'
 import { viewHasPicks } from './database-cells'
 import { canRenameVault, renameVaultWithPrompt } from './rename-vault'
+import { canOpenCurrentVaultFolder, openVaultFolder } from './vault-folder'
 import { promptImageWidth } from './image-resize'
 import { copyLinkAtCursor } from './link-copy'
 import { getKeymapDisplay, getLeaderChordDisplay, type KeymapId } from './keymaps'
@@ -2580,13 +2581,14 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       run: () => getState().disconnectRemoteWorkspace()
     },
     {
+      // The id is older than the title: a key bound to it keeps working.
       id: 'app.assets.reveal',
-      title: 'Reveal Vault Root',
-      category: 'App',
-      when: () =>
-        getState().workspaceMode !== 'remote' &&
-        window.zen.getAppInfo().runtime === 'desktop',
-      run: () => getState().revealAssetsDir()
+      title: 'Open Vault in File Manager',
+      category: 'Vault',
+      keywords: 'vault folder finder explorer file manager reveal root show location',
+      shortcut: getState().vimMode ? leaderShortcut('vim.leaderOpenVaultFolder') : undefined,
+      when: () => canOpenCurrentVaultFolder(getState()),
+      run: () => openVaultFolder(getState().vault!.root)
     },
     {
       id: 'cli.check-updates',

@@ -182,6 +182,11 @@ export const HELP_HOW_TO_GUIDES: HelpCard[] = [
       'A vault is named after its folder, which is fine until several vaults are all called `docs` (one per project repo, say). Rename the vault without touching the folder: run “Rename Vault…” from the command palette (`:vault_rename` on the ex line), pick it from the sidebar’s vault menu (click the vault name at the top of the sidebar), or type the name into Settings → Vault → Location → Vault name. The name shows in the sidebar header, the vault switcher (`Space v`), the title bar and `zn vault list`; the folder keeps its name on disk, and clearing the field goes back to it. It is saved in the vault’s own `.zennotes/vault.json` as `displayName`, so it travels with the folder to every machine that opens it and shows up in the switcher after the vault has been opened there once. A temporary folder session and a remote workspace do not offer it: the first writes nothing into its folder, and the second’s settings belong to its server.'
   },
   {
+    title: 'Open a vault in your file manager',
+    body:
+      'Every local vault can open its folder in Finder, File Explorer or your file manager, whether or not it is the vault you are in. Click the vault name at the top of the sidebar: each vault in the list shows a folder button when you point at it, and `Shift+Enter` does the same for the row under the cursor. In the vault switcher (`Space v`), `Shift+Enter` opens the highlighted vault’s folder instead of switching to it. For the vault you are in, use “Open in Finder” in that same sidebar menu, “Open Vault in File Manager” in the command palette, `Space F` in Vim mode, or the button in Settings → Vault → Location. A remote workspace has no folder on this machine, so it does not offer this, and neither does the web app. A vault whose folder has moved says so instead of opening.'
+  },
+  {
     title: 'Move a note without dragging',
     body:
       'Use the note context menu, search for `move` or `mv` in the command palette, or run `:move` or `:mv`. With no argument, ZenNotes opens a folder picker that speaks the sidebar\'s language: folders of your notes area as you see them there (`Work/Research`, no `inbox/` in front, and empty for the notes root, which is Inbox or the vault root depending on your Primary notes location), plus `archive/…` for the Archive. With a target like `:mv Work/Research` or `:mv archive/Reference`, it moves the note directly; `inbox/Work` still works on an Inbox vault.'
@@ -722,6 +727,7 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
       { keys: 'Space k', action: 'New Kanban', detail: 'Create a Kanban board (To do, Doing, Done) in the folder under the sidebar cursor while the sidebar has focus, otherwise where new databases go, and open it. Also New Kanban in the palette and `:kanban`.' },
       { keys: 'Space v', action: 'Switch vault', detail: 'Open the command palette directly to the local vault switcher.' },
       { keys: 'Space I', action: 'Import notes', detail: 'Open the Import window, for Notion and Obsidian.' },
+      { keys: 'Space F', action: 'Open vault folder', detail: 'Open the current vault’s folder in Finder, File Explorer or your file manager. Desktop, local vaults only.' },
       { keys: 'Space a', action: 'Open workflows', detail: 'Open the Workflows view, where saved pipelines over your notes are built and run. Workflows are off by default; turn them on under Settings → Workflows first.' },
       { keys: 'Space r', action: 'Review Cloud conflicts', detail: 'Open whatever Cloud sync is waiting on: the queue of files two devices changed at once, one decision at a time, or the vault settings question, which lists each setting that differs with this device’s value beside the cloud’s and lets you pick a side per setting. When the open note is one of the waiting files, the queue starts on it. A waiting note also says so across its top, in Edit and Preview alike: sync is paused for it until you choose what to keep, and its Review button opens the queue on it. Choosing the other device’s version puts the file where that device left it; when this device already has a different file there, that file moves beside it under the next free name, such as Untitled 2.md. A notification with Review appears once when a new conflict arrives. When the Cloud vault this vault syncs with is deleted, on this device, another device or the website, the status bar says Cloud vault deleted and the binding opens Settings → Cloud instead, where This vault says what happened until you choose a cloud vault, start a new one, or dismiss the notice. If another device moved it into an end-to-end encrypted vault, the status bar says Cloud vault now encrypted instead, and This vault asks you to unlock this device if needed, then choose the encrypted vault. The binding and the command palette entry appear only while something is waiting, and open the same place as Review in the status bar.' },
       { keys: 'Space g', action: 'Open atlas', detail: 'Open the Atlas view: the whole vault drawn as a map of notes and links.' },
@@ -1273,6 +1279,11 @@ export const HELP_VIM_COMMANDS: HelpExCommand[] = [
     detail: 'Open the command palette directly to the local vault switcher.'
   },
   {
+    command: '<Space> F',
+    summary: 'Leader open vault folder',
+    detail: 'Open the current vault’s folder in the system file manager.'
+  },
+  {
     command: '<Space> t',
     summary: 'Leader new from template',
     detail: 'Open the template picker to create a note from a built-in or custom template.'
@@ -1442,7 +1453,7 @@ export const HELP_SETTINGS: HelpSettingsSection[] = [
   {
     title: 'Vault',
     items: [
-      { label: 'Vault location', detail: 'Reveal or change the root folder ZenNotes treats as the active vault.' },
+      { label: 'Vault location', detail: 'Open the folder ZenNotes treats as the active vault in Finder, File Explorer or your file manager, or change it.' },
       { label: 'Vault name', detail: 'What the sidebar header, the vault switcher and the title bar call this vault; the folder keeps its own name on disk. Leave it empty to use the folder name. Saved in the vault’s `.zennotes/vault.json`, so it follows the folder wherever it is opened. Also “Rename Vault…” in the command palette (`:vault_rename`) and the sidebar’s vault menu. Local vaults only.' },
       { label: 'Primary notes location', detail: 'Treat `inbox/` as the main notes area, or use the vault root directly for an Obsidian-style flat vault.' },
       { label: 'Default Locations', detail: 'Choose where new Excalidraw drawings, databases (Kanbans included), and task files are created so they do not pile up in the vault root: the primary notes location (the default), the folder of the note you are currently viewing, or a specific folder you name (e.g. `Drawings` or `Tasks`). A specific folder lives inside the primary notes area, so `Tasks` means `inbox/Tasks/` in an Inbox vault and `Tasks/` in a root vault; the folder field lists the folders there and shows the exact destination. In a root vault, a folder under `assets/` (or another attachments folder, or a hidden one) cannot hold notes, so new files go to the vault root instead and the field says why. New task files come from `+ New task`, the `a` key in the Tasks view, `:newtask` and the command palette; `New Task in Folder…` and `:newtask <folder>` still pick a folder per task. Search Settings for "tasks folder" or "drawings folder" to jump there. Only new files are affected; existing ones stay put.' },
