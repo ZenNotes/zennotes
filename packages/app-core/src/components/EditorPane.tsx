@@ -362,6 +362,7 @@ import {
 import { useToastStore } from '../lib/toast'
 import { armMiddleClickPasteGuard } from '../lib/middle-click-paste-guard'
 import { isWorkspaceVirtualTabPath } from '../lib/workspace-tabs'
+import { sidebarRestoreSlot } from '../lib/sidebar-restore'
 import {
   followPathRewritesInNoteUndoHistories,
   noteUndoHistoryFor,
@@ -4361,6 +4362,13 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const showPreview = !!content && mode !== 'edit'
   const splitMode = mode === 'split'
   const hasTabs = !zenMode && tabsEnabled && tabs.length > 0
+  const sidebarSlot = sidebarRestoreSlot({
+    sidebarOpen,
+    zenMode,
+    hasTabs,
+    hasNote: content != null,
+    hasVirtualTab: activeTab != null && isWorkspaceVirtualTabPath(activeTab)
+  })
   const tabStripMeasureKey = useMemo(
     () =>
       tabItems
@@ -4778,7 +4786,16 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           </div>
         </div>
       )}
-      {dragsWindow && !hasTabs && !content && !zenMode && (
+      {sidebarSlot === 'pane-strip' && (
+        <div data-sidebar-restore className={tabStripHeaderClass}>
+          <div className="flex shrink-0 items-center self-center">
+            <IconBtn title="Show sidebar (⌘1)" onClick={toggleSidebar} tooltipAlign="left">
+              <PanelLeftIcon width={16} height={16} />
+            </IconBtn>
+          </div>
+        </div>
+      )}
+      {dragsWindow && !hasTabs && !content && !zenMode && sidebarSlot !== 'pane-strip' && (
         // No tab strip and no header: keep something to move the window by.
         <div aria-hidden className="drag-region h-8 shrink-0" />
       )}
@@ -4789,6 +4806,13 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           }`}
         >
           <div className="flex min-w-0 flex-1 items-center gap-1">
+            {sidebarSlot === 'note-header' && (
+              <div data-sidebar-restore className="-ml-2 mr-1 shrink-0">
+                <IconBtn title="Show sidebar (⌘1)" onClick={toggleSidebar} tooltipAlign="left">
+                  <PanelLeftIcon width={16} height={16} />
+                </IconBtn>
+              </div>
+            )}
             <Breadcrumb
               note={content}
               autoFocus={isActive && pendingTitleFocusPath === content.path}
