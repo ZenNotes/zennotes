@@ -79,6 +79,17 @@ export function resolveWikilinkTarget(
   return visible.find((note) => normalizeForCompare(note.title) === needle) ?? null
 }
 
+/**
+ * Where a wikilink's alias starts, separator included, or -1. A table writes the
+ * separator as `\|`, the escape GFM needs to keep the pipe in its cell. Note
+ * names can't contain a backslash, so one right before the pipe is that escape,
+ * and a rewrite keeps it by keeping it on the alias.
+ */
+export function wikilinkAliasStart(content: string): number {
+  const pipe = content.indexOf('|')
+  return pipe > 0 && content[pipe - 1] === '\\' ? pipe - 1 : pipe
+}
+
 /** Split `[[ ... ]]` inner text into target, `#heading`/`^block` anchor, and
  *  `|alias` , the anchor/alias keep their leading delimiter so the link can be
  *  reassembled verbatim. */
@@ -89,10 +100,10 @@ function splitWikilinkContent(content: string): {
 } {
   let rest = content
   let alias = ''
-  const pipe = rest.indexOf('|')
-  if (pipe >= 0) {
-    alias = rest.slice(pipe)
-    rest = rest.slice(0, pipe)
+  const aliasStart = wikilinkAliasStart(rest)
+  if (aliasStart >= 0) {
+    alias = rest.slice(aliasStart)
+    rest = rest.slice(0, aliasStart)
   }
   let anchor = ''
   const anchorIdx = rest.search(/[#^]/)

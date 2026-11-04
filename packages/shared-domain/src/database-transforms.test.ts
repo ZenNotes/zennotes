@@ -84,3 +84,17 @@ describe('pickRows / viewRows: picked rows', () => {
     ])
   })
 })
+
+describe('splitNoteLinks with an escaped pipe', () => {
+  it.each([
+    ['[[C\\|d]]', ['C']],
+    ['[[C\\|]]', ['C']],
+    ['[[C\\|d]] and [[Other|e]]', ['C', 'Other']],
+    ['[[C|d]]', ['C']],
+    ['[[C|]]', ['C']],
+    ['[[C]]', ['C']],
+    ['[[C\\]]', ['C\\']]
+  ])('reads %s', (cell, want) => {
+    expect(splitNoteLinks(cell)).toEqual(want)
+  })
+})

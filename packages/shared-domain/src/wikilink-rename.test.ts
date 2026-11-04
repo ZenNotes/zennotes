@@ -66,3 +66,17 @@ describe('rewriteWikilinksForRename', () => {
     expect(rewriteWikilinksForRename('[[Dup]]', dup, 'inbox/A.md', 'New').body).toBe('[[New]]')
   })
 })
+
+describe('rewriteWikilinksForRename with an escaped pipe', () => {
+  it.each([
+    ['a table cell', '| [[Old Title\\|d]] | x |', '| [[New Title\\|d]] | x |', 1],
+    ['a heading anchor', '| [[Old Title#Intro\\|d]] |', '| [[New Title#Intro\\|d]] |', 1],
+    ['a path', '| [[demo/Old Title.md\\|d]] |', '| [[demo/New Title.md\\|d]] |', 1],
+    ['an embed', '| ![[Old Title\\|d]] |', '| ![[New Title\\|d]] |', 1],
+    ['an unescaped alias', '[[Old Title|d]]', '[[New Title|d]]', 1],
+    ['code', '`[[Old Title\\|d]]`', '`[[Old Title\\|d]]`', 0],
+    ['another note', '| [[Other\\|d]] |', '| [[Other\\|d]] |', 0]
+  ])('handles %s', (_name, body, want, changed) => {
+    expect(rewrite(body)).toEqual({ body: want, changed })
+  })
+})

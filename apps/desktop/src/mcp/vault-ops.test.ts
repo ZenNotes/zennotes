@@ -4,6 +4,7 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { parseOpenNoteDeepLink } from '../main/deep-links'
 import {
+  backlinks,
   createNote,
   insertAtLineInBody,
   listNotes,
@@ -484,5 +485,20 @@ describe('mcp text search leaves the template folder out (#1024)', () => {
       'Templates/Meeting.md',
       'Templates/Work/Retro.md'
     ])
+  })
+})
+
+describe('a table link with an escaped pipe', () => {
+  it('is an outgoing link and a backlink of its target', async () => {
+    await mkdir(path.join(root, 'inbox'), { recursive: true })
+    await writeFile(path.join(root, 'inbox', 'C.md'), '# C\n', 'utf8')
+    await writeFile(
+      path.join(root, 'inbox', 'Table.md'),
+      '| Link | Note |\n| --- | --- |\n| [[C\\|d]] | x |\n',
+      'utf8'
+    )
+    const metas = await listNotes(root)
+    expect(metas.find((n) => n.path === 'inbox/Table.md')?.wikilinks).toEqual(['C'])
+    expect((await backlinks(root, 'inbox/C.md')).map((n) => n.path)).toEqual(['inbox/Table.md'])
   })
 })

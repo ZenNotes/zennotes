@@ -28,6 +28,7 @@ import {
   type AssetPathRef,
   type AssetReferenceResolution
 } from './asset-path-resolution'
+import { wikilinkAliasStart } from './wikilink-rename'
 
 // Code first so references inside spans and fences are left untouched, then a
 // wikilink, then a markdown destination. The destination is matched from its
@@ -153,7 +154,7 @@ export function rewriteAssetReferences(
     ) => {
       if (code !== undefined) return full
       if (wikiContent !== undefined) {
-        const pipe = wikiContent.indexOf('|')
+        const pipe = wikilinkAliasStart(wikiContent)
         const target = pipe >= 0 ? wikiContent.slice(0, pipe) : wikiContent
         const rest = pipe >= 0 ? wikiContent.slice(pipe) : ''
         const resolution = resolveOld(target)
