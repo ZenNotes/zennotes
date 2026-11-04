@@ -215,12 +215,37 @@ starts it expanded; use \`-\` for long blocks a reader opens on demand.
 - Deletion: move_to_trash first, empty_trash only with explicit
   confirmation.
 - Before rename_note, run backlinks.
-- Task ids from list_tasks (\`path#index\`) are stable, so pass
-  them to toggle_task.
+- Task ids from list_tasks (\`path#index\`) count a task's position in
+  its note, so list_tasks again after that note changes. Pass them to
+  toggle_task, or to update_task to change a due date, priority,
+  @waiting, state, status or text. Use update_task rather than editing
+  a task's line by hand, and give it expectedText when the note may
+  have changed since you listed its tasks.
+- Long note: note_sections lists its headings, and with \`heading\`
+  reads just that part. edit_section adds to or rewrites the part
+  under a heading, so you need no line numbers.
+- "Add to today's note": daily_note says where it lives under this
+  vault's settings. Never build a daily note's path yourself. If it
+  does not exist, pass its \`createWith\` to create_note as it is.
 - list_tasks omits notes opted out of Tasks (frontmatter
   \`tasks: false\`/\`note\`, excluded folders, the template folder,
   and notes outside the vault's Task folders when it has any). Pass
   includeExcluded: true only when the user asks for everything.
+
+## Attachments
+
+Images, PDFs, audio and other files live beside the notes. Find them with
+list_assets; read_asset shows you one, up to 5 MiB.
+
+- To attach a file, call upload_asset, then put the \`markdown\` it returns
+  into the note with append_to_note or edit_section. It never overwrites:
+  use the \`path\` and \`markdown\` it gives back.
+- A diagram you can draw belongs in a fence (see below), not in an image.
+- rename_asset and move_asset update the notes that link to the file.
+- delete_asset moves a file to the app's Trash and returns an undoToken for
+  restore_asset; list_assets with \`deleted: true\` shows what can come back.
+  Permanently deleting one is the user's to do, in the app. Notes keep their
+  links to a deleted file, so tell the user which ones.
 
 ## Comments: reviewing a note together
 

@@ -44,9 +44,14 @@ import type { DatabaseOps } from '@shared/database-ops'
 import type { VaultAssetMeta, VaultBackend, VaultDescription, VaultLayout } from '../cli/backend.js'
 import { RemoteRequestError } from '../main/remote/connection.js'
 import {
+  AssetDestinationRefused,
   ATTACHMENTS_DIRS,
+  foldersAsListed,
   goesThroughLink,
   sanitizeTitle,
+  type CustomTemplateFile,
+  type DeletedVaultAsset,
+  type ImportedVaultAsset,
   type NoteComment,
   type NoteCommentInput,
   type NoteContent,
@@ -75,7 +80,18 @@ const UNMARKED_LINKS =
 const REMOTE_RENAME =
   'Renaming notes on a ZenNotes server is not available to an assistant that sees only part of the vault: the server rewrites links in every note, including ones this assistant cannot see.'
 
+const REMOTE_ASSET_LINKS =
+  'Renaming or moving attachments on a ZenNotes server is not available to an assistant that sees only part of the vault: the server rewrites links in every note, including ones this assistant cannot see.'
+
+const REMOTE_ASSET_BYTES =
+  'Reading or copying attachments on a ZenNotes server is not available to an assistant that sees only part of the vault.'
+
+const ASSETS_DIR = 'assets'
+
 const notFound = (rel: string): Error => new Error(`Note not found: ${rel}`)
+export const assetNotFound = (rel: string): Error => new Error(`Asset not found: ${rel}`)
+export const deletedAssetNotFound = (token: string): Error =>
+  new Error(`Deleted asset not found: ${token}`)
 const folderNotFound = (subpath: string): Error => new Error(`Folder not found: ${subpath}`)
 
 /** The stderr hint about a missing deny entry, once per entry for the life of
@@ -109,7 +125,8 @@ function spell(p: string, known: readonly string[]): string | null {
   let count = 0
   for (const k of known) {
     if (k === p) return k
-    if (foldMcpScopePath(k) === folded) {
+    // The lists can name one path twice, which is still one path.
+    if (foldMcpScopePath(k) === folded && k !== match) {
       match = k
       count += 1
     }
@@ -119,7 +136,7 @@ function spell(p: string, known: readonly string[]): string | null {
 
 /** A client's path in vault-relative POSIX form, or null: `.` and `..`
  *  segments and hidden names are never resolved. */
-function cleanRequest(raw: string): string | null {
+export function cleanRequest(raw: string): string | null {
   const parts: string[] = []
   for (const seg of raw.replace(/\\/g, '/').split('/')) {
     if (!seg) continue
@@ -127,6 +144,29 @@ function cleanRequest(raw: string): string | null {
     parts.push(seg)
   }
   return parts.length > 0 ? parts.join('/') : null
+}
+
+/** A path with whitespace around it is not one the listings hold. */
+function trimsDifferently(raw: string): boolean {
+  return raw.trim() !== raw
+}
+
+/** A client's path in an asset listing: exact, else the one path equal after
+ *  case and accent folding, so the vault's spelling is what gets used. */
+export function matchAsset(all: readonly VaultAssetMeta[], raw: string): VaultAssetMeta | null {
+  const clean = cleanRequest(raw)
+  if (!clean) return null
+  const folded = foldMcpScopePath(clean)
+  let match: VaultAssetMeta | null = null
+  let count = 0
+  for (const asset of all) {
+    if (asset.path === clean) return asset
+    if (foldMcpScopePath(asset.path) === folded) {
+      match = asset
+      count += 1
+    }
+  }
+  return count === 1 ? match : null
 }
 
 /** The top-level directories the root walk keeps out of the inbox. Mirrors
@@ -206,8 +246,50 @@ class ScopeView {
     readonly allFolders: FolderEntry[],
     /** Whether anything at all sits at a vault-relative path. A listing cannot
      *  answer that, because it leaves links out. */
-    private readonly occupied: (rel: string) => Promise<boolean>
+    private readonly occupied: (rel: string) => Promise<boolean>,
+    /** The vault on this machine; '' for a server's. */
+    private readonly root: string
   ) {}
+
+  /** Whether every segment of `rel` that exists is a real folder under the name
+   *  its parent lists, as a destination must be. On a server, `known` holds the
+   *  folders its listings establish, and the first segment outside them must
+   *  have nothing there. */
+  async realDirs(rel: string, known: () => Promise<string[]>): Promise<boolean> {
+    if (!rel || rel === '.') return true
+    if (!this.root) {
+      const dirs = await known()
+      let walked = ''
+      for (const seg of rel.split('/')) {
+        walked = joinRel(walked, seg)
+        if (spell(walked, dirs) == null) return !(await this.occupied(walked))
+      }
+      return true
+    }
+    let walk = this.root
+    for (const seg of rel.split('/')) {
+      const parent = walk
+      walk = path.join(walk, seg)
+      try {
+        if (!(await fs.lstat(walk)).isDirectory()) return false
+        const folded = foldMcpScopePath(seg)
+        const listed = await fs.readdir(parent)
+        if (!listed.some((name) => foldMcpScopePath(name) === folded)) return false
+      } catch (err) {
+        return (err as NodeJS.ErrnoException).code === 'ENOENT'
+      }
+    }
+    return true
+  }
+
+  /** The one answer for every folder a client may not put a file in, hidden or
+   *  not. */
+  assetRefusal(): Error {
+    if (this.allow.length > 0) {
+      return new Error(`This assistant can put files only inside: ${this.allow.join(', ')}.`)
+    }
+    return new Error('This assistant cannot put files there.')
+  }
 
   bucketDir(folder: NoteFolder): string {
     if (folder === 'inbox' && this.primaryAtRoot) return ''
@@ -329,6 +411,7 @@ class ScopeView {
 
 export class ScopedBackend implements VaultBackend {
   private view: Promise<ScopeView> | null = null
+  private assets: Promise<VaultAssetMeta[]> | null = null
 
   constructor(
     readonly inner: VaultBackend,
@@ -398,7 +481,8 @@ export class ScopedBackend implements VaultBackend {
       layout.systemFolderPaths,
       layout.primaryNotesLocation === 'root',
       folders,
-      this.occupiedCheck()
+      this.occupiedCheck(),
+      this.inner.kind === 'local' ? this.inner.root : ''
     )
     for (const folder of FOLDERS) {
       const dir = v.bucketDir(folder)
@@ -528,12 +612,206 @@ export class ScopedBackend implements VaultBackend {
     })
   }
 
-  listAssets = async (): Promise<VaultAssetMeta[]> => {
-    const v = await this.load()
-    const restricted = isMcpScopeRestricted(this.scope)
-    return (await this.inner.listAssets()).filter(
-      (asset) => !(restricted && asset.symlink) && v.visible(asset.path)
+  /** The asset listing this call sees, read once. An asset is visible when its
+   *  path is, so this holds no second idea of what a scope means. A server lists
+   *  a link to a file and marks it, as for notes; a scope with no paths in it
+   *  keeps them. */
+  private visibleAssets(): Promise<VaultAssetMeta[]> {
+    this.assets ??= (async () => {
+      const v = await this.load()
+      const restricted = isMcpScopeRestricted(this.scope)
+      return (await this.inner.listAssets()).filter(
+        (asset) => !(restricted && asset.symlink) && v.visible(asset.path)
+      )
+    })()
+    return this.assets
+  }
+
+  listAssets = async (): Promise<VaultAssetMeta[]> => [...(await this.visibleAssets())]
+
+  /** Resolves a client's path to a visible listed asset, the first step of every
+   *  per-asset operation. A hidden file answers exactly like a missing one. */
+  private async assetFor(raw: string, access: McpAccess): Promise<VaultAssetMeta> {
+    this.need(access)
+    await this.load()
+    const all = await this.visibleAssets()
+    const meta = trimsDifferently(raw) ? null : matchAsset(all, raw)
+    if (!meta) throw assetNotFound(raw)
+    return meta
+  }
+
+  /** The folders the listings establish, plus the attachment folders, which
+   *  listings hide. A server makes its own check on those. */
+  private async knownAssetDirs(v: ScopeView): Promise<string[]> {
+    const known = [...v.dirs, ...ATTACHMENTS_DIRS]
+    for (const asset of await this.visibleAssets().catch(() => [])) {
+      for (
+        let dir = path.posix.dirname(asset.path);
+        dir !== '.' && dir !== '/';
+        dir = path.posix.dirname(dir)
+      ) {
+        known.push(dir)
+      }
+    }
+    return known
+  }
+
+  /** A folder a file may be moved to, in the vault's spelling, or a refusal. */
+  private async assetDestination(v: ScopeView, raw: string): Promise<string> {
+    const clean = cleanRequest(raw)
+    if (!clean || trimsDifferently(raw)) throw v.assetRefusal()
+    const known = await this.knownAssetDirs(v)
+    let spelled = ''
+    for (const seg of clean.split('/')) {
+      const next = joinRel(spelled, seg)
+      spelled = spell(next, known) ?? next
+    }
+    if (!v.visible(spelled) || !(await v.realDirs(spelled, async () => known))) {
+      throw v.assetRefusal()
+    }
+    if (this.inner.kind !== 'local') return spelled
+    const listed = await foldersAsListed(this.inner.root, spelled)
+    if (listed === null || !v.visible(listed)) throw v.assetRefusal()
+    return listed
+  }
+
+  /** Whether this client sees a path at all, for a tool about to name one it did
+   *  not get from a listing. If that cannot be told, it does not. The vault's root
+   *  is shared unless an allow list narrows it. */
+  async sharesPath(rel: string): Promise<boolean> {
+    return await this.load().then(
+      (v) => (rel === '.' || rel === '' ? v.allow.length === 0 : v.visible(rel)),
+      () => false
     )
+  }
+
+  /** The answer for a folder this client may not put a file in. */
+  async destinationRefusal(): Promise<Error> {
+    return (await this.load()).assetRefusal()
+  }
+
+  /** The refusal for handing a file's contents to a client that sees only part
+   *  of a server's vault. It holds until a server can say enough about a file
+   *  for this check to be made here. */
+  private refuseAssetBytes(): void {
+    if (isMcpScopeRestricted(this.scope) && this.inner.kind === 'remote') {
+      throw new Error(REMOTE_ASSET_BYTES)
+    }
+  }
+
+  readAsset = async (rel: string): Promise<Uint8Array> => {
+    const meta = await this.assetFor(rel, 'read')
+    this.refuseAssetBytes()
+    return await this.inner.readAsset(meta.path)
+  }
+
+  /** Only ever writes to the vault's assets folder, so that folder has to be
+   *  shared. The name comes back from the backend, and a name that lands on a
+   *  deny entry is undone rather than left where the client cannot see it. */
+  importAsset = async (filename: string, bytes: Uint8Array): Promise<ImportedVaultAsset> => {
+    this.need('write')
+    const v = await this.load()
+    const refused = new Error(
+      "This assistant cannot add files: the vault's assets folder is not shared with it."
+    )
+    if (!v.visible(ASSETS_DIR) || !(await v.realDirs(ASSETS_DIR, () => this.knownAssetDirs(v)))) {
+      throw refused
+    }
+    const got = await this.inner.importAsset(filename, bytes)
+    if (!v.visible(got.path)) {
+      await this.inner.deleteAsset(got.path).catch(() => undefined)
+      throw refused
+    }
+    return got
+  }
+
+  /** Links are rewritten in visible notes only. A server rewrites every note
+   *  itself, so a client that sees part of its vault is refused, as with
+   *  renameNote. */
+  renameAsset = async (rel: string, name: string): Promise<VaultAssetMeta> => {
+    const meta = await this.assetFor(rel, 'write')
+    const v = await this.load()
+    if (!v.visible(path.posix.join(path.posix.dirname(meta.path), name))) {
+      throw new Error('This assistant cannot give the file that name.')
+    }
+    if (!isMcpScopeRestricted(this.scope)) return await this.inner.renameAsset(meta.path, name)
+    if (this.inner.kind === 'remote') throw new Error(REMOTE_ASSET_LINKS)
+    return await this.inner.renameAsset(meta.path, name, v.visible)
+  }
+
+  moveAsset = async (rel: string, targetDir: string): Promise<VaultAssetMeta> => {
+    const meta = await this.assetFor(rel, 'write')
+    const v = await this.load()
+    const dir = await this.assetDestination(v, targetDir)
+    if (!isMcpScopeRestricted(this.scope)) return await this.inner.moveAsset(meta.path, dir)
+    if (this.inner.kind === 'remote') throw new Error(REMOTE_ASSET_LINKS)
+    return await this.inner.moveAsset(meta.path, dir, v.visible).catch((err: unknown) => {
+      throw err instanceof AssetDestinationRefused ? v.assetRefusal() : err
+    })
+  }
+
+  duplicateAsset = async (rel: string): Promise<VaultAssetMeta> => {
+    const meta = await this.assetFor(rel, 'write')
+    this.refuseAssetBytes()
+    const v = await this.load()
+    const ext = path.posix.extname(meta.name)
+    const stem = ext ? meta.name.slice(0, -ext.length) : meta.name
+    if (!v.visible(path.posix.join(path.posix.dirname(meta.path), `${stem} copy${ext}`))) {
+      throw new Error('This assistant cannot give the file that name.')
+    }
+    const copy = await this.inner.duplicateAsset(meta.path)
+    // A numbered name can land where the first name would not.
+    if (!v.visible(copy.path)) {
+      await this.inner.deleteAsset(copy.path).catch(() => undefined)
+      throw new Error('This assistant cannot give the file that name.')
+    }
+    return copy
+  }
+
+  deleteAsset = async (rel: string): Promise<DeletedVaultAsset> =>
+    await this.inner.deleteAsset((await this.assetFor(rel, 'write')).path)
+
+  /** What was deleted from where the client can see. The store itself is
+   *  internal; only its entries' original paths decide. */
+  listDeletedAssets = async (): Promise<DeletedVaultAsset[]> => {
+    const v = await this.load()
+    return (await this.inner.listDeletedAssets()).filter((entry) => {
+      const clean = cleanRequest(entry.path)
+      return clean != null && !trimsDifferently(entry.path) && v.visible(clean)
+    })
+  }
+
+  /** Takes only an entry this client can list, and the folder it returns to must
+   *  still be a real one. */
+  restoreDeletedAsset = async (deleted: DeletedVaultAsset): Promise<VaultAssetMeta> => {
+    this.need('write')
+    const v = await this.load()
+    const entry = (await this.listDeletedAssets()).find((d) => d.undoToken === deleted.undoToken)
+    if (
+      !entry ||
+      !(await v.realDirs(path.posix.dirname(cleanRequest(entry.path) ?? ''), () =>
+        this.knownAssetDirs(v)
+      ))
+    ) {
+      throw deletedAssetNotFound(deleted.undoToken)
+    }
+    const restored = await this.inner.restoreDeletedAsset(entry)
+    // As with a copy: a number that landed out of view is undone.
+    if (!v.visible(restored.path)) {
+      await this.inner.deleteAsset(restored.path).catch(() => undefined)
+      throw deletedAssetNotFound(deleted.undoToken)
+    }
+    return restored
+  }
+
+  vaultSettings = (): Promise<Record<string, unknown>> => this.inner.vaultSettings()
+
+  /** For starting a daily note the way the app would. A template is not filed
+   *  under any folder a scope can name and can hold anything, so a client that
+   *  sees only part of the vault gets none. */
+  listTemplates = async (): Promise<CustomTemplateFile[]> => {
+    if (isMcpScopeRestricted(this.scope)) throw new Error(NOT_OFFERED)
+    return await this.inner.listTemplates()
   }
 
   readNote = async (rel: string): Promise<NoteContent> =>
@@ -740,6 +1018,14 @@ export class ScopedBackend implements VaultBackend {
     return (await this.inner.scanAllTasks(opts)).filter(
       (task) => v.byPath.has(task.sourcePath) && v.visible(task.sourcePath)
     )
+  }
+
+  scanTasksForPath = async (
+    rel: string,
+    opts?: { includeExcluded?: boolean }
+  ): Promise<VaultTask[]> => {
+    const meta = await this.noteFor(rel, 'read')
+    return await this.inner.scanTasksForPath(meta.path, opts)
   }
 
   toggleTask = async (taskId: string): Promise<VaultTask | null> => {

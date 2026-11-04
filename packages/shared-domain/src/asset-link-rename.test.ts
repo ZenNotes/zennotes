@@ -163,3 +163,88 @@ describe('rewriteAssetReferences on move (#785 follow-up)', () => {
     })
   })
 })
+
+describe('a Markdown link whose file gains a space or a parenthesis', () => {
+  const assets = [{ path: 'assets/report.pdf' }, { path: 'assets/other.pdf' }]
+  const note = 'notes/n.md'
+  const old = 'assets/report.pdf'
+
+  it.each([
+    ['a plain link gains brackets', '[x](../assets/report.pdf)\n', 'assets/new report.pdf', '[x](<../assets/new report.pdf>)\n'],
+    ['a fragment stays inside them', '[x](../assets/report.pdf#page=3)\n', 'assets/new report.pdf', '[x](<../assets/new report.pdf#page=3>)\n'],
+    ['a title stays outside them', '[x](../assets/report.pdf "T")\n', 'assets/new report.pdf', '[x](<../assets/new report.pdf> "T")\n'],
+    ['an image too', '![x](../assets/report.pdf)\n', 'assets/new report.pdf', '![x](<../assets/new report.pdf>)\n'],
+    ['parentheses need them too', '[x](../assets/report.pdf)\n', 'assets/report(1).pdf', '[x](<../assets/report(1).pdf>)\n'],
+    ['a name without either stays plain', '[x](../assets/report.pdf)\n', 'assets/renamed.pdf', '[x](../assets/renamed.pdf)\n'],
+    ['brackets already there stay', '[x](<../assets/report.pdf>)\n', 'assets/new report.pdf', '[x](<../assets/new report.pdf>)\n'],
+    ['a bracket in a name cannot close them', '[x](<../assets/report.pdf>)\n', 'assets/a>b.pdf', '[x](<../assets/a%3Eb.pdf>)\n'],
+    ['a wikilink never takes them', '![[assets/report.pdf]]\n', 'assets/new report.pdf', '![[assets/new report.pdf]]\n']
+  ])('%s', (_name, body, next, want) => {
+    expect(rewriteAssetReferences(body, assets, note, old, next).body).toBe(want)
+  })
+
+  it('stays encoded when it was, and the next rename finds it again', () => {
+    expect(
+      rewriteAssetReferences(
+        '[x](../assets/my%20report.pdf)\n',
+        [{ path: 'assets/my report.pdf' }],
+        note,
+        'assets/my report.pdf',
+        'assets/new report.pdf'
+      ).body
+    ).toBe('[x](../assets/new%20report.pdf)\n')
+    const first = rewriteAssetReferences('[x](../assets/report.pdf#page=3)\n', assets, note, old, 'assets/new report.pdf')
+    const second = rewriteAssetReferences(
+      first.body,
+      [{ path: 'assets/new report.pdf' }],
+      note,
+      'assets/new report.pdf',
+      'assets/final.pdf'
+    )
+    expect(second).toEqual({ body: '[x](<../assets/final.pdf#page=3>)\n', changed: 1 })
+  })
+
+  it('leaves a wikilink that names a note, when told the notes', () => {
+    const assets = [{ path: 'Docs/Plan' }]
+    const notes = [{ path: 'Plan.md', title: 'Plan', folder: 'inbox' }]
+    const body = 'See [[Plan]] and [[Plan|the plan]] and ![[Docs/Plan]].\n'
+    expect(rewriteAssetReferences(body, assets, 'N.md', 'Docs/Plan', 'Docs/Other', { notes }).body).toBe(
+      'See [[Plan]] and [[Plan|the plan]] and ![[Docs/Other]].\n'
+    )
+    expect(rewriteAssetReferences(body, assets, 'N.md', 'Docs/Plan', 'Docs/Other').changed).toBe(3)
+  })
+
+  it('writes the whole path when asked, however unique the bare name is', () => {
+    const assets = [{ path: 'assets/a.png' }]
+    const body = '![[a.png]]\n'
+    expect(rewriteAssetReferences(body, assets, 'N.md', 'assets/a.png', 'assets/b.png').body).toBe('![[b.png]]\n')
+    expect(
+      rewriteAssetReferences(body, assets, 'N.md', 'assets/a.png', 'assets/b.png', { fullPath: true }).body
+    ).toBe('![[assets/b.png]]\n')
+  })
+
+  it('reads through an anchor when it asks whether a wikilink names a note', () => {
+    const assets = [{ path: 'Docs/Report' }]
+    const notes = [{ path: 'Report.md', title: 'Report', folder: 'inbox' }]
+    const body = '[[Report#Heading]] [[Report^block]] [[Report|alias]]\n'
+    expect(rewriteAssetReferences(body, assets, 'N.md', 'Docs/Report', 'Docs/Renamed', { notes }).body).toBe(body)
+  })
+
+  it('says when a wikilink cannot hold the new path', () => {
+    const assets = [{ path: 'assets/a.png' }, { path: 'Other/a.png' }]
+    const body = '![[assets/a.png]] ![x](assets/a.png)\n'
+    const out = rewriteAssetReferences(body, assets, 'N.md', 'assets/a.png', 'Issue #5/a.png')
+    expect(out.stranded).toBe(true)
+    expect(out.body).toBe('![[assets/a.png]] ![x](<Issue %235/a.png>)\n')
+  })
+
+  it('uses a bare name in a wikilink where that resolves', () => {
+    const out = rewriteAssetReferences('![[assets/a.png]]\n', [{ path: 'assets/a.png' }], 'N.md', 'assets/a.png', 'a?b/a.png')
+    expect(out).toEqual({ body: '![[a.png]]\n', changed: 1 })
+  })
+
+  it('cannot use a bare name that holds link syntax itself', () => {
+    const out = rewriteAssetReferences('![[a.png]]\n', [{ path: 'a.png' }], 'N.md', 'a.png', 'x#y.png')
+    expect(out).toMatchObject({ body: '![[a.png]]\n', stranded: true })
+  })
+})

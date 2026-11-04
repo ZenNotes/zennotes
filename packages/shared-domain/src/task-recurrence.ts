@@ -318,9 +318,21 @@ export function completeRecurringTaskAtIndex(
   opts: RecurringCompletionOptions
 ): RecurringCompletion | null {
   if (taskIndex < 0) return null
-  const lines = markdown.split('\n')
-  const at = taskLineNumbers(lines)[taskIndex]
+  const at = taskLineNumbers(markdown.split('\n'))[taskIndex]
   if (at == null) return null
+  return completeRecurringTaskAtLine(markdown, at, opts)
+}
+
+/** The same for the task on a known line, for a caller whose index counts
+ *  differently from the parser's. Null when that line is not an open recurring
+ *  task. */
+export function completeRecurringTaskAtLine(
+  markdown: string,
+  at: number,
+  opts: RecurringCompletionOptions
+): RecurringCompletion | null {
+  const lines = markdown.split('\n')
+  if (at < 0 || at >= lines.length) return null
   const fallbackDue = noteFrontmatterDue(markdown) ?? opts.fallbackDue
   const plan = planRecurringCompletion(lines, at, { ...opts, fallbackDue })
   if (!plan) return null

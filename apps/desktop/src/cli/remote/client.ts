@@ -2,7 +2,7 @@
  * The slice of the ZenNotes server API the `zn` CLI needs (#493).
  *
  * A deliberately smaller thing than the desktop app's RemoteServerClient:
- * no WebSocket watcher, no assets, no comments, no settings. A CLI command
+ * no WebSocket watcher. A CLI command
  * runs once and exits, so there is nothing to keep in sync — and staying
  * fetch-only is what lets this ship inside the standalone `cli.js` bundle
  * (see the note in main/remote/connection.ts).
@@ -12,8 +12,15 @@
  * commands keep printing exactly the fields they print for a local vault.
  */
 
-import { remoteJsonRequest } from '../../main/remote/connection.js'
+import {
+  remoteBytesRequest,
+  remoteFormRequest,
+  remoteJsonRequest
+} from '../../main/remote/connection.js'
 import type {
+  CustomTemplateFile,
+  DeletedVaultAsset,
+  ImportedVaultAsset,
   NoteComment,
   NoteCommentInput,
   NoteContent,
@@ -76,6 +83,7 @@ export class CliRemoteClient {
     primaryNotesLocation?: string
     systemFolderPaths?: Record<string, string> | null
     templates?: unknown
+    [key: string]: unknown
   }> {
     return this.get('/api/vault/settings')
   }
@@ -119,6 +127,21 @@ export class CliRemoteClient {
     return this.get<RemoteAssetMeta[]>('/api/assets')
   }
 
+  readAsset(relPath: string): Promise<Uint8Array> {
+    return remoteBytesRequest(`/api/assets/raw?path=${encodeURIComponent(relPath)}`, {
+      baseUrl: this.baseUrl,
+      authToken: this.authToken
+    })
+  }
+
+  listDeletedAssets(): Promise<DeletedVaultAsset[] | null> {
+    return this.get<DeletedVaultAsset[] | null>('/api/assets/deleted')
+  }
+
+  listTemplates(): Promise<CustomTemplateFile[] | null> {
+    return this.get<CustomTemplateFile[] | null>('/api/templates')
+  }
+
   scanTasksForPath(
     relPath: string,
     opts?: { includeExcluded?: boolean }
@@ -130,6 +153,38 @@ export class CliRemoteClient {
   }
 
   /* --- writes --- */
+
+  /** Multipart, not JSON: the server reads a `file` form part plus the owning
+   *  note's path, which an upload from a tool does not have. */
+  uploadAsset(filename: string, bytes: Uint8Array): Promise<ImportedVaultAsset> {
+    const form = new FormData()
+    form.append('notePath', '')
+    form.append('file', new Blob([bytes as Uint8Array<ArrayBuffer>]), filename)
+    return remoteFormRequest<ImportedVaultAsset>('/api/assets/upload', form, {
+      baseUrl: this.baseUrl,
+      authToken: this.authToken
+    })
+  }
+
+  renameAsset(relPath: string, name: string): Promise<RemoteAssetMeta> {
+    return this.post<RemoteAssetMeta>('/api/assets/rename', { path: relPath, name })
+  }
+
+  moveAsset(relPath: string, targetDir: string): Promise<RemoteAssetMeta> {
+    return this.post<RemoteAssetMeta>('/api/assets/move', { path: relPath, targetDir })
+  }
+
+  duplicateAsset(relPath: string): Promise<RemoteAssetMeta> {
+    return this.post<RemoteAssetMeta>('/api/assets/duplicate', { path: relPath })
+  }
+
+  deleteAsset(relPath: string): Promise<DeletedVaultAsset> {
+    return this.post<DeletedVaultAsset>('/api/assets/delete', { path: relPath })
+  }
+
+  restoreDeletedAsset(deleted: DeletedVaultAsset): Promise<RemoteAssetMeta> {
+    return this.post<RemoteAssetMeta>('/api/assets/restore', deleted)
+  }
 
   writeNote(relPath: string, body: string): Promise<NoteMeta> {
     return this.post<NoteMeta>('/api/notes/write', { path: relPath, body })

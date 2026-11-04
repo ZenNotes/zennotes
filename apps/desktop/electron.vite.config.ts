@@ -275,7 +275,11 @@ export default defineConfig({
     resolve: {
       alias: {
         '@shared': resolve(__dirname, '../../packages/shared-domain/src'),
-        '@bridge-contract': resolve(__dirname, '../../packages/bridge-contract/src')
+        '@bridge-contract': resolve(__dirname, '../../packages/bridge-contract/src'),
+        // The MCP server's daily_note and note_sections read periodic-note
+        // settings and outlines the way the app does, from these store-free
+        // modules (lib/vault-layout, lib/outline, lib/template-render).
+        '@renderer': resolve(__dirname, '../../packages/app-core/src')
       }
     }
   },

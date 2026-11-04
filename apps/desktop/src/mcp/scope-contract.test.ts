@@ -174,7 +174,11 @@ describe('shared scoped-access contract: tools on a real vault', () => {
         let failed = false
         try {
           const result = await client.callTool({ name: call.tool, arguments: call.args })
-          text = (result.content as { text: string }[])[0]?.text ?? ''
+          // Every text part, as a client reads them: read_asset answers with a
+          // line of facts and then the file.
+          text = (result.content as { type: string; text?: string }[])
+            .map((part) => (part.type === 'text' ? (part.text ?? '') : ''))
+            .join('')
           failed = !!result.isError
         } catch (err) {
           text = err instanceof Error ? err.message : String(err)
