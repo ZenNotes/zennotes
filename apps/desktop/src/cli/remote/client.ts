@@ -59,6 +59,10 @@ export class CliRemoteClient {
 
   /* --- reads --- */
 
+  getCapabilities(): Promise<{ supportsSymlinkMarks?: boolean }> {
+    return this.get('/api/capabilities')
+  }
+
   getCurrentVault(): Promise<RemoteVaultInfo | null> {
     return this.get<RemoteVaultInfo | null>('/api/vault')
   }

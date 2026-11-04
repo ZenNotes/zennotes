@@ -22,6 +22,8 @@ import { callTool } from './server'
 const TOKEN = 'tok-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 const SCOPE = newMcpScope({ access: 'write', allow: ['Projects'] })
 const REFUSAL = 'This assistant can create and move notes only inside: Projects.'
+const UNMARKED =
+  'This ZenNotes server cannot share part of a vault: its listings do not mark links, so nothing is shared until the server is updated.'
 const DIARY = '# Diary\n\nprivate needle\n- [ ] call mum\n\nsee [[Plan]]\n'
 
 /** Destinations through a link to a folder, in and out of the vault. */
@@ -73,6 +75,13 @@ async function expectLinksRefused(backend: VaultBackend): Promise<void> {
   }
 }
 
+/** Every call a path scope can make gets the same answer, and changes nothing. */
+async function expectNothingShared(backend: VaultBackend): Promise<void> {
+  for (const [tool, args] of [...THROUGH_A_FOLDER_LINK, ...AT_A_NOTE_LINK, ...LISTINGS]) {
+    await expect(callTool(tool, args, backend, SCOPE), tool).rejects.toThrow(new Error(UNMARKED))
+  }
+}
+
 function remote(baseUrl: string): VaultBackend {
   return createBackend({ kind: 'remote', name: '', baseUrl, authToken: TOKEN })
 }
@@ -110,6 +119,8 @@ describe('a scoped client on a server that answers like znserver', () => {
   /** What a read of a path no listing knows answers, by path. */
   let reads: Record<string, number>
   let posts: string[]
+  /** What `/api/capabilities` answers, or the status it fails with. */
+  let capabilities: Record<string, unknown> | number
 
   beforeEach(async () => {
     reads = {
@@ -121,6 +132,7 @@ describe('a scoped client on a server that answers like znserver', () => {
       'Projects/out/Made': 400
     }
     posts = []
+    capabilities = { supportsSymlinkMarks: true }
     server = createServer((req, res) => {
       const url = new URL(req.url ?? '/', 'http://x')
       const json = (status: number, value: unknown): void => {
@@ -139,6 +151,14 @@ describe('a scoped client on a server that answers like znserver', () => {
         return
       }
       switch (url.pathname) {
+        case '/api/capabilities':
+          if (typeof capabilities === 'number') {
+            res.writeHead(capabilities)
+            return res.end()
+          }
+          return json(200, capabilities)
+        case '/api/vault':
+          return json(200, { root: '/srv/notes', name: 'notes' })
         case '/api/vault/settings':
           return json(200, { primaryNotesLocation: 'root' })
         case '/api/notes':
@@ -181,6 +201,7 @@ describe('a scoped client on a server that answers like znserver', () => {
         case '/api/notes/read': {
           const rel = url.searchParams.get('path') ?? ''
           if (rel in NOTES) return json(200, { ...meta(rel, NOTES[rel]), body: NOTES[rel] })
+          if (rel === 'Projects/alias.md') return json(200, { ...meta(rel, DIARY), body: DIARY })
           res.writeHead(reads[rel] ?? 404)
           return res.end('no such note')
         }
@@ -235,11 +256,66 @@ describe('a scoped client on a server that answers like znserver', () => {
     expect(posts).toEqual([])
   })
 
-  it('leaves a client with no path scope alone', async () => {
-    const whole = newMcpScope({ access: 'write' })
-    const backend = remote(baseUrl)
-    const notes = (await callTool('list_notes', {}, backend, whole)) as { path: string }[]
-    expect(notes.map((n) => n.path)).toContain('Projects/alias.md')
+  it.each(['write', 'comment', 'read'] as const)(
+    'leaves a client with %s access and no path scope alone',
+    async (access) => {
+      const whole = newMcpScope({ access })
+      const backend = remote(baseUrl)
+      const notes = (await callTool('list_notes', {}, backend, whole)) as { path: string }[]
+      expect(notes.map((n) => n.path)).toContain('Projects/alias.md')
+      const assets = (await callTool('list_assets', {}, backend, whole)) as { path: string }[]
+      expect(assets.map((a) => a.path)).toContain('Projects/alias.png')
+      await expect(callTool('read_note', { path: 'Projects/alias.md' }, backend, whole)).resolves.toMatchObject({
+        body: DIARY
+      })
+      const links = (await callTool('backlinks', { path: 'Projects/Plan.md' }, backend, whole)) as {
+        path: string
+      }[]
+      expect(links.map((n) => n.path)).toContain('Projects/alias.md')
+    }
+  )
+
+  it('takes a deny entry naming a link as a real entry, not a stale one', async () => {
+    const deny = newMcpScope({ access: 'write', deny: ['Projects/alias.md'] })
+    const notes = (await callTool('list_notes', {}, remote(baseUrl), deny)) as { path: string }[]
+    expect(notes.map((n) => n.path)).toContain('Projects/Plan.md')
+    expect(notes.map((n) => n.path)).not.toContain('Projects/alias.md')
+  })
+
+  describe('that does not say it marks links', () => {
+    it.each<[string, Record<string, unknown> | number]>([
+      ['a capabilities answer without the flag', {}],
+      ['the flag set to false', { supportsSymlinkMarks: false }],
+      ['no capabilities route', 404]
+    ])('shares nothing with a path scope on %s', async (_name, answer) => {
+      capabilities = answer
+      await expectNothingShared(remote(baseUrl))
+      expect(posts).toEqual([])
+    })
+
+    it('shares nothing when the capabilities request fails', async () => {
+      capabilities = 500
+      await expect(callTool('list_notes', {}, remote(baseUrl), SCOPE)).rejects.toThrow('500')
+      await expect(
+        callTool('create_folder', { folder: 'inbox', subpath: 'Projects/New' }, remote(baseUrl), SCOPE)
+      ).rejects.toThrow('500')
+      expect(posts).toEqual([])
+    })
+
+    it('says why in vault_info', async () => {
+      capabilities = {}
+      const info = (await callTool('vault_info', {}, remote(baseUrl), SCOPE)) as {
+        access: { blocked?: string }
+      }
+      expect(info.access.blocked).toBe(UNMARKED)
+    })
+
+    it('still serves a scope that only limits access', async () => {
+      capabilities = {}
+      const read = newMcpScope({ access: 'read' })
+      const notes = (await callTool('list_notes', {}, remote(baseUrl), read)) as { path: string }[]
+      expect(notes.map((n) => n.path)).toContain('Projects/Plan.md')
+    })
   })
 })
 
@@ -250,6 +326,8 @@ describe.skipIf(!binary)('a scoped client on a real server', () => {
   let root: string
   let child: ChildProcess
   let baseUrl: string
+  /** Whether this build marks links. One that does not shares nothing. */
+  let marks: boolean
 
   const entries = async (dir: string): Promise<string[]> =>
     (await fsp.readdir(path.join(root, dir))).sort()
@@ -303,6 +381,10 @@ describe.skipIf(!binary)('a scoped client on a real server', () => {
       if (attempt > 400) throw new Error('server did not become ready')
       await new Promise((resolve) => setTimeout(resolve, 25))
     }
+    const capabilities = (await fetch(`${baseUrl}/api/capabilities`, {
+      headers: { Authorization: `Bearer ${TOKEN}` }
+    }).then((res) => res.json())) as Record<string, unknown>
+    marks = capabilities.supportsSymlinkMarks === true
   })
 
   afterEach(async () => {
@@ -311,7 +393,8 @@ describe.skipIf(!binary)('a scoped client on a real server', () => {
   })
 
   it('refuses the same calls, and nothing reaches the hidden folder or outside', async () => {
-    await expectLinksRefused(remote(baseUrl))
+    if (marks) await expectLinksRefused(remote(baseUrl))
+    else await expectNothingShared(remote(baseUrl))
     expect(await entries('Journal')).toEqual(['Diary.md', 'secret.png'])
     expect(await fsp.readdir(path.join(base, 'outside'))).toEqual([])
     expect(await fsp.readFile(path.join(root, 'Journal', 'Diary.md'), 'utf8')).toBe(DIARY)
@@ -320,7 +403,8 @@ describe.skipIf(!binary)('a scoped client on a real server', () => {
   })
 
   // The link is hidden from the client, so it can ask for that name.
-  it('does not write through the link when a new note takes its name', async () => {
+  it('does not write through the link when a new note takes its name', async (ctx) => {
+    if (!marks) ctx.skip()
     const created = (await callTool(
       'create_note',
       { folder: 'inbox', subpath: 'Projects', title: 'alias', body: '# Mine\n' },
@@ -331,7 +415,8 @@ describe.skipIf(!binary)('a scoped client on a real server', () => {
     expect(await fsp.readFile(path.join(root, 'Journal', 'Diary.md'), 'utf8')).toBe(DIARY)
   })
 
-  it('answers a read of a missing path with 404, which is what makes a new folder work', async () => {
+  it('answers a read of a missing path with 404, which is what makes a new folder work', async (ctx) => {
+    if (!marks) ctx.skip()
     const backend = remote(baseUrl)
     await expect(
       callTool('create_note', { folder: 'inbox', subpath: 'Projects/Fresh/Deeper', title: 'New' }, backend, SCOPE)

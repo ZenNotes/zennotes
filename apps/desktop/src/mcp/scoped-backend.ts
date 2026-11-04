@@ -67,6 +67,9 @@ const NOT_OFFERED = 'That is not available to an assistant with scoped access.'
 const STALE_DENY =
   "This assistant's scope hides a folder or note that does not exist in this vault (renamed or deleted outside ZenNotes, or it belongs to another vault), so nothing is shared until the MCP client's --deny-path entries are fixed."
 
+const UNMARKED_LINKS =
+  'This ZenNotes server cannot share part of a vault: its listings do not mark links, so nothing is shared until the server is updated.'
+
 const REMOTE_RENAME =
   'Renaming notes on a ZenNotes server is not available to an assistant that sees only part of the vault: the server rewrites links in every note, including ones this assistant cannot see.'
 
@@ -357,8 +360,13 @@ export class ScopedBackend implements VaultBackend {
   private async build(): Promise<ScopeView> {
     const layout = await this.inner.vaultLayout()
     // A linked note's content is whatever the link names, possibly a hidden
-    // note, and a write lands there too. A local listing never holds one.
-    const notes = (await this.inner.listNotes()).filter((note) => !note.symlink)
+    // note, and a write lands there too, so a path scope drops what is marked.
+    // Where nothing says what is marked, it cannot tell, and shares nothing. A
+    // scope that only limits access hides no path, so it keeps them.
+    const restricted = isMcpScopeRestricted(this.scope)
+    if (restricted && !(await this.inner.marksLinks())) throw new Error(UNMARKED_LINKS)
+    const listed = await this.inner.listNotes()
+    const notes = restricted ? listed.filter((note) => !note.symlink) : listed
     const folders = await this.inner.listFolders()
     const v = new ScopeView(
       layout.systemFolderPaths,
@@ -399,10 +407,11 @@ export class ScopedBackend implements VaultBackend {
     // ZenNotes, or belongs to another vault: what it hid may now sit under a
     // new name, so the scope shares nothing until it is fixed. Only stderr,
     // which lands in the client's logs and not in front of the model, names
-    // the entry.
+    // the entry. A marked note is out of the view, but it is there to name.
+    const nameable = [...known, ...listed.filter((note) => note.symlink).map((note) => note.path)]
     for (const entry of this.scope.deny) {
       const folded = foldMcpScopePath(entry)
-      if (!known.some((p) => foldMcpScopePath(p) === folded)) {
+      if (!nameable.some((p) => foldMcpScopePath(p) === folded)) {
         if (!staleDenyLogged.has(entry)) {
           staleDenyLogged.add(entry)
           process.stderr.write(
@@ -438,6 +447,7 @@ export class ScopedBackend implements VaultBackend {
   describe = (): Promise<VaultDescription> => this.inner.describe()
   vaultLayout = (): Promise<VaultLayout> => this.inner.vaultLayout()
   templateFolder = (): Promise<string | null> => this.inner.templateFolder()
+  marksLinks = (): Promise<boolean> => this.inner.marksLinks()
 
   listNotes = async (): Promise<NoteMeta[]> => [...(await this.load()).notes]
 
@@ -454,8 +464,9 @@ export class ScopedBackend implements VaultBackend {
 
   listAssets = async (): Promise<VaultAssetMeta[]> => {
     const v = await this.load()
+    const restricted = isMcpScopeRestricted(this.scope)
     return (await this.inner.listAssets()).filter(
-      (asset) => !asset.symlink && v.visible(asset.path)
+      (asset) => !(restricted && asset.symlink) && v.visible(asset.path)
     )
   }
 
