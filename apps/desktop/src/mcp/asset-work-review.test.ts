@@ -7,8 +7,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { newMcpScope, type McpScopeFlags } from '@shared/mcp-scope'
 import { createBackend, type VaultBackend } from '../cli/backend'
 import { readAgentEditRecord } from '../main/agent-edit-files'
+import { runRecordingAgentEdit } from './agent-edit-recorder'
 import { decodeAssetBase64 } from './asset-tools'
 import { findSection, noteSections, sectionBody } from './note-sections'
+import { noteTurn } from './note-turns'
 import { ScopedBackend } from './scoped-backend'
 import { runMcpServer } from './server'
 import {
@@ -16,6 +18,7 @@ import {
   importAsset,
   listAssets,
   listDeletedAssets,
+  moveAsset,
   renameAsset,
   writeNote
 } from './vault-ops'
@@ -972,6 +975,209 @@ describe('a link rewrite beside a note edit', () => {
     await renaming
     expect(answered).toBe('answered')
     expect(await file('n.md')).toBe('![[assets/b.png]]\n')
+  })
+})
+
+describe("one note's turn", () => {
+  const later = (ms = 100): Promise<string> =>
+    new Promise((resolve) => setTimeout(() => resolve('waiting'), ms))
+
+  it.each([
+    ['another case', () => 'p/n.md'],
+    ['a leading ./', () => './P/N.md'],
+    ['a detour', () => 'x/../P/N.md'],
+    ['a detour out of the vault', () => `../${path.basename(root)}/P/N.md`],
+    ['a doubled slash', () => 'P//N.md'],
+    ['a trailing slash', () => 'P/N.md/'],
+    ['the full path', () => inVault('P/N.md')]
+  ])('is one turn under %s', async (_label, spelling) => {
+    let release: () => void = () => undefined
+    const hold = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const first = noteTurn(root, 'P/N.md', () => hold)
+    const second = noteTurn(root, spelling(), async () => 'ran')
+    expect(await Promise.race([second, later()])).toBe('waiting')
+    release()
+    expect(await second).toBe('ran')
+    await first
+  })
+
+  it('is one turn under another Unicode form', async () => {
+    let release: () => void = () => undefined
+    const hold = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const first = noteTurn(root, 'Cafe\u0301.md', () => hold)
+    const second = noteTurn(root, 'Caf\u00e9.md', async () => 'ran')
+    expect(await Promise.race([second, later()])).toBe('waiting')
+    release()
+    expect(await second).toBe('ran')
+    await first
+  })
+
+  it('is one turn through a folder link', async () => {
+    await seed({ 'real/N.md': 'x' })
+    await fsp.symlink(inVault('real'), inVault('L'), 'junction')
+    let release: () => void = () => undefined
+    const hold = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const first = noteTurn(root, 'real/N.md', () => hold)
+    const second = noteTurn(root, 'L/N.md', async () => 'ran')
+    expect(await Promise.race([second, later()])).toBe('waiting')
+    release()
+    expect(await second).toBe('ran')
+    await first
+  })
+
+  it('leaves another note free', async () => {
+    let release: () => void = () => undefined
+    const hold = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const first = noteTurn(root, 'P/N.md', () => hold)
+    expect(await noteTurn(root, 'P/M.md', async () => 'ran')).toBe('ran')
+    release()
+    await first
+  })
+
+  it('keeps the order calls arrive in while a slow note is looked up', async () => {
+    await seed({ 'n.md': '# H\n' })
+    const backend = createBackend({ kind: 'local', root })
+    const readNote = backend.readNote
+    let release: () => void = () => undefined
+    const hold = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let reads = 0
+    vi.spyOn(backend, 'readNote').mockImplementation(async (rel: string) => {
+      reads += 1
+      if (reads === 1) await hold
+      return await readNote(rel)
+    })
+    const order: string[] = []
+    const edit = (tool: string): Promise<void> =>
+      runRecordingAgentEdit(tool, { path: 'n.md' }, backend, 'test', async () => {
+        order.push(tool)
+      })
+    const edits = [edit('write_note'), edit('append_to_note')]
+    await later()
+    release()
+    await Promise.all(edits)
+    expect(order).toEqual(['write_note', 'append_to_note'])
+  })
+})
+
+describe('a link rewrite beside an edit of the same note', () => {
+  const page = (i: number): string => `# H\n\n- [ ] task\n\n![[assets/a${i}.png]]\n`
+  const argsFor = (tool: string, spelled: string, i: number): Record<string, unknown> => {
+    if (tool === 'update_task') return { id: `${spelled}#0`, text: `marker${i}` }
+    if (tool === 'edit_section') return { path: spelled, heading: 'H', mode: 'append', text: `marker${i}` }
+    if (tool === 'write_note') return { path: spelled, body: `${page(i)}marker${i}\n` }
+    return { path: spelled, text: `marker${i}` }
+  }
+
+  async function bothKept(client: Client, disk: string, spelled: string, tool: string): Promise<void> {
+    for (let i = 0; i < 6; i += 1) {
+      await seed({ [`assets/a${i}.png`]: 'x', [disk]: page(i) })
+      const results = await Promise.all([
+        call(client, 'rename_asset', { path: `assets/a${i}.png`, name: `b${i}.png` }),
+        call(client, tool, argsFor(tool, spelled, i))
+      ])
+      expect(results.map((result) => result.isError)).toEqual([false, false])
+      const body = await file(disk)
+      expect(body).toContain(`marker${i}`)
+      // A write_note brings its own text, which may hold the old link.
+      if (tool !== 'write_note') expect(body).toContain(`![[assets/b${i}.png]]`)
+      await fsp.rm(inVault(`assets/b${i}.png`), { force: true })
+    }
+  }
+
+  const TOOLS = ['append_to_note', 'edit_section', 'update_task', 'write_note']
+
+  it.each(TOOLS)('%s named as ./N.md keeps both', async (tool) => {
+    await bothKept(await connect(), 'N.md', './N.md', tool)
+  }, 30000)
+
+  it.each(TOOLS)('%s named through a detour keeps both', async (tool) => {
+    await bothKept(await connect(), 'N.md', 'x/../N.md', tool)
+  }, 30000)
+
+  it.each(TOOLS)('%s named in another case keeps both', async (tool) => {
+    await seed({ 'Probe.md': 'p' })
+    // A sensitive volume reads n.md as another note.
+    if (!(await exists('probe.md'))) return
+    await bothKept(await connect(), 'N.md', 'n.md', tool)
+  }, 30000)
+
+  it.each(TOOLS)('%s named in another Unicode form keeps both', async (tool) => {
+    await seed({ 'Cafe\u0301 probe.md': 'p' })
+    if (!(await exists('Caf\u00e9 probe.md'))) return
+    await bothKept(await connect(), 'Cafe\u0301.md', 'Caf\u00e9.md', tool)
+  }, 30000)
+
+  it.each(TOOLS)('%s named through a folder link keeps both', async (tool) => {
+    await seed({ 'real/N.md': 'x' })
+    await fsp.symlink(inVault('real'), inVault('L'), 'junction')
+    await bothKept(await connect(), 'real/N.md', 'L/N.md', tool)
+  }, 30000)
+
+  it('keeps a scoped client\'s edit under another spelling', async () => {
+    const client = await connect({ access: 'write', allow: ['assets', 'P'] })
+    await bothKept(client, 'P/Caf\u00e9.md', 'p/CAFE.md', 'append_to_note')
+  }, 30000)
+
+  it('keeps every edit of a batch that starts with write_note', async () => {
+    const client = await connect()
+    for (let i = 0; i < 10; i += 1) {
+      await seed({ [`assets/a${i}.png`]: 'x', 'n.md': page(i) })
+      const results = await Promise.all([
+        call(client, 'rename_asset', { path: `assets/a${i}.png`, name: `b${i}.png` }),
+        call(client, 'write_note', { path: 'n.md', body: `${page(i)}written${i}\n` }),
+        call(client, 'append_to_note', { path: 'n.md', text: `appended${i}` }),
+        call(client, 'edit_section', { path: 'n.md', heading: 'H', mode: 'append', text: `section${i}` }),
+        call(client, 'update_task', { id: 'n.md#0', text: `task${i}` })
+      ])
+      expect(results.map((result) => result.isError)).toEqual([false, false, false, false, false])
+      const body = await file('n.md')
+      for (const marker of [`written${i}`, `appended${i}`, `section${i}`, `task${i}`]) {
+        expect(body).toContain(marker)
+      }
+      expect(body).toContain(`![[assets/b${i}.png]]`)
+    }
+  }, 30000)
+})
+
+describe('a move a scope refuses', () => {
+  it('leaves no empty folder when a filter turns down where the file would land', async () => {
+    await seed({ 'assets/x.png': 'x', 'assets/y.png': 'y' })
+    const filter = (rel: string): boolean => !rel.endsWith('/x.png') || rel.startsWith('assets/')
+    await expect(moveAsset(root, 'assets/x.png', 'New/deep', filter)).rejects.toBeInstanceOf(
+      AssetDestinationRefused
+    )
+    expect(await exists('assets/x.png')).toBe(true)
+    expect(await exists('New')).toBe(false)
+    // Another file can still go there, and the folder appears for it.
+    await moveAsset(root, 'assets/y.png', 'New/deep', filter)
+    expect(await exists('New/deep/y.png')).toBe(true)
+  })
+
+  it('leaves no empty folder for a name that could be either of two folders', async () => {
+    await seed({ 'assets/x.png': 'x', 'Caf\u00e9/x.png': 'hidden', 'Caf\u00eb/k.png': 'k' })
+    const client = await connect({ access: 'write', deny: ['Caf\u00e9/x.png'] })
+    const refused = await call(client, 'move_asset', { path: 'assets/x.png', targetDir: 'Cafe' })
+    expect(refused.isError, refused.text).toBe(true)
+    expect(refused.text).toContain('This assistant cannot put files there.')
+    expect(await exists('assets/x.png')).toBe(true)
+    expect(await exists('Cafe')).toBe(false)
+  })
+
+  it('still answers for a file already in the folder it names', async () => {
+    await seed({ 'assets/x.png': 'x' })
+    const client = await connect({ access: 'write', allow: ['assets'] })
+    const moved = await ok(client, 'move_asset', { path: 'assets/x.png', targetDir: 'assets' })
+    expect(JSON.parse(moved).path).toBe('assets/x.png')
   })
 })
 

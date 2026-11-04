@@ -94,14 +94,15 @@ export async function runRecordingAgentEdit<T>(
   if (!noteOf || backend.kind !== 'local') return await run()
   const named = noteOf(args)
   if (!named) return await run()
-  // The record belongs to the note, however the client spelled its path.
-  const rel = await backend.readNote(named).then(
-    (note) => note.path,
-    () => named
-  )
-
-  return await noteTurn(backend.root, rel, async () => {
+  // The turn comes before anything is awaited, so calls keep the order they
+  // arrived in: one that overtook another would write over its edit.
+  return await noteTurn(backend.root, named, async () => {
     if (!(await reviewAgentEditsEnabled())) return await run()
+    // The record belongs to the note, however the client spelled its path.
+    const rel = await backend.readNote(named).then(
+      (note) => note.path,
+      () => named
+    )
     const before = await noteText(backend, rel)
     // Not a note we can read (the tool reports its own error), or one too
     // large to keep copies of.

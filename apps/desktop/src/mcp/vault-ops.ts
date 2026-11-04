@@ -1448,6 +1448,12 @@ export async function moveAsset(
       throw new Error('cannot move assets into internal ZenNotes files')
     }
     const destDir = await resolveSafe(root, normalized || ASSETS_DIR)
+    // A folder that is not there yet has no taken names, so this is where the
+    // file would land. A refusal leaves no empty folder behind.
+    const landing = toPosix(path.relative(root, path.join(destDir, path.basename(source.abs))))
+    if (rewriteIn && !rewriteIn(landing) && !(await fs.stat(destDir).catch(() => null))) {
+      throw new AssetDestinationRefused()
+    }
     await fs.mkdir(destDir, { recursive: true })
     // By identity: a folder spelled another way on a case-insensitive volume is
     // this one too, and a move would only give the file a number.
