@@ -63,6 +63,10 @@ export const WHATS_NEW: readonly WhatsNewEntry[] = [
         body: 'On a Windows network share or mapped drive, new notes now appear on their own, and within moments of switching back to the window.'
       },
       {
+        title: 'Assistants can work with attachments',
+        body: 'Connected assistants can read, upload, rename and move attachments, and notes that link to a file follow it. A self-hosted server can also offer them a built-in /mcp endpoint.'
+      },
+      {
         title: 'Safer assistant access',
         body: 'Path limits for assistants now hold on vaults with linked files and folders, and a server that changes vault stops calls instead of writing to the wrong one. If you use zn or path limits with a server, update it to 2.82.1 or later.'
       }
