@@ -7731,20 +7731,34 @@ export const useStore = create<Store>((set, get) => {
   setTagMatchMode: (mode) => set({ tagMatchMode: mode }),
 
   refreshTasks: async () => {
-    if (folderMutations.size > 0) return
+    if (folderMutations.size > 0) {
+      // A scan dropped just below can land here, with its loading state still up.
+      if (get().tasksLoading) set({ tasksLoading: false })
+      return
+    }
     const isCurrent = captureFolderActionContext(get)
+    const scannedVault = get().vault
+    const scannedBridge = window.zen
     const revision = taskIndexRevision
+    // A scan that went stale is dropped, which is right, but the same vault still
+    // needs an answer: a layout that moved under it left Tasks on "scanning..."
+    // until the next resume (#1023). Another vault has its own state and scan.
+    const dropIfStale = async (): Promise<boolean> => {
+      if (isCurrent() && revision === taskIndexRevision) return false
+      if (get().vault === scannedVault && window.zen === scannedBridge) await get().refreshTasks()
+      return true
+    }
     set({ tasksLoading: true })
     try {
       const tasks = await window.zen.scanTasks()
-      if (!isCurrent() || revision !== taskIndexRevision) return
+      if (await dropIfStale()) return
       set({
         vaultTasks: withoutTemplateFolderTasks(tasks, get().vaultSettings),
         tasksLoading: false
       })
     } catch (err) {
       console.error('scanTasks failed', err)
-      if (!isCurrent() || revision !== taskIndexRevision) return
+      if (await dropIfStale()) return
       set({ tasksLoading: false })
     }
   },
@@ -12073,7 +12087,7 @@ export const useStore = create<Store>((set, get) => {
 
   duplicateFolder: trackNoteWrite(undefined, async (folder, subpath) => {
     const newSubpath = await window.zen.duplicateFolder(folder, subpath)
-    await get().refreshNotes()
+    await Promise.all([get().refreshNotes(), get().refreshAssets()])
     set((s) => ({
       view: { kind: 'folder', folder, subpath: newSubpath },
       vaultSettings: {
