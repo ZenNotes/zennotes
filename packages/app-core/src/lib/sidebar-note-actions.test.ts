@@ -271,6 +271,33 @@ describe('the sidebar trash chord (#972)', () => {
     expect(run).toHaveBeenCalledTimes(1)
   })
 
+  it('takes a bare Delete in either mode, and not with a modifier (#1040)', async () => {
+    const { handleSidebarTrashChord } = await load()
+    const del = (init: KeyboardEventInit = {}): KeyboardEvent =>
+      chord({ ...init, key: 'Delete', code: 'Delete' })
+    for (const vimMode of [true, false]) {
+      const run = vi.fn()
+      const event = del()
+      expect(handleSidebarTrashChord(event, () => ({ ...closedState, vimMode }), run)).toBe(true)
+      expect(event.defaultPrevented).toBe(true)
+      expect(run).toHaveBeenCalledTimes(1)
+      // Held down, it still asks about one note only.
+      expect(handleSidebarTrashChord(del({ repeat: true }), () => ({ ...closedState, vimMode }), run)).toBe(true)
+      expect(run).toHaveBeenCalledTimes(1)
+    }
+    const run = vi.fn()
+    expect(handleSidebarTrashChord(del({ shiftKey: true }), () => closedState, run)).toBe(false)
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  it('lets Delete go with the chord when the chord is unbound (#1040)', async () => {
+    const { handleSidebarTrashChord } = await load()
+    const run = vi.fn()
+    const state = { ...closedState, keymapOverrides: { 'nav.sidebarTrash': '' } }
+    expect(handleSidebarTrashChord(chord({ key: 'Delete', code: 'Delete' }), () => state, run)).toBe(false)
+    expect(run).not.toHaveBeenCalled()
+  })
+
   it('does nothing unless the sidebar holds the keyboard', async () => {
     const { handleSidebarTrashChord } = await load()
     const run = vi.fn()

@@ -33,7 +33,13 @@ import { useStore } from '../store'
 import { runNoteBatchAction, runNoteLifecycleAction } from './note-lifecycle-actions'
 import { resolveSystemFolderLabels } from './system-folder-labels'
 import { useToastStore } from './toast'
-import { isChordEvent, matchesShortcut, type KeymapOverrides } from './keymaps'
+import {
+  getKeymapBinding,
+  isChordEvent,
+  isUnboundBinding,
+  matchesShortcut,
+  type KeymapOverrides
+} from './keymaps'
 import { chordHeldByApp, listViewBindingMatches } from './list-view-keys'
 import { commandKeymapsStandDown } from './command-keymap-dispatch'
 
@@ -283,14 +289,20 @@ export async function trashSidebarCursorRow(): Promise<boolean> {
 /* ------------------------------------------------------------------------ */
 
 /** Whether the keydown is one of the sidebar's trash keys: Mod+Backspace
- *  (or what it was rebound to) in either mode, and `x` (nav.delete) with Vim
- *  on, or in either mode when it was rebound to a chord. */
+ *  (or what it was rebound to) and a bare Delete in either mode, and `x`
+ *  (nav.delete) with Vim on, or in either mode when it was rebound to a chord.
+ *  Delete is the key a Windows or Linux user reaches for (#1040); it always
+ *  asks first, so it is safe with Vim off. Unbinding the chord says "no key
+ *  trashes from here", so it takes Delete with it. */
 export function isSidebarTrashKey(
   event: KeyboardEvent,
   overrides: KeymapOverrides | null | undefined,
   vimMode: boolean
 ): boolean {
+  const bareDelete =
+    event.key === 'Delete' && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey
   return (
+    (bareDelete && !isUnboundBinding(getKeymapBinding(overrides, 'nav.sidebarTrash'))) ||
     matchesShortcut(event, overrides, 'nav.sidebarTrash') ||
     listViewBindingMatches(event, overrides, 'nav.delete', vimMode)
   )
