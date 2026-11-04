@@ -577,45 +577,54 @@ export class ScopedBackend implements VaultBackend {
     if (await goesThroughLink(this.inner.root, joinRel(bucket, sub))) throw v.createRefusal()
   }
 
-  /** What the server says when it refuses a link on that way names a link the
-   *  client may not be shown, so it gets the same answer as on this machine. */
-  private async exitTo(
-    rel: string,
-    target: NoteFolder,
-    move: (rel: string) => Promise<NoteMeta>
-  ): Promise<NoteMeta> {
-    const meta = await this.noteFor(rel, 'write')
-    await this.refuseLinkedExit(meta, target)
+  /** What a server says when it turns away a move between system folders can
+   *  name a link the client may not be shown, so it gets the same answer as on
+   *  this machine. */
+  private async answerRefusal(move: () => Promise<NoteMeta>): Promise<NoteMeta> {
     try {
-      return await move(meta.path)
+      return await move()
     } catch (err) {
-      if (err instanceof RemoteRequestError && err.status === 400) {
+      if (err instanceof RemoteRequestError && (err.status === 400 || err.status === 404)) {
         throw (await this.load()).createRefusal()
       }
       throw err
     }
   }
 
-  archiveNote = (rel: string): Promise<NoteMeta> =>
-    this.exitTo(rel, 'archive', (path) => this.inner.archiveNote(path))
+  archiveNote = async (rel: string): Promise<NoteMeta> => {
+    const meta = await this.noteFor(rel, 'write')
+    await this.refuseLinkedExit(meta, 'archive')
+    return await this.answerRefusal(() => this.inner.archiveNote(meta.path))
+  }
 
-  moveToTrash = (rel: string): Promise<NoteMeta> =>
-    this.exitTo(rel, 'trash', (path) => this.inner.moveToTrash(path))
+  moveToTrash = async (rel: string): Promise<NoteMeta> => {
+    const meta = await this.noteFor(rel, 'write')
+    await this.refuseLinkedExit(meta, 'trash')
+    return await this.answerRefusal(() => this.inner.moveToTrash(meta.path))
+  }
 
   /** A note brought back to the inbox must land where the client can see it:
-   *  the same subpath under the inbox bucket. */
+   *  the same subpath under the inbox bucket. The check folds case and accents,
+   *  but the restore keeps the note's own spelling. Where they differ, the note
+   *  would land somewhere other than what was checked: `archive/Pröjects` beside
+   *  `Projects`, or a link beside a real folder. */
   private async restoreTarget(rel: string): Promise<NoteMeta> {
     const meta = await this.noteFor(rel, 'write')
     const v = await this.load()
-    await v.destination('inbox', folderSubpathOf(meta.path, meta.folder, v.primaryAtRoot, v.paths))
+    const sub = folderSubpathOf(meta.path, meta.folder, v.primaryAtRoot, v.paths)
+    if ((await v.destination('inbox', sub)) !== sub) throw v.createRefusal()
     return meta
   }
 
-  unarchiveNote = async (rel: string): Promise<NoteMeta> =>
-    await this.inner.unarchiveNote((await this.restoreTarget(rel)).path)
+  unarchiveNote = async (rel: string): Promise<NoteMeta> => {
+    const meta = await this.restoreTarget(rel)
+    return await this.answerRefusal(() => this.inner.unarchiveNote(meta.path))
+  }
 
-  restoreFromTrash = async (rel: string): Promise<NoteMeta> =>
-    await this.inner.restoreFromTrash((await this.restoreTarget(rel)).path)
+  restoreFromTrash = async (rel: string): Promise<NoteMeta> => {
+    const meta = await this.restoreTarget(rel)
+    return await this.answerRefusal(() => this.inner.restoreFromTrash(meta.path))
+  }
 
   duplicateNote = async (rel: string): Promise<NoteMeta> =>
     await this.inner.duplicateNote((await this.noteFor(rel, 'write')).path)

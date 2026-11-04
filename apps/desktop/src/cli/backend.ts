@@ -398,7 +398,7 @@ class RemoteBackend implements VaultBackend {
   }
   linkedSystemFolders = async (): Promise<string[] | null> => {
     const linked = (await this.client.getCurrentVault())?.linkedSystemFolders
-    return Array.isArray(linked) && linked.every((dir) => typeof dir === 'string') ? linked : null
+    return Array.isArray(linked) && linked.every(isCleanVaultDir) ? linked : null
   }
   listNotes = (): Promise<NoteMeta[]> => this.client.listNotes()
   listAssets = async (): Promise<VaultAssetMeta[]> =>
@@ -566,6 +566,16 @@ class RemoteBackend implements VaultBackend {
     })
     return this.dbOps
   }
+}
+
+/** A vault path as a server reports one. Anything else would match no path
+ *  when a path scope hides it, so it counts as an answer that says nothing. */
+function isCleanVaultDir(dir: unknown): dir is string {
+  return (
+    typeof dir === 'string' &&
+    !dir.includes('\\') &&
+    dir.split('/').every((seg) => seg !== '' && seg !== '.' && seg !== '..' && seg === seg.trim())
+  )
 }
 
 /** `./inbox/Note.md` → `inbox/Note.md`, matching how the server reports paths. */

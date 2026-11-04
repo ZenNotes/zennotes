@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { newMcpScope } from '@shared/mcp-scope'
 import { createBackend, type VaultBackend } from '../cli/backend'
 import { callTool } from './server'
+import { goesThroughLink } from './vault-ops'
 
 const DIARY = '# Diary\n\nprivate needle\n'
 const UNMARKED =
@@ -103,6 +104,139 @@ describe('a link to nothing in a shared folder', () => {
     await fsp.symlink('../Journal/FreshNote.md', inVault('Projects/fresh.md'))
     await callTool('create_note', { folder: 'inbox', subpath: 'Projects', title: 'fresh', body: 'X' }, backend, null)
     expect(await exists(inVault('Journal/FreshNote.md'))).toBe(false)
+  })
+})
+
+describe('a restore', () => {
+  const planted = async (rel: string): Promise<void> => {
+    await fsp.mkdir(path.dirname(inVault(rel)), { recursive: true })
+    await fsp.writeFile(inVault(rel), '# Planted\n')
+  }
+
+  it.each([
+    ['unarchive_note', 'archive'],
+    ['restore_from_trash', 'trash']
+  ])('%s does not land beside the folder it was checked against', async (tool, dir) => {
+    await planted(`${dir}/Pr\u00f6jects/planted.md`)
+    const scope = newMcpScope({ access: 'write', allow: ['Projects', dir] })
+    await expect(callTool(tool, { path: `${dir}/Pr\u00f6jects/planted.md` }, backend, scope)).rejects.toThrow(
+      new Error(`This assistant can create and move notes only inside: Projects, ${dir}.`)
+    )
+    expect(await exists(inVault('Pr\u00f6jects'))).toBe(false)
+    expect(await exists(inVault(`${dir}/Pr\u00f6jects/planted.md`))).toBe(true)
+  })
+
+  it.each([
+    ['unarchive_note', 'archive'],
+    ['restore_from_trash', 'trash']
+  ])('%s does not land behind a link beside a real folder', async (tool, dir) => {
+    await fsp.mkdir(inVault('cafe'))
+    await fsp.writeFile(inVault('cafe/Menu.md'), '# Menu\n')
+    await fsp.symlink('Journal', inVault('caf\u00e9'))
+    await planted(`${dir}/caf\u00e9/planted.md`)
+    const deny = newMcpScope({ access: 'write', deny: ['Journal'] })
+    await expect(callTool(tool, { path: `${dir}/caf\u00e9/planted.md` }, backend, deny)).rejects.toThrow(
+      new Error('This assistant cannot put notes there.')
+    )
+    expect(await exists(inVault('Journal/planted.md'))).toBe(false)
+  })
+
+  it.each([
+    ['unarchive_note', 'archive/Pr\u00f6jects/Back.md'],
+    ['restore_from_trash', 'trash/Pr\u00f6jects/Trashed.md']
+  ])('%s does not follow a link spelled like an allowed folder', async (tool, rel) => {
+    await planted(rel)
+    await fsp.symlink('Journal', inVault('Pr\u00f6jects'))
+    const scope = newMcpScope({ access: 'write', allow: ['Projects', 'archive', 'trash'] })
+    await expect(callTool(tool, { path: rel }, backend, scope)).rejects.toThrow(
+      new Error('This assistant can create and move notes only inside: Projects, archive, trash.')
+    )
+    expect(await fsp.readdir(inVault('Journal'))).toEqual(['Diary.md'])
+    expect(await exists(inVault(rel))).toBe(true)
+  })
+
+  it('still lands in a folder spelled as the note keeps it', async () => {
+    await planted('archive/Projects/Back.md')
+    const allow = newMcpScope({ access: 'write', allow: ['Projects', 'archive'] })
+    await expect(
+      callTool('unarchive_note', { path: 'archive/Projects/Back.md' }, backend, allow)
+    ).resolves.toMatchObject({ path: 'Projects/Back.md' })
+  })
+
+  it('still lands at the top of a vault', async () => {
+    await planted('trash/Top.md')
+    const deny = newMcpScope({ access: 'write', deny: ['Journal'] })
+    await expect(callTool('restore_from_trash', { path: 'trash/Top.md' }, backend, deny)).resolves.toMatchObject({
+      path: 'Top.md'
+    })
+  })
+})
+
+describe('where a local vault keeps its system folders', () => {
+  const setLayout = async (layout: Record<string, unknown>): Promise<void> => {
+    await fsp.writeFile(inVault('.zennotes/vault.json'), JSON.stringify(layout))
+  }
+
+  it('hides an inbox that is a link in inbox mode', async () => {
+    await setLayout({ primaryNotesLocation: 'inbox' })
+    await fsp.mkdir(inVault('archive/Old'), { recursive: true })
+    await fsp.writeFile(inVault('archive/Old/Gone.md'), '# Gone\n')
+    await fsp.symlink('Journal', inVault('inbox'))
+    const deny = newMcpScope({ access: 'write', deny: ['archive/Old'] })
+    const notes = JSON.stringify(await callTool('list_notes', {}, backend, deny))
+    expect(notes).not.toContain('Diary')
+    await expect(callTool('read_note', { path: 'inbox/Diary.md' }, backend, deny)).rejects.toThrow(
+      new Error('Note not found: inbox/Diary.md')
+    )
+    await expect(
+      callTool('create_note', { folder: 'inbox', title: 'Via', body: 'X' }, backend, deny)
+    ).rejects.toThrow(new Error('This assistant cannot put notes there.'))
+    expect(await exists(inVault('Journal/Via.md'))).toBe(false)
+  })
+
+  it('does not count a link named inbox in root mode, where it is no system folder', async () => {
+    await fsp.symlink('Journal', inVault('inbox'))
+    expect(await backend.linkedSystemFolders()).toEqual([])
+  })
+
+  it('finds a remapped system folder that is a link', async () => {
+    await setLayout({ primaryNotesLocation: 'root', systemFolderPaths: { archive: '99 Archive' } })
+    await fsp.symlink('Journal', inVault('99 Archive'))
+    const deny = newMcpScope({ access: 'write', deny: ['Journal'] })
+    expect(await backend.linkedSystemFolders()).toEqual(['99 Archive'])
+    await expect(callTool('read_note', { path: '99 Archive/Diary.md' }, backend, deny)).rejects.toThrow(
+      new Error('Note not found: 99 Archive/Diary.md')
+    )
+    await expect(callTool('archive_note', { path: 'Open/Free.md' }, backend, deny)).rejects.toThrow(
+      new Error('This assistant cannot put notes there.')
+    )
+    expect(await exists(inVault('Journal/Free.md'))).toBe(false)
+  })
+
+  it('counts a path it cannot walk as going through a link', async () => {
+    expect(await goesThroughLink(root, 'Open/Free.md/below')).toBe(true)
+    expect(await goesThroughLink(root, 'Open/Missing/below')).toBe(false)
+    expect(await goesThroughLink(root, 'Open')).toBe(false)
+  })
+})
+
+describe('a destination folder that is a link to nothing', () => {
+  const allow = newMcpScope({ access: 'write', allow: ['Projects'] })
+  const REFUSAL = 'This assistant can create and move notes only inside: Projects.'
+
+  beforeEach(async () => {
+    await fsp.symlink('../Journal/NoDir', inVault('Projects/dang'))
+  })
+
+  it.each([
+    ['create_note', { folder: 'inbox', subpath: 'Projects/dang', title: 'Via', body: 'X' }],
+    ['create_note', { folder: 'inbox', subpath: 'Projects/dang/Deeper', title: 'Via', body: 'X' }],
+    ['create_folder', { folder: 'inbox', subpath: 'Projects/dang/Made' }],
+    ['move_note', { path: 'Projects/Plan.md', targetFolder: 'inbox', targetSubpath: 'Projects/dang' }]
+  ])('refuses %s %j', async (tool, args) => {
+    await expect(callTool(tool, args, backend, allow)).rejects.toThrow(new Error(REFUSAL))
+    expect(await exists(inVault('Journal/NoDir'))).toBe(false)
+    expect(await exists(inVault('Projects/Plan.md'))).toBe(true)
   })
 })
 
@@ -239,11 +373,14 @@ describe('a system folder a server names as a link', () => {
   let linked: unknown
   let posts: string[]
   let postStatus: number
+  /** Notes listed beside Open/Free.md. */
+  let extraNotes: Record<string, unknown>[]
 
   beforeEach(async () => {
     linked = ['quick', 'archive']
     posts = []
     postStatus = 200
+    extraNotes = []
     server = createServer((req, res) => {
       const at = new URL(req.url ?? '/', 'http://x')
       const json = (value: unknown): void => {
@@ -267,7 +404,7 @@ describe('a system folder a server names as a link', () => {
         case '/api/vault/settings':
           return json({ primaryNotesLocation: 'root' })
         case '/api/notes':
-          return json([meta])
+          return json([meta, ...extraNotes])
         case '/api/folders':
           return json([{ folder: 'inbox', subpath: 'Open' }, { folder: 'inbox', subpath: 'Journal' }])
         default:
@@ -319,6 +456,52 @@ describe('a system folder a server names as a link', () => {
     expect(info).not.toContain('"deny"')
   })
 
+  it('accepts a remapped or nested folder in the list', async () => {
+    linked = ['99 Archive', 'Sys/Held']
+    await expect(callTool('list_notes', {}, remote(), deny)).resolves.toBeTruthy()
+  })
+
+  it('matches a linked folder however it is spelled', async () => {
+    linked = ['ARCHIVE']
+    await expect(callTool('archive_note', { path: 'Open/Free.md' }, remote(), deny)).rejects.toThrow(
+      new Error('This assistant cannot put notes there.')
+    )
+    expect(posts).toEqual([])
+  })
+
+  it.each([
+    ['unarchive_note', 'archive', '/api/notes/unarchive'],
+    ['restore_from_trash', 'trash', '/api/notes/restore']
+  ])('%s does not ask the server to land beside what it checked', async (tool, dir) => {
+    linked = []
+    const rel = `${dir}/Op\u00e9n/planted.md`
+    extraNotes = [{ path: rel, title: 'planted', folder: dir, tags: [], wikilinks: [], excerpt: '' }]
+    await expect(callTool(tool, { path: rel }, remote(), deny)).rejects.toThrow(
+      new Error('This assistant cannot put notes there.')
+    )
+    expect(posts).toEqual([])
+  })
+
+  it.each([
+    ['archive_note', 'Open/Free.md', 400],
+    ['archive_note', 'Open/Free.md', 404],
+    ['move_to_trash', 'Open/Free.md', 404],
+    ['unarchive_note', 'archive/Open/Back.md', 400],
+    ['unarchive_note', 'archive/Open/Back.md', 404],
+    ['restore_from_trash', 'trash/Open/Back.md', 400],
+    ['restore_from_trash', 'trash/Open/Back.md', 404]
+  ])('answers %s of %s the server turns away with %i with the usual refusal', async (tool, rel, status) => {
+    linked = []
+    postStatus = status
+    const folder = rel.split('/')[0]
+    if (rel !== 'Open/Free.md') {
+      extraNotes = [{ path: rel, title: 'Back', folder, tags: [], wikilinks: [], excerpt: '' }]
+    }
+    const failure = await callTool(tool, { path: rel }, remote(), deny).catch((err: Error) => err)
+    expect(failure).toEqual(new Error('This assistant cannot put notes there.'))
+    expect(posts).toHaveLength(1)
+  })
+
   it('treats an empty list as no linked folders', async () => {
     linked = []
     await callTool('create_note', { folder: 'quick', title: 'Via', body: 'X' }, remote(), deny)
@@ -327,7 +510,27 @@ describe('a system folder a server names as a link', () => {
 
   // A server too old to send the field says nothing about its folders, which
   // is not the same as having none linked.
-  it.each([[undefined], ['quick'], [7], [null], [[7]], [['quick', null]]])(
+  it.each([
+    [undefined],
+    ['quick'],
+    [7],
+    [null],
+    [[7]],
+    [['quick', null]],
+    [['quick/']],
+    [['/quick']],
+    [['./quick']],
+    [['../quick']],
+    [['quick/../archive']],
+    [['quick//x']],
+    [['quick\\x']],
+    [[' quick']],
+    [['quick ']],
+    [['a /b']],
+    [['a/ b']],
+    [['']],
+    [['quick', '']]
+  ])(
     'shares nothing when the field is %j',
     async (bad) => {
       linked = bad
@@ -426,6 +629,10 @@ describe.skipIf(!binary)('links on a real server', () => {
       headers: { Authorization: `Bearer ${TOKEN}` }
     }).then((res) => res.json())) as Record<string, unknown>
     marks = capabilities.supportsSymlinkMarks === true && Array.isArray(vault.linkedSystemFolders)
+    // Without this a server that stopped marking links would only skip tests.
+    if (process.env.ZENNOTES_SERVER_CONTRACT_REQUIRE_MARKS) {
+      expect(marks, 'the server marks links and lists linked system folders').toBe(true)
+    }
     remote = createBackend({ kind: 'remote', name: '', baseUrl: url, authToken: TOKEN })
   }
 
@@ -504,6 +711,27 @@ describe.skipIf(!binary)('links on a real server', () => {
     )
     expect(await exists(inVault('archive/Hidden/Plan.md'))).toBe(false)
     expect(await exists(inVault('Projects/Plan.md'))).toBe(true)
+  })
+
+  it('keeps a restore where it was checked', async (ctx) => {
+    await fsp.mkdir(inVault('cafe'))
+    await fsp.writeFile(inVault('cafe/Menu.md'), '# Menu\n')
+    await fsp.mkdir(inVault('archive/caf\u00e9'), { recursive: true })
+    await fsp.writeFile(inVault('archive/caf\u00e9/planted.md'), '# Planted\n')
+    await fsp.mkdir(inVault('trash/Pr\u00f6jects'), { recursive: true })
+    await fsp.writeFile(inVault('trash/Pr\u00f6jects/planted.md'), '# Planted\n')
+    await fsp.symlink('Journal', inVault('caf\u00e9'))
+    await start()
+    if (!marks) ctx.skip()
+    await expect(
+      callTool('unarchive_note', { path: 'archive/caf\u00e9/planted.md' }, remote, deny)
+    ).rejects.toThrow(new Error('This assistant cannot put notes there.'))
+    expect(await journal()).toEqual(['Diary.md'])
+    const scope = newMcpScope({ access: 'write', allow: ['Projects', 'trash'] })
+    await expect(
+      callTool('restore_from_trash', { path: 'trash/Pr\u00f6jects/planted.md' }, remote, scope)
+    ).rejects.toThrow(new Error('This assistant can create and move notes only inside: Projects, trash.'))
+    expect(await exists(inVault('Pr\u00f6jects'))).toBe(false)
   })
 
   it('still archives when nothing is a link', async (ctx) => {

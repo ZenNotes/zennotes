@@ -389,6 +389,10 @@ describe.skipIf(!binary)('a scoped client on a real server', () => {
       headers: { Authorization: `Bearer ${TOKEN}` }
     }).then((res) => res.json())) as Record<string, unknown>
     marks = capabilities.supportsSymlinkMarks === true && Array.isArray(vault.linkedSystemFolders)
+    // Without this a server that stopped marking links would only skip tests.
+    if (process.env.ZENNOTES_SERVER_CONTRACT_REQUIRE_MARKS) {
+      expect(marks, 'the server marks links and lists linked system folders').toBe(true)
+    }
   })
 
   afterEach(async () => {
