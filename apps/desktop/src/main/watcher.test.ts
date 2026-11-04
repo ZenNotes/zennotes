@@ -221,6 +221,88 @@ describe('VaultWatcher large vaults', () => {
     }
   )
 
+  describe('a folder that refuses native events (#1023)', () => {
+    async function refused() {
+      const root = await makeVault()
+      await writeFile(path.join(root, 'First.md'), '# First\n')
+      const watch = vi.spyOn(chokidar, 'watch')
+      vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const exhausted = vi.fn()
+      const events: VaultChangeEvent[] = []
+      const watcher = new VaultWatcher()
+      watchers.push(watcher)
+      watcher.start(root, (event) => events.push(event), exhausted)
+      const active = watch.mock.results.find((result) => result.type === 'return')?.value
+      if (!active) throw new Error('Watcher did not start')
+      const closed = vi.spyOn(active, 'close')
+      active.emit('error', Object.assign(new Error('watch EISDIR'), { code: 'UNKNOWN', errno: -4094 }))
+      await watcher.rescanNow(true)
+      const resyncs = () => events.filter((event) => event.scope === 'resync').length
+      expect(closed).toHaveBeenCalledOnce()
+      expect(exhausted).not.toHaveBeenCalled()
+      // Once now, for whatever changed since the vault opened. No second watcher.
+      expect(resyncs()).toBe(1)
+      expect(watch).toHaveBeenCalledOnce()
+      return { root, watcher, resyncs }
+    }
+
+    it('refreshes only when something moved', async () => {
+      const { root, watcher, resyncs } = await refused()
+      await watcher.rescanNow(true)
+      expect(resyncs()).toBe(1)
+
+      await mkdir(path.join(root, 'Arrived'))
+      await writeFile(path.join(root, 'Arrived', 'New.md'), '# New\n')
+      await watcher.rescanNow(true)
+      expect(resyncs()).toBe(2)
+
+      await writeFile(path.join(root, 'First.md'), '# First, and an edit from another machine\n')
+      await watcher.rescanNow(true)
+      expect(resyncs()).toBe(3)
+
+      await rm(path.join(root, 'Arrived'), { recursive: true })
+      await watcher.rescanNow(true)
+      expect(resyncs()).toBe(4)
+    })
+
+    it('ignores what is not the vault: dotfiles and save scratch files', async () => {
+      const { root, watcher, resyncs } = await refused()
+      await writeFile(path.join(root, '.syncthing.note.tmp'), 'partial')
+      await mkdir(path.join(root, '.zennotes'), { recursive: true })
+      await writeFile(path.join(root, '.zennotes', 'cache.json'), '{}')
+      await watcher.rescanNow(true)
+      expect(resyncs()).toBe(1)
+
+      await writeFile(path.join(root, '.zennotes', 'vault.json'), '{}')
+      await watcher.rescanNow(true)
+      expect(resyncs()).toBe(2)
+    })
+
+    it('holds still while the folder cannot be read, then catches up', async () => {
+      const { root, watcher, resyncs } = await refused()
+      const parked = `${root}-away`
+      await rename(root, parked)
+      await watcher.rescanNow(true)
+      expect(resyncs()).toBe(1)
+
+      await rename(parked, root)
+      await writeFile(path.join(root, 'While away.md'), '# Away\n')
+      await watcher.rescanNow(true)
+      expect(resyncs()).toBe(2)
+    })
+
+    it('spaces out focus requests and stops with the vault', async () => {
+      const { root, watcher, resyncs } = await refused()
+      await writeFile(path.join(root, 'Soon.md'), '# Soon\n')
+      // The re-read inside refused() just ran, so focus right away is too soon.
+      await watcher.rescanNow()
+      expect(resyncs()).toBe(1)
+      await watcher.stop()
+      await watcher.rescanNow(true)
+      expect(resyncs()).toBe(1)
+    })
+  })
+
   it('keeps watching after an error about one path', async () => {
     const root = await makeVault()
     const watch = vi.spyOn(chokidar, 'watch')
