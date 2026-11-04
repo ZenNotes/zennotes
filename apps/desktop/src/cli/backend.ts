@@ -21,35 +21,47 @@ import {
   archiveNote,
   backlinks,
   backlinksIn,
+  goesThroughLink,
   createFolder,
   createNote,
   deleteFolder,
+  deleteAsset,
   deleteNote,
+  duplicateAsset,
   duplicateNote,
   emptyTrash,
+  importAsset,
   insertAtLine,
   insertAtLineInBody,
   listAssets,
   listDatabaseDirs,
+  listDeletedAssets,
   listFolders,
   listNotes,
+  listTemplateFiles,
+  moveAsset,
   moveNote,
   moveToTrash,
   parseTaskIndex,
   prependToBody,
   prependToNote,
+  readAsset,
   readDatabaseVaultLayout,
   readNote,
   readNoteComments,
   readPrimaryNotesLocation,
   readTemplateFolder,
   readVaultFileTextOrNull,
+  readVaultSettingsRaw,
+  renameAsset,
   renameFolder,
   renameNote,
   replaceInBody,
   replaceInNote,
+  restoreDeletedAsset,
   restoreFromTrash,
   scanAllTasks,
+  scanTasksForPath,
   searchText,
   splitTaskId,
   toggleFileTaskInBody,
@@ -59,12 +71,16 @@ import {
   writeNote,
   writeNoteComments,
   writeVaultFileText,
+  type CustomTemplateFile,
+  type DeletedVaultAsset,
+  type ImportedVaultAsset,
   type NoteComment,
   type NoteCommentInput,
   type NoteContent,
   type NoteFolder,
   type NoteMeta,
   type PrimaryNotesLocation,
+  type VaultAssetMeta,
   type VaultTask,
   type VaultTextSearchMatch
 } from '../mcp/vault-ops.js'
@@ -74,7 +90,11 @@ import {
   type DatabaseVaultLayout
 } from '@shared/database-ops'
 import { createAbsenceAwareReader } from '@shared/remote-absence'
-import { normalizeSystemFolderPaths, type SystemFolderPaths } from '@shared/system-folder-paths'
+import {
+  normalizeSystemFolderPaths,
+  resolveFolderPath,
+  type SystemFolderPaths
+} from '@shared/system-folder-paths'
 import { resolveTemplateFolder } from '@shared/template-folder'
 import { setCell } from '@shared/database-records'
 import {
@@ -87,12 +107,7 @@ import { RemoteRequestError } from '../main/remote/connection.js'
 import { CliRemoteClient } from './remote/client.js'
 import type { VaultTarget } from './vault-target.js'
 
-export interface VaultAssetMeta {
-  path: string
-  name: string
-  size: number
-  updatedAt: number
-}
+export type { VaultAssetMeta }
 
 /** Where a vault lives and how it is laid out: what `vault_info` reports. */
 export type VaultDescription =
@@ -122,6 +137,13 @@ export interface VaultBackend {
   /** The vault root on disk. Empty for a remote vault — `zn open` uses this
    *  to resolve vault-relative paths and has nothing to resolve against. */
   readonly root: string
+  /** Whether a listing says which of its notes and assets are links, so a path
+   *  scope can leave them out. A vault on this machine lists none; a server
+   *  says so in its capabilities. A request that fails rejects. */
+  marksLinks(): Promise<boolean>
+  /** The system folders that are, or sit under, a link, as vault paths, or null
+   *  when this vault cannot say. A path scope cannot say what is behind one. */
+  linkedSystemFolders(): Promise<string[] | null>
 
   describe(): Promise<VaultDescription>
   /** Where the system folders live and whether the inbox is the vault root:
@@ -133,6 +155,32 @@ export interface VaultBackend {
   templateFolder(): Promise<string | null>
   listNotes(): Promise<NoteMeta[]>
   listAssets(): Promise<VaultAssetMeta[]>
+  /** An attachment's bytes. */
+  readAsset(rel: string): Promise<Uint8Array>
+  /** Add a file to the vault's `assets/` folder, never overwriting. */
+  importAsset(filename: string, bytes: Uint8Array): Promise<ImportedVaultAsset>
+  /** Rename or move an attachment and re-target the notes that reference it.
+   *  `rewriteIn` limits which notes a vault on this machine rewrites; a server
+   *  rewrites every note itself and takes no such limit. */
+  renameAsset(
+    rel: string,
+    name: string,
+    rewriteIn?: (notePath: string) => boolean
+  ): Promise<VaultAssetMeta>
+  moveAsset(
+    rel: string,
+    targetDir: string,
+    rewriteIn?: (notePath: string) => boolean
+  ): Promise<VaultAssetMeta>
+  duplicateAsset(rel: string): Promise<VaultAssetMeta>
+  /** A soft delete the app's Trash can undo. Purging is left to the app. */
+  deleteAsset(rel: string): Promise<DeletedVaultAsset>
+  listDeletedAssets(): Promise<DeletedVaultAsset[]>
+  restoreDeletedAsset(deleted: DeletedVaultAsset): Promise<VaultAssetMeta>
+  /** The vault's settings as stored, for periodic-note locations. */
+  vaultSettings(): Promise<Record<string, unknown>>
+  /** The vault's own templates, as raw files. */
+  listTemplates(): Promise<CustomTemplateFile[]>
   listFolders(): Promise<{ folder: NoteFolder; subpath: string }[]>
   readNote(rel: string): Promise<NoteContent>
   writeNote(rel: string, body: string): Promise<NoteMeta>
@@ -166,6 +214,8 @@ export interface VaultBackend {
   searchText(query: string, limit: number): Promise<VaultTextSearchMatch[]>
   backlinks(rel: string): Promise<NoteMeta[]>
   scanAllTasks(opts?: { includeExcluded?: boolean }): Promise<VaultTask[]>
+  /** One note's tasks, numbered exactly as scanAllTasks numbers them. */
+  scanTasksForPath(rel: string, opts?: { includeExcluded?: boolean }): Promise<VaultTask[]>
   toggleTask(taskId: string): Promise<VaultTask | null>
   /** A note's comments as stored (#738); `writeComments` replaces the list. */
   listComments(rel: string): Promise<NoteComment[]>
@@ -174,6 +224,15 @@ export interface VaultBackend {
    *  @shared/database-ops — the same composition the web and desktop remote
    *  clients use, so `zn base` writes the identical on-disk format. (#556) */
   databaseOps(): DatabaseOps
+}
+
+/** A server's target with the vault it says it is serving filled in. A server
+ *  can change its vault with its URL staying the same, so this is what tells a
+ *  switch from the same vault. A local target comes back as it is. */
+export async function servedTarget(target: VaultTarget): Promise<VaultTarget> {
+  if (target.kind !== 'remote') return target
+  const info = await new CliRemoteClient(target.baseUrl, target.authToken).getCurrentVault()
+  return info ? { ...target, vaultPath: info.root, vaultName: info.name } : target
 }
 
 export function createBackend(target: VaultTarget): VaultBackend {
@@ -227,6 +286,17 @@ async function followRecordPageRename(
   await ops.writeDatabaseSchema(csvPath, sidecarOf(next), next.rows)
 }
 
+/** The fields both engines report for an attachment; a server sends more. */
+function plainAssetMeta(asset: VaultAssetMeta): VaultAssetMeta {
+  return {
+    path: asset.path,
+    name: asset.name,
+    size: asset.size,
+    updatedAt: asset.updatedAt,
+    ...(asset.symlink ? { symlink: true } : {})
+  }
+}
+
 /** A vault on this machine. Every method is vault-ops bound to one root. */
 class LocalBackend implements VaultBackend {
   readonly kind = 'local' as const
@@ -251,7 +321,38 @@ class LocalBackend implements VaultBackend {
   }
   templateFolder = (): Promise<string | null> => readTemplateFolder(this.root)
   listNotes = (): Promise<NoteMeta[]> => listNotes(this.root)
+  marksLinks = async (): Promise<boolean> => true
+  linkedSystemFolders = async (): Promise<string[] | null> => {
+    const { primaryNotesLocation, systemFolderPaths } = await this.vaultLayout()
+    const linked: string[] = []
+    for (const folder of ['inbox', 'quick', 'archive', 'trash'] as NoteFolder[]) {
+      if (folder === 'inbox' && primaryNotesLocation === 'root') continue
+      const dir = resolveFolderPath(folder, systemFolderPaths)
+      if (await goesThroughLink(this.root, dir)) linked.push(dir)
+    }
+    return linked
+  }
   listAssets = (): Promise<VaultAssetMeta[]> => listAssets(this.root)
+  readAsset = (rel: string): Promise<Uint8Array> => readAsset(this.root, rel)
+  importAsset = (filename: string, bytes: Uint8Array): Promise<ImportedVaultAsset> =>
+    importAsset(this.root, filename, bytes)
+  renameAsset = (
+    rel: string,
+    name: string,
+    rewriteIn?: (notePath: string) => boolean
+  ): Promise<VaultAssetMeta> => renameAsset(this.root, rel, name, rewriteIn)
+  moveAsset = (
+    rel: string,
+    targetDir: string,
+    rewriteIn?: (notePath: string) => boolean
+  ): Promise<VaultAssetMeta> => moveAsset(this.root, rel, targetDir, rewriteIn)
+  duplicateAsset = (rel: string): Promise<VaultAssetMeta> => duplicateAsset(this.root, rel)
+  deleteAsset = (rel: string): Promise<DeletedVaultAsset> => deleteAsset(this.root, rel)
+  listDeletedAssets = (): Promise<DeletedVaultAsset[]> => listDeletedAssets(this.root)
+  restoreDeletedAsset = (deleted: DeletedVaultAsset): Promise<VaultAssetMeta> =>
+    restoreDeletedAsset(this.root, deleted.undoToken)
+  vaultSettings = (): Promise<Record<string, unknown>> => readVaultSettingsRaw(this.root)
+  listTemplates = (): Promise<CustomTemplateFile[]> => listTemplateFiles(this.root)
   listFolders = (): Promise<{ folder: NoteFolder; subpath: string }[]> => listFolders(this.root)
   readNote = (rel: string): Promise<NoteContent> => readNote(this.root, rel)
   writeNote = (rel: string, body: string): Promise<NoteMeta> => writeNote(this.root, rel, body)
@@ -299,6 +400,8 @@ class LocalBackend implements VaultBackend {
   backlinks = (rel: string): Promise<NoteMeta[]> => backlinks(this.root, rel)
   scanAllTasks = (opts?: { includeExcluded?: boolean }): Promise<VaultTask[]> =>
     scanAllTasks(this.root, opts)
+  scanTasksForPath = (rel: string, opts?: { includeExcluded?: boolean }): Promise<VaultTask[]> =>
+    scanTasksForPath(this.root, rel, opts)
   toggleTask = (taskId: string): Promise<VaultTask | null> => toggleTask(this.root, taskId)
   listComments = (rel: string): Promise<NoteComment[]> => readNoteComments(this.root, rel)
   writeComments = (rel: string, comments: NoteCommentInput[]): Promise<NoteComment[]> =>
@@ -362,14 +465,41 @@ class RemoteBackend implements VaultBackend {
   }
   templateFolder = async (): Promise<string | null> =>
     resolveTemplateFolder(await this.client.getVaultSettings())
+  marksLinks = async (): Promise<boolean> => {
+    try {
+      return (await this.client.getCapabilities())?.supportsSymlinkMarks === true
+    } catch (err) {
+      if (err instanceof RemoteRequestError && err.status === 404) return false
+      throw err
+    }
+  }
+  linkedSystemFolders = async (): Promise<string[] | null> => {
+    const linked = (await this.client.getCurrentVault())?.linkedSystemFolders
+    return Array.isArray(linked) && linked.every(isCleanVaultDir) ? linked : null
+  }
   listNotes = (): Promise<NoteMeta[]> => this.client.listNotes()
   listAssets = async (): Promise<VaultAssetMeta[]> =>
-    (await this.client.listAssets()).map((asset) => ({
-      path: asset.path,
-      name: asset.name,
-      size: asset.size,
-      updatedAt: asset.updatedAt
-    }))
+    (await this.client.listAssets()).map(plainAssetMeta)
+  readAsset = (rel: string): Promise<Uint8Array> => this.client.readAsset(rel)
+  importAsset = (filename: string, bytes: Uint8Array): Promise<ImportedVaultAsset> =>
+    this.client.uploadAsset(filename, bytes)
+  /** The server rewrites links in every note itself, so `rewriteIn` has no
+   *  meaning here; a client that sees part of the vault is refused before this
+   *  (ScopedBackend). */
+  renameAsset = (rel: string, name: string): Promise<VaultAssetMeta> =>
+    this.client.renameAsset(rel, name).then(plainAssetMeta)
+  moveAsset = (rel: string, targetDir: string): Promise<VaultAssetMeta> =>
+    this.client.moveAsset(rel, targetDir).then(plainAssetMeta)
+  duplicateAsset = (rel: string): Promise<VaultAssetMeta> =>
+    this.client.duplicateAsset(rel).then(plainAssetMeta)
+  deleteAsset = (rel: string): Promise<DeletedVaultAsset> => this.client.deleteAsset(rel)
+  listDeletedAssets = async (): Promise<DeletedVaultAsset[]> =>
+    (await this.client.listDeletedAssets()) ?? []
+  restoreDeletedAsset = (deleted: DeletedVaultAsset): Promise<VaultAssetMeta> =>
+    this.client.restoreDeletedAsset(deleted).then(plainAssetMeta)
+  vaultSettings = (): Promise<Record<string, unknown>> => this.client.getVaultSettings()
+  listTemplates = async (): Promise<CustomTemplateFile[]> =>
+    (await this.client.listTemplates()) ?? []
   listFolders = (): Promise<{ folder: NoteFolder; subpath: string }[]> =>
     this.client.listFolders()
   readNote = (rel: string): Promise<NoteContent> => this.client.readNote(rel)
@@ -459,6 +589,9 @@ class RemoteBackend implements VaultBackend {
   scanAllTasks = (opts?: { includeExcluded?: boolean }): Promise<VaultTask[]> =>
     this.client.scanTasks(opts)
 
+  scanTasksForPath = (rel: string, opts?: { includeExcluded?: boolean }): Promise<VaultTask[]> =>
+    this.client.scanTasksForPath(normalizeRelPath(rel), opts)
+
   listComments = (rel: string): Promise<NoteComment[]> =>
     this.client.readComments(normalizeRelPath(rel))
   writeComments = (rel: string, comments: NoteCommentInput[]): Promise<NoteComment[]> =>
@@ -527,6 +660,18 @@ class RemoteBackend implements VaultBackend {
     })
     return this.dbOps
   }
+}
+
+/** A vault path as a server reports one. Anything else would match no path
+ *  when a path scope hides it, so it counts as an answer that says nothing. */
+function isCleanVaultDir(dir: unknown): dir is string {
+  return (
+    typeof dir === 'string' &&
+    !dir.includes('\\') &&
+    dir
+      .split('/')
+      .every((seg) => seg !== '' && seg !== '.' && seg !== '..' && !/^[\s\u0085]|[\s\u0085]$/.test(seg))
+  )
 }
 
 /** `./inbox/Note.md` → `inbox/Note.md`, matching how the server reports paths. */

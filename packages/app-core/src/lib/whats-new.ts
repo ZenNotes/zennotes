@@ -40,6 +40,35 @@ export const CLOUD_ANNOUNCEMENT = {
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    version: '2.83.0',
+    highlights: [
+      {
+        title: 'Import from Notion and Obsidian',
+        body: 'Sign in with Notion and pick your pages, or point at an Obsidian vault. Run Import Notes from the palette, or choose it during setup. Your notes stay plain Markdown files.'
+      },
+      {
+        title: 'Open a vault in your file manager',
+        body: 'Space F opens the current vault’s folder. In the vault switcher, Shift+Enter or the row’s button opens any of them.'
+      },
+      {
+        title: 'Kanban columns can have a color',
+        body: 'Press C on a column in New Kanban, or use its menu, to pick from your theme’s palette.'
+      },
+      {
+        title: 'The Delete key moves a note to the Trash',
+        body: 'With the sidebar focused, Delete asks first, then moves the note or your whole selection, Vim mode on or off.'
+      },
+      {
+        title: 'Vaults on network folders keep up',
+        body: 'On a Windows network share or mapped drive, new notes now appear on their own, and within moments of switching back to the window.'
+      },
+      {
+        title: 'Safer assistant access',
+        body: 'Path limits for assistants now hold on vaults with linked files and folders, and a server that changes vault stops calls instead of writing to the wrong one. If you use zn or path limits with a server, update it to 2.82.1 or later.'
+      }
+    ]
+  },
+  {
     version: '2.81.1',
     highlights: [
       {

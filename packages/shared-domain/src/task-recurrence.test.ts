@@ -7,7 +7,8 @@ import {
   parseRepeatRule,
   planRecurringCompletion,
   setRemindField,
-  setRepeatField
+  setRepeatField,
+  completeRecurringTaskAtLine
 } from './task-recurrence'
 import { parseTasksFromBody } from './tasks'
 
@@ -136,5 +137,25 @@ describe('setRepeatField / setRemindField', () => {
     expect(setRepeatField('Water @repeat:daily due:2026-11-01', null)).toBe('Water due:2026-11-01')
     expect(setRemindField('Pay rent', '1d')).toBe('Pay rent @remind:1d')
     expect(setRemindField('Pay rent @remind:1d', null)).toBe('Pay rent')
+  })
+})
+
+describe('completeRecurringTaskAtLine', () => {
+  const today = '2099-01-01'
+
+  it('finishes the task on that line, whatever the counting above it', () => {
+    const body = '    ```\n    - [ ] looks like a task\n    ```\n- [ ] water @repeat:daily due:2099-01-01\n'
+    const done = completeRecurringTaskAtLine(body, 3, { today })
+    expect(done?.body.split('\n').slice(3, 5)).toEqual([
+      '- [ ] water @repeat:daily due:2099-01-02',
+      expect.stringMatching(/^- \[x\] water/)
+    ])
+  })
+
+  it('answers null for a line that is not an open recurring task', () => {
+    const body = '- [ ] plain\n- [x] water @repeat:daily due:2099-01-01\n'
+    expect(completeRecurringTaskAtLine(body, 0, { today })).toBeNull()
+    expect(completeRecurringTaskAtLine(body, 1, { today })).toBeNull()
+    expect(completeRecurringTaskAtLine(body, 9, { today })).toBeNull()
   })
 })

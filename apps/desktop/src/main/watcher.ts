@@ -4,6 +4,7 @@ import type { NoteFolder, VaultChangeEvent, VaultChangeKind, VaultSettings } fro
 import { databaseCsvPathFor } from '@shared/databases'
 import { AGENT_EDITS_DIR, AGENT_EDITS_SUFFIX } from '@shared/agent-edits'
 import { folderForRelativePath, getVaultSettings, isAtomicWriteTempPath } from './vault'
+import { vaultFingerprint } from './vault-fingerprint'
 
 const ATTACHMENTS_DIRS = new Set(['assets', 'attachements', '_assets'])
 const INTERNAL_VAULT_DIR = '.zennotes'
@@ -17,6 +18,18 @@ const AGENT_EDITS_PREFIX = `${INTERNAL_VAULT_DIR}/${AGENT_EDITS_DIR}/`
  *  on Linux, inotify watches (ENOSPC). Every folder after the first failure
  *  fails the same way, so the watcher cannot go on reporting the vault. */
 const WATCH_HANDLES_EXHAUSTED = new Set(['EMFILE', 'ENFILE', 'ENOSPC'])
+
+/** What a vault on a Windows network share (a UNC path or a mapped drive) gets
+ *  from `fs.watch`: UNKNOWN, at once (#1023). Nothing would ever report a
+ *  change, and the vault gave no sign of it. Chokidar's polling is no way out:
+ *  on Samba it missed new top-level folders in 6 of 8 runs, and it held 25% of
+ *  a core idle at 2,000 notes. So this vault gets re-read instead. */
+const WATCH_UNSUPPORTED_HERE = 'UNKNOWN'
+/** Each re-read stats every file, over the network here. */
+export const NETWORK_RESCAN_INTERVAL_MS = 30_000
+/** Focus can arrive in bursts, and a re-read is not free. */
+const NETWORK_RESCAN_FOCUS_GAP_MS = 5_000
+const RESYNC_EVENT: VaultChangeEvent = { kind: 'change', path: '', folder: 'inbox', scope: 'resync' }
 
 function toPosix(p: string): string {
   return p.split(path.sep).join('/')
@@ -77,6 +90,15 @@ export class VaultWatcher {
    *  chokidar starts reporting the moment `start()` returns. Null once the
    *  load has settled, so steady-state events pay nothing. */
   private pending: (() => void)[] | null = null
+  /** Set once this vault's folder refused native events: see rescanNow. */
+  private rescan: {
+    root: string
+    onEvent: (ev: VaultChangeEvent) => void
+    timer: ReturnType<typeof setInterval>
+    fingerprint: string | null
+    running: boolean
+    lastRanAt: number
+  } | null = null
 
   constructor(
     private readonly loadSettings: (root: string) => Promise<VaultSettings> = getVaultSettings
@@ -253,6 +275,13 @@ export class VaultWatcher {
           onExhausted()
           return
         }
+        if (code === WATCH_UNSUPPORTED_HERE) {
+          console.warn('Vault folder cannot report changes; re-reading it instead', error)
+          this.watcher = null
+          void watcher.close().catch(() => {})
+          this.startRescanning(root, onEvent)
+          return
+        }
         console.error('Vault watcher could not watch a path', error)
       })
       .on('add', handler('add'))
@@ -262,7 +291,43 @@ export class VaultWatcher {
       .on('unlinkDir', dirHandler('unlink'))
   }
 
+  private startRescanning(root: string, onEvent: (ev: VaultChangeEvent) => void): void {
+    const timer = setInterval(() => void this.rescanNow(true), NETWORK_RESCAN_INTERVAL_MS)
+    timer.unref?.()
+    this.rescan = { root, onEvent, timer, fingerprint: null, running: false, lastRanAt: 0 }
+    // Nothing reported what changed between opening the vault and now.
+    onEvent(RESYNC_EVENT)
+    void this.rescanNow(true)
+  }
+
+  /** Re-read a vault whose folder cannot report changes, and have its windows
+   *  refresh only if something moved. The window gaining focus asks too, which
+   *  is when a person expects to see what arrived. Does nothing for a vault
+   *  that native events cover. */
+  async rescanNow(force = false): Promise<void> {
+    const rescan = this.rescan
+    if (!rescan || rescan.running) return
+    const now = Date.now()
+    if (!force && now - rescan.lastRanAt < NETWORK_RESCAN_FOCUS_GAP_MS) return
+    rescan.running = true
+    rescan.lastRanAt = now
+    try {
+      const next = await vaultFingerprint(
+        rescan.root,
+        (name) => name === 'node_modules' || isAtomicWriteTempPath(name)
+      )
+      if (this.rescan !== rescan || next === null) return
+      const before = rescan.fingerprint
+      rescan.fingerprint = next
+      if (before !== null && before !== next) rescan.onEvent(RESYNC_EVENT)
+    } finally {
+      rescan.running = false
+    }
+  }
+
   async stop(): Promise<void> {
+    if (this.rescan) clearInterval(this.rescan.timer)
+    this.rescan = null
     const watcher = this.watcher
     this.watcher = null
     this.root = null

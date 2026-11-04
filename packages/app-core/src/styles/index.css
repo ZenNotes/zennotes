@@ -6171,6 +6171,38 @@ html[data-completed-task-style="gray-strikethrough"] .prose-zen li.task-list-ite
   padding-left: calc(16px + var(--z-list-hanging-indent, 0));
 }
 
+/* A quote inside a list item (`- > text`): the bullet stays outside the quote,
+   as in Preview. The bar sits at the `>`'s column, which is why it cannot be
+   the line's border, and it is not a background because the list guides own
+   that. The gap goes on the first line's text and on the wrapped lines. */
+.cm-wysiwyg .cm-editor .cm-line.cm-wq-quote-in-list {
+  --z-quote-gap: 14px;
+  position: relative;
+  color: rgb(var(--z-fg-2));
+}
+.cm-wysiwyg .cm-editor .cm-line.cm-wq-quote-in-list::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--z-list-indent-pad, 0ch) + var(--z-quote-column, 0ch));
+  width: 3px;
+  background: rgb(var(--z-accent) / 0.45);
+}
+.cm-wysiwyg .cm-editor .cm-line.cm-wq-quote-in-list.cm-markdown-list-line {
+  padding-left: calc(
+    var(--z-list-hanging-indent, 0) + var(--z-list-indent-pad, 0ch) + var(--z-quote-gap)
+  );
+  text-indent: calc((var(--z-list-hanging-indent, 0) + var(--z-quote-gap)) * -1);
+}
+.cm-wysiwyg .cm-editor .cm-wq-quote-body {
+  padding-left: var(--z-quote-gap);
+}
+.cm-wysiwyg .cm-editor .cm-wq-quote-in-list .tok-quote {
+  font-style: normal;
+  color: inherit;
+}
+
 /* Unordered-list bullet rendered in place of `-` / `*` / `+`. */
 .cm-wysiwyg .cm-editor .cm-wq-bullet {
   color: rgb(var(--z-grey-1));

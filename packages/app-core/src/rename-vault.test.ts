@@ -164,6 +164,109 @@ describe('store.renameVault', () => {
   })
 })
 
+describe('a vault whose layout is inferred (#1023)', () => {
+  const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
+
+  it('follows main when a root entry moves it to root mode', async () => {
+    const useStore = await loadStore()
+    expect(useStore.getState().vaultSettings.primaryNotesLocation).toBe('inbox')
+    ;(window.zen.getVaultSettings as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ...DEFAULT_VAULT_SETTINGS,
+      primaryNotesLocation: 'root'
+    })
+    await useStore.getState().applyChange({ kind: 'add', path: 'Trips', folder: 'inbox', scope: 'folder' } as never)
+    await settle()
+    expect(useStore.getState().vaultSettings.primaryNotesLocation).toBe('root')
+  })
+
+  it('lists again when the layout moves while the notes are being listed', async () => {
+    const useStore = await loadStore()
+    const note = { path: 'Trips/Rome.md', title: 'Rome', folder: 'inbox' }
+    let answerFirst: (notes: unknown[]) => void = () => {}
+    const listNotes = window.zen.listNotes as ReturnType<typeof vi.fn>
+    listNotes.mockReset()
+    listNotes
+      .mockImplementationOnce(() => new Promise((resolve) => { answerFirst = resolve }))
+      .mockResolvedValue([note])
+
+    const refresh = useStore.getState().refreshNotes()
+    await settle()
+    useStore.setState({ vaultSettings: { ...DEFAULT_VAULT_SETTINGS, primaryNotesLocation: 'root' } })
+    answerFirst([])
+    await refresh
+
+    expect(listNotes).toHaveBeenCalledTimes(2)
+    expect(useStore.getState().notes.map((n) => n.path)).toEqual(['Trips/Rome.md'])
+  })
+
+  it('does not list again for another vault', async () => {
+    const useStore = await loadStore()
+    let answerFirst: (notes: unknown[]) => void = () => {}
+    const listNotes = window.zen.listNotes as ReturnType<typeof vi.fn>
+    listNotes.mockReset()
+    listNotes.mockImplementationOnce(() => new Promise((resolve) => { answerFirst = resolve }))
+
+    const refresh = useStore.getState().refreshNotes()
+    await settle()
+    useStore.setState({ vault: { root: '/elsewhere', name: 'elsewhere' } } as never)
+    answerFirst([])
+    await refresh
+    expect(listNotes).toHaveBeenCalledTimes(1)
+  })
+
+  it('scans tasks again when the layout moves during a scan, and stops loading', async () => {
+    const useStore = await loadStore()
+    const task = { id: 'Trips/Rome.md#0', sourcePath: 'Trips/Rome.md', content: 'Book', checked: false }
+    let answerFirst: (tasks: unknown[]) => void = () => {}
+    const scanTasks = vi.fn()
+      .mockImplementationOnce(() => new Promise((resolve) => { answerFirst = resolve }))
+      .mockResolvedValue([task])
+    ;(window.zen as unknown as { scanTasks: unknown }).scanTasks = scanTasks
+
+    const refresh = useStore.getState().refreshTasks()
+    expect(useStore.getState().tasksLoading).toBe(true)
+    useStore.setState({ vaultSettings: { ...DEFAULT_VAULT_SETTINGS, primaryNotesLocation: 'root' } })
+    answerFirst([])
+    await refresh
+
+    expect(scanTasks).toHaveBeenCalledTimes(2)
+    expect(useStore.getState().tasksLoading).toBe(false)
+    expect(useStore.getState().vaultTasks.map((t) => t.sourcePath)).toEqual(['Trips/Rome.md'])
+  })
+
+  it('leaves tasks to the new vault when the vault changes during a scan', async () => {
+    const useStore = await loadStore()
+    let answerFirst: (tasks: unknown[]) => void = () => {}
+    const scanTasks = vi.fn().mockImplementationOnce(() => new Promise((resolve) => { answerFirst = resolve }))
+    ;(window.zen as unknown as { scanTasks: unknown }).scanTasks = scanTasks
+
+    const refresh = useStore.getState().refreshTasks()
+    useStore.setState({ vault: { root: '/elsewhere', name: 'elsewhere' } } as never)
+    answerFirst([])
+    await refresh
+
+    expect(scanTasks).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not ask for an entry nested inside a folder', async () => {
+    const useStore = await loadStore()
+    const get = window.zen.getVaultSettings as ReturnType<typeof vi.fn>
+    get.mockClear()
+    await useStore.getState().applyChange({ kind: 'add', path: 'Trips/Rome.md', folder: 'inbox' } as never)
+    await settle()
+    expect(get).not.toHaveBeenCalled()
+  })
+
+  it('keeps the same settings object when the layout did not move', async () => {
+    const useStore = await loadStore()
+    const before = useStore.getState().vaultSettings
+    ;(window.zen.getVaultSettings as ReturnType<typeof vi.fn>).mockResolvedValue({ ...DEFAULT_VAULT_SETTINGS })
+    await useStore.getState().applyChange({ kind: 'change', path: 'Loose.md', folder: 'inbox' } as never)
+    await settle()
+    expect(useStore.getState().vaultSettings).toBe(before)
+  })
+})
+
 describe('renameVaultWithPrompt', () => {
   it('prefills the current name, names the folder, and saves the answer', async () => {
     const useStore = await loadStore()

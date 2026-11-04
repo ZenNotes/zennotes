@@ -8,6 +8,8 @@ export interface VaultWatcherLike {
    *  out of watch handles. */
   start(root: string, onEvent: (ev: VaultChangeEvent) => void, onExhausted: () => void): void
   stop(): Promise<void>
+  /** Re-read a vault whose folder cannot report its own changes. */
+  rescanNow?(): Promise<void>
 }
 
 /** How long a vault goes unwatched after the system ran out of watch handles
@@ -165,6 +167,13 @@ export class WindowVaultRegistry {
   sendRemoteVaultChange(ev: VaultChangeEvent): void {
     for (const [windowId, session] of this.sessions) {
       if (session.mode === 'remote') this.options.sendVaultChange(windowId, ev)
+    }
+  }
+
+  /** A window gained focus: re-read the vaults that cannot report changes. */
+  rescanUnwatchedVaults(): void {
+    for (const registration of this.localVaultWatches.values()) {
+      void registration.watcher?.rescanNow?.()
     }
   }
 

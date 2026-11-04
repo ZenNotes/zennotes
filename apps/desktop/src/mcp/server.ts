@@ -9,21 +9,20 @@
  * already-installed clients) and the new `zn mcp` CLI subcommand.
  */
 
+import path from 'node:path'
+import type { Readable, Writable } from 'node:stream'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-  type Tool
-} from '@modelcontextprotocol/sdk/types.js'
+import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 
 import { resolveInstructions } from './instructions-store.js'
-import { createBackend, type VaultBackend } from '../cli/backend.js'
+import { createBackend, servedTarget, type VaultBackend } from '../cli/backend.js'
 import { runRecordingAgentEdit } from './agent-edit-recorder.js'
 import {
   REMOTE_TOKEN_ENV,
   resolveDefaultTarget,
+  sameServer,
   sameVault,
   type VaultTarget
 } from '../cli/vault-target.js'
@@ -41,21 +40,18 @@ import {
 } from '@shared/mcp-scope'
 import { outsideTemplateFolder } from '@shared/template-folder'
 import { ScopedBackend, scopeBackend, scrubVaultRoot } from './scoped-backend.js'
-
-interface ToolContext {
-  /** Set on the vault_info call that moved the session to a new vault: the
-   *  vault it left. */
-  previous?: VaultTarget | null
-}
-
-interface ToolDef {
-  schema: Tool
-  handler: (
-    args: Record<string, unknown>,
-    backend: VaultBackend,
-    context?: ToolContext
-  ) => Promise<unknown>
-}
+import { ASSET_TOOLS, LIST_ASSETS_TOOL } from './asset-tools.js'
+import { WORK_TOOLS } from './work-tools.js'
+import {
+  optionalBoolean,
+  optionalNumber,
+  optionalString,
+  optionalStringArray,
+  RawToolResult,
+  requireFolder,
+  requireString,
+  type ToolDef
+} from './tool-support.js'
 
 /* ---------- Comment authorship ---------------------------------------- */
 
@@ -89,56 +85,6 @@ function defaultCommentAuthor(): string {
   return commentAuthorForClient(connectedClientName)
 }
 
-/* ---------- Argument helpers ----------------------------------------- */
-
-function requireString(args: Record<string, unknown>, key: string): string {
-  const value = args[key]
-  if (typeof value !== 'string' || !value.trim()) {
-    throw new Error(`Missing required string argument: ${key}`)
-  }
-  return value
-}
-
-function optionalString(args: Record<string, unknown>, key: string): string | undefined {
-  const value = args[key]
-  if (value == null) return undefined
-  if (typeof value !== 'string') throw new Error(`${key} must be a string`)
-  return value
-}
-
-function requireFolder(args: Record<string, unknown>, key: string): NoteFolder {
-  const value = requireString(args, key)
-  if (value !== 'inbox' && value !== 'quick' && value !== 'archive' && value !== 'trash') {
-    throw new Error(`${key} must be one of inbox, quick, archive, trash`)
-  }
-  return value
-}
-
-function optionalBoolean(args: Record<string, unknown>, key: string): boolean | undefined {
-  const value = args[key]
-  if (value == null) return undefined
-  if (typeof value !== 'boolean') throw new Error(`${key} must be a boolean`)
-  return value
-}
-
-function optionalNumber(args: Record<string, unknown>, key: string): number | undefined {
-  const value = args[key]
-  if (value == null) return undefined
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    throw new Error(`${key} must be a number`)
-  }
-  return value
-}
-
-function optionalStringArray(args: Record<string, unknown>, key: string): string[] | undefined {
-  const value = args[key]
-  if (value == null) return undefined
-  if (!Array.isArray(value) || !value.every((v) => typeof v === 'string')) {
-    throw new Error(`${key} must be an array of strings`)
-  }
-  return value as string[]
-}
-
 /* ---------- Tool definitions ----------------------------------------- */
 
 const TOOLS: ToolDef[] = [
@@ -160,7 +106,7 @@ const TOOLS: ToolDef[] = [
       const primaryNotesLocation = description.primaryNotesLocation
       const isRootMode = primaryNotesLocation === 'root'
       const switchNote = context?.previous
-        ? `The vault changed: until this call the session worked in ${describeTarget(context.previous)}. Every tool runs here now, and paths or content you got from the previous vault do not apply to this one. `
+        ? `The vault changed: until this call the session worked in ${describeTarget(context.previous, !!scoped)}. Every tool runs here now, and paths or content you got from the previous vault do not apply to this one. `
         : ''
       const pathNotes =
         'IMPORTANT: Always use the `path` returned by other tools verbatim. Never prepend `inbox/` to a path you got back from list_notes / create_note / read_note. ' +
@@ -299,15 +245,7 @@ const TOOLS: ToolDef[] = [
     },
     handler: async (_args, backend) => await backend.listFolders()
   },
-  {
-    schema: {
-      name: 'list_assets',
-      description:
-        'List files under the vault’s attachments directory (images, PDFs, audio, video, other binaries). Useful when a note references an asset you need to inspect.',
-      inputSchema: { type: 'object', properties: {} }
-    },
-    handler: async (_args, backend) => await backend.listAssets()
-  },
+  LIST_ASSETS_TOOL,
   {
     schema: {
       name: 'read_note',
@@ -792,13 +730,13 @@ const TOOLS: ToolDef[] = [
     schema: {
       name: 'toggle_task',
       description:
-        'Flip a task’s checkbox state using its stable id from list_tasks ("<path>#<index>"). Returns the updated task, or null if the id no longer matches a task (content drifted).',
+        'Flip a task’s checkbox state using its id from list_tasks ("<path>#<index>"). An id counts the task’s position in its note, so list_tasks again after that note changes. Finishing a task with `@repeat:` writes its next occurrence above it and returns the finished one under its new id. Returns the updated task, or null if the id no longer matches a task.',
       inputSchema: {
         type: 'object',
         properties: {
           id: {
             type: 'string',
-            description: 'Stable task id: sourcePath#taskIndex.'
+            description: 'Task id: sourcePath#taskIndex.'
           }
         },
         required: ['id']
@@ -995,7 +933,9 @@ const TOOLS: ToolDef[] = [
         id: requireString(args, 'id'),
         resolved: optionalBoolean(args, 'resolved') ?? true
       })
-  }
+  },
+  ...ASSET_TOOLS,
+  ...WORK_TOOLS
 ]
 
 /* ---------- Server plumbing ------------------------------------------ */
@@ -1076,32 +1016,61 @@ function tokenHint(serverUrl: string): string {
 /** A vault named in a sentence. The app often names a saved server after its
  *  host already ("Server Vault (10.0.0.5:7878)"), so the name is quoted and
  *  the URL follows "at" rather than a second parenthesis. */
-function describeTarget(target: VaultTarget): string {
-  if (target.kind === 'local') return `the local vault ${target.root}`
-  return target.name
+/** A client with scoped access is not told where a vault is on this machine. */
+function describeTarget(target: VaultTarget, scoped = false): string {
+  if (target.kind === 'local') {
+    return scoped ? `the local vault "${path.basename(target.root)}"` : `the local vault ${target.root}`
+  }
+  const server = target.name
     ? `the server "${target.name}" at ${target.baseUrl}`
     : `the server at ${target.baseUrl}`
+  // A server's vault goes by its name, never its path.
+  return target.vaultName ? `the vault "${target.vaultName}" on ${server}` : server
 }
 
 function sameTarget(a: VaultTarget, b: VaultTarget): boolean {
   if (a.kind === 'local' || b.kind === 'local') {
     return a.kind === 'local' && b.kind === 'local' && a.root === b.root
   }
-  return a.baseUrl === b.baseUrl && a.name === b.name && a.authToken === b.authToken
+  return (
+    a.baseUrl === b.baseUrl &&
+    a.name === b.name &&
+    a.authToken === b.authToken &&
+    a.vaultPath === b.vaultPath &&
+    a.vaultName === b.vaultName
+  )
 }
 
 /** The vault changed after the session last served a call. */
 export class VaultSwitchedError extends Error {
   constructor(
     readonly from: VaultTarget,
-    readonly to: VaultTarget
+    readonly to: VaultTarget,
+    scoped = false
   ) {
+    const was = describeTarget(from, scoped)
+    const now = describeTarget(to, scoped)
     super(
-      `The ZenNotes vault changed since this session's last call: it was ${describeTarget(from)} ` +
-        `and is now ${describeTarget(to)}. Nothing ran. Call vault_info to confirm the new vault and ` +
+      `The ZenNotes vault changed since this session's last call: it was ${was} ` +
+        `and is now ${was === now ? 'a different vault with the same name' : now}. Nothing ran. Call vault_info to confirm the new vault and ` +
         'tell the user, then re-read anything you meant to change before you retry.'
     )
   }
+}
+
+/** A switch vault_info is confirming: the vault it is leaving and the one it
+ *  runs on. The session stays where it is until finishMove. */
+export interface VaultMove {
+  from: VaultTarget
+  to: VaultTarget
+  opened: VaultBackend
+}
+
+export interface VaultStep {
+  backend: VaultBackend
+  target: VaultTarget
+  move: VaultMove | null
+  failure?: unknown
 }
 
 /**
@@ -1117,6 +1086,19 @@ export class VaultSwitchedError extends Error {
  * vault_info fails with VaultSwitchedError until vault_info confirms the new
  * vault. That holds for a whole batch of parallel calls, not only the first.
  * The Go `zn mcp` (ZenNotes/tui, internal/mcp/session.go) behaves the same.
+ *
+ * The session moves only once vault_info has its answer ready, so a vault_info
+ * that fails leaves the stop in place, and any call that began before the move
+ * stops too. The one call that can pass is one that begins after the move but
+ * was sent before the client had the answer.
+ *
+ * A self-hosted server can change its own vault with the URL staying the same,
+ * so each call on a server first asks which vault it is serving: one request.
+ * The answer can go stale before the call's own requests reach the server. A
+ * switch landing there sends those requests to the other vault, and a tool that
+ * reads a note and writes it back then overwrites the other vault's note with
+ * this one's body. Closing that would take the server refusing a request meant
+ * for another vault.
  */
 export class VaultSession {
   private target: VaultTarget | null = null
@@ -1125,40 +1107,90 @@ export class VaultSession {
 
   constructor(
     private readonly resolve: () => Promise<VaultTarget>,
-    private readonly open: (target: VaultTarget) => VaultBackend = createBackend
+    private readonly open: (target: VaultTarget) => VaultBackend = createBackend,
+    /** Keeps absolute paths out of what a switch reports. */
+    private readonly scoped = false,
+    private readonly served: (target: VaultTarget) => Promise<VaultTarget> = servedTarget
   ) {}
 
-  /** The backend for one call and the vault it reaches. `confirm` marks
-   *  vault_info, the only call that moves the session to a new vault;
-   *  `previous` is the vault it moved away from, null when the vault did not
-   *  change. Calls resolve one at a time so a batch sees one consistent
-   *  session. */
-  backendFor(confirm: boolean): Promise<{
-    backend: VaultBackend
-    target: VaultTarget
-    previous: VaultTarget | null
-  }> {
-    const next = this.queue.then(() => this.step(confirm))
+  /** The decisions run one at a time, so a batch sees one consistent session.
+   *  Asking a server does not: one slow answer should not hold up the batch. */
+  private oneAtATime<T>(step: () => Promise<T>): Promise<T> {
+    const next = this.queue.then(step)
     this.queue = next.catch(() => undefined)
     return next
   }
 
-  private async step(
+  /**
+   * The backend for one call and the vault it reaches. `confirm` marks
+   * vault_info, the only call that can move the session to a new vault; `move`
+   * is set when it would, for the caller to finish once the call has succeeded.
+   * When a server cannot say which vault it is serving, `failure` is why the
+   * call stops, and the backend comes back too so the error can name the server.
+   */
+  async backendFor(confirm: boolean): Promise<VaultStep> {
+    let target = await this.resolve()
+    const entered = this.target
+    const pinned = this.backend != null
+    // A call that will stop anyway because the session is on another server or
+    // a local vault stops without contacting the new one.
+    if (confirm || !pinned || sameServer(entered, target)) {
+      try {
+        target = await this.served(target)
+      } catch (failure) {
+        try {
+          return { backend: this.open(target), target, move: null, failure }
+        } catch {
+          throw failure
+        }
+      }
+    }
+    const asked = target
+    return await this.oneAtATime(() => this.decide(asked, entered, pinned, confirm))
+  }
+
+  private async decide(
+    target: VaultTarget,
+    entered: VaultTarget | null,
+    pinned: boolean,
     confirm: boolean
-  ): Promise<{ backend: VaultBackend; target: VaultTarget; previous: VaultTarget | null }> {
-    const target = await this.resolve()
-    let previous: VaultTarget | null = null
-    if (this.target && this.backend && !(await sameVault(this.target, target))) {
-      if (!confirm) throw new VaultSwitchedError(this.target, target)
-      previous = this.target
+  ): Promise<VaultStep> {
+    // A vault_info may have finished while this call waited for its answer. The
+    // call began on the old vault, so it stops even though the session has moved.
+    let from = this.target
+    if (pinned && entered && !(await sameVault(entered, target))) from = entered
+    if (this.backend && from && !(await sameVault(from, target))) {
+      if (!confirm) throw new VaultSwitchedError(from, target, this.scoped)
+      const opened = this.open(target)
+      return { backend: opened, target, move: { from, to: target, opened } }
     }
     // A new token or profile name for the same vault reopens quietly.
     if (!this.target || !this.backend || !sameTarget(this.target, target)) {
       this.backend = this.open(target)
       this.target = target
     }
-    return { backend: this.backend, target: this.target, previous }
+    return { backend: this.backend, target: this.target, move: null }
   }
+
+  /** Moves the session once vault_info has its answer ready. */
+  finishMove(move: VaultMove): Promise<void> {
+    return this.oneAtATime(async () => {
+      this.target = move.to
+      this.backend = move.opened
+    })
+  }
+}
+
+/**
+ * The SDK's stdio transport closes the whole session on a message past its
+ * limit, 10 MiB by default, which a legal upload_asset of about 7.5 MiB is. This
+ * leaves room for one well past that tool's own limit, so an oversized file gets
+ * its refusal rather than a dropped connection.
+ */
+const STDIO_MAX_MESSAGE_BYTES = 128 * 1024 * 1024
+
+export function stdioServerTransport(stdin?: Readable, stdout?: Writable): StdioServerTransport {
+  return new StdioServerTransport(stdin, stdout, { maxBufferSize: STDIO_MAX_MESSAGE_BYTES })
 }
 
 export interface McpServerOptions {
@@ -1187,7 +1219,7 @@ export async function runMcpServer(options: McpServerOptions = {}): Promise<void
   // When nothing resolves yet we still boot so the client surface stays
   // consistent; every tool call then reports the error, and the next call
   // tries again rather than repeating a stale failure.
-  const vaults = new VaultSession(resolveTarget)
+  const vaults = new VaultSession(resolveTarget, createBackend, isMcpScopeActive(options.scope))
 
   // Try at startup and say so on stderr when it fails: a terminal shows it at
   // once and MCP clients keep it in their server logs, whereas waiting for the
@@ -1239,25 +1271,31 @@ export async function runMcpServer(options: McpServerOptions = {}): Promise<void
     let backend: VaultBackend | null = null
     try {
       const resolved = await vaults.backendFor(name === 'vault_info')
-      const { previous } = resolved
+      const { move } = resolved
       target = resolved.target
       backend = scopeBackend(resolved.backend, scope)
+      if (resolved.failure !== undefined) throw resolved.failure
       const toolArgs = (args ?? {}) as Record<string, unknown>
       const seen = backend
       // An edit to a note is recorded so the user can review it in the app.
       const result = await runRecordingAgentEdit(name, toolArgs, seen, defaultCommentAuthor(), () =>
-        tool.handler(toolArgs, seen, { previous })
+        tool.handler(toolArgs, seen, { previous: move?.from ?? null })
       )
+      // A tool that answers with more than text (read_asset) builds its own.
+      if (result instanceof RawToolResult) return { content: result.content }
       const payload =
         typeof result === 'string' ? result : JSON.stringify(result, null, 2)
+      // Only now can the assistant be told, so only now does the session move.
+      if (move) await vaults.finishMove(move)
       return { content: [{ type: 'text', text: payload }] }
     } catch (err) {
-      return {
-        content: [{ type: 'text', text: `Error: ${describeToolError(err, target, backend)}` }],
-        isError: true
-      }
+      // No vault resolved: what failed names its location, which a scoped client
+      // is not told. The same message went to stderr when the server started.
+      const unopened = scope && !target && !(err instanceof VaultSwitchedError)
+      const text = unopened ? 'The vault cannot be opened.' : describeToolError(err, target, backend)
+      return { content: [{ type: 'text', text: `Error: ${text}` }], isError: true }
     }
   })
 
-  await server.connect(options.transport ?? new StdioServerTransport())
+  await server.connect(options.transport ?? stdioServerTransport())
 }

@@ -33,6 +33,8 @@ export interface HarperEditorConfig {
   addWord: (word: string) => Promise<void>
   /** Persist an ignored suggestion; the extension re-lints afterwards. */
   ignore: (text: string, lint: HarperLint) => Promise<void>
+  /** The keys the card names for its two actions, empty when none works. */
+  keyHints: () => { addWord: string; ignore: string }
 }
 
 /** Dispatch to re-run Harper without waiting for an edit (after the
@@ -203,10 +205,11 @@ function popupTooltip(popup: HarperPopup, config: HarperEditorConfig): Tooltip {
       const divider = document.createElement('div')
       divider.className = 'cm-harper-popup-divider'
       dom.appendChild(divider)
+      const keys = config.keyHints()
       if (harper.kind === 'Spelling') {
         add(
           'Add to dictionary',
-          'zg',
+          keys.addWord,
           () => {
             view.dispatch({ effects: setHarperPopup.of(null) })
             void config.addWord(harper.problem).then(() => refreshHarper(view))
@@ -216,7 +219,7 @@ function popupTooltip(popup: HarperPopup, config: HarperEditorConfig): Tooltip {
       }
       add(
         'Ignore this suggestion',
-        'zG',
+        keys.ignore,
         () => {
           view.dispatch({ effects: setHarperPopup.of(null) })
           void config.ignore(sourceText, harper).then(() => refreshHarper(view))

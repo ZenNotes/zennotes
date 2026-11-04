@@ -137,7 +137,18 @@ describe('tools run through the backend', () => {
       'list_comments',
       'add_comment',
       'reply_to_comment',
-      'resolve_comment'
+      'resolve_comment',
+      'read_asset',
+      'upload_asset',
+      'rename_asset',
+      'move_asset',
+      'duplicate_asset',
+      'delete_asset',
+      'restore_asset',
+      'update_task',
+      'daily_note',
+      'note_sections',
+      'edit_section'
     ])
   })
 })
@@ -698,7 +709,7 @@ describe('runMcpServer follows the target it is given (#831)', () => {
 
       const { info } = await s.vaultInfo()
       expect(info).toMatchObject({ server: `${origin}/work` })
-      expect(String(info?.notes)).toContain(`until this call the session worked in the server at ${origin}/Work`)
+      expect(String(info?.notes)).toContain(`until this call the session worked in the vault "Work" on the server at ${origin}/Work`)
       expect((await s.call('write_note', { path: 'inbox/Plan.md', body: 'planned for work' })).isError).toBe(false)
       expect(writes).toEqual(['/work/api/notes/write'])
     } finally {

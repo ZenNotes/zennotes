@@ -13,7 +13,9 @@
  * match. Whatever the client is never shown does not exist for it, and the
  * error for a hidden path is the same bytes as for a missing one. The same
  * rule covers a vault on a ZenNotes server, whose listings come from the
- * server.
+ * server. A server lists a linked note or asset and marks it `symlink`, and
+ * its writes follow links to folders, so the view drops what is marked, and a
+ * destination the listings do not know is checked for what is really there.
  *
  * One is made per tool call; the listings it reads are cached for that call.
  */
@@ -40,8 +42,16 @@ import {
 } from '@shared/system-folder-paths'
 import type { DatabaseOps } from '@shared/database-ops'
 import type { VaultAssetMeta, VaultBackend, VaultDescription, VaultLayout } from '../cli/backend.js'
+import { RemoteRequestError } from '../main/remote/connection.js'
 import {
+  AssetDestinationRefused,
+  ATTACHMENTS_DIRS,
+  foldersAsListed,
+  goesThroughLink,
   sanitizeTitle,
+  type CustomTemplateFile,
+  type DeletedVaultAsset,
+  type ImportedVaultAsset,
   type NoteComment,
   type NoteCommentInput,
   type NoteContent,
@@ -64,15 +74,42 @@ const NOT_OFFERED = 'That is not available to an assistant with scoped access.'
 const STALE_DENY =
   "This assistant's scope hides a folder or note that does not exist in this vault (renamed or deleted outside ZenNotes, or it belongs to another vault), so nothing is shared until the MCP client's --deny-path entries are fixed."
 
+const UNMARKED_LINKS =
+  'This ZenNotes server cannot share part of a vault: its listings do not mark links, so nothing is shared until the server is updated.'
+
 const REMOTE_RENAME =
   'Renaming notes on a ZenNotes server is not available to an assistant that sees only part of the vault: the server rewrites links in every note, including ones this assistant cannot see.'
 
+const REMOTE_ASSET_LINKS =
+  'Renaming or moving attachments on a ZenNotes server is not available to an assistant that sees only part of the vault: the server rewrites links in every note, including ones this assistant cannot see.'
+
+const REMOTE_ASSET_BYTES =
+  'Reading or copying attachments on a ZenNotes server is not available to an assistant that sees only part of the vault.'
+
+const ASSETS_DIR = 'assets'
+
 const notFound = (rel: string): Error => new Error(`Note not found: ${rel}`)
+export const assetNotFound = (rel: string): Error => new Error(`Asset not found: ${rel}`)
+export const deletedAssetNotFound = (token: string): Error =>
+  new Error(`Deleted asset not found: ${token}`)
 const folderNotFound = (subpath: string): Error => new Error(`Folder not found: ${subpath}`)
 
 /** The stderr hint about a missing deny entry, once per entry for the life of
  *  the process. */
 const staleDenyLogged = new Set<string>()
+
+/** The same, for a folder hidden because it is a link. */
+const linkedFolderLogged = new Set<string>()
+
+/** Names a folder a path scope hides for being a link. Only stderr does, which
+ *  lands in the client's logs and not in front of the model. */
+function hintLinkedFolder(kind: string, dir: string): void {
+  if (linkedFolderLogged.has(dir)) return
+  linkedFolderLogged.add(dir)
+  process.stderr.write(
+    `[zennotes-mcp] the ${kind} folder ${dir} is a symbolic link, so it is hidden from a client with --allow-path or --deny-path\n`
+  )
+}
 
 function joinRel(dir: string, sub: string): string {
   if (!dir) return sub
@@ -88,7 +125,8 @@ function spell(p: string, known: readonly string[]): string | null {
   let count = 0
   for (const k of known) {
     if (k === p) return k
-    if (foldMcpScopePath(k) === folded) {
+    // The lists can name one path twice, which is still one path.
+    if (foldMcpScopePath(k) === folded && k !== match) {
       match = k
       count += 1
     }
@@ -98,7 +136,7 @@ function spell(p: string, known: readonly string[]): string | null {
 
 /** A client's path in vault-relative POSIX form, or null: `.` and `..`
  *  segments and hidden names are never resolved. */
-function cleanRequest(raw: string): string | null {
+export function cleanRequest(raw: string): string | null {
   const parts: string[] = []
   for (const seg of raw.replace(/\\/g, '/').split('/')) {
     if (!seg) continue
@@ -106,6 +144,29 @@ function cleanRequest(raw: string): string | null {
     parts.push(seg)
   }
   return parts.length > 0 ? parts.join('/') : null
+}
+
+/** A path with whitespace around it is not one the listings hold. */
+function trimsDifferently(raw: string): boolean {
+  return raw.trim() !== raw
+}
+
+/** A client's path in an asset listing: exact, else the one path equal after
+ *  case and accent folding, so the vault's spelling is what gets used. */
+export function matchAsset(all: readonly VaultAssetMeta[], raw: string): VaultAssetMeta | null {
+  const clean = cleanRequest(raw)
+  if (!clean) return null
+  const folded = foldMcpScopePath(clean)
+  let match: VaultAssetMeta | null = null
+  let count = 0
+  for (const asset of all) {
+    if (asset.path === clean) return asset
+    if (foldMcpScopePath(asset.path) === folded) {
+      match = asset
+      count += 1
+    }
+  }
+  return count === 1 ? match : null
 }
 
 /** The top-level directories the root walk keeps out of the inbox. Mirrors
@@ -176,15 +237,59 @@ class ScopeView {
   readonly deny: string[] = []
   readonly missingAllow: string[] = []
   readonly ancestors = new Set<string>()
+  /** The system folders that are links. */
+  readonly linkedFolders: string[] = []
 
   constructor(
     readonly paths: SystemFolderPaths,
     readonly primaryAtRoot: boolean,
     readonly allFolders: FolderEntry[],
-    /** Whether anything at all sits at a vault-relative path, for a vault on
-     *  this machine; null for a server's, whose walker is its own. */
-    private readonly onDisk: ((rel: string) => Promise<boolean>) | null
+    /** Whether anything at all sits at a vault-relative path. A listing cannot
+     *  answer that, because it leaves links out. */
+    private readonly occupied: (rel: string) => Promise<boolean>,
+    /** The vault on this machine; '' for a server's. */
+    private readonly root: string
   ) {}
+
+  /** Whether every segment of `rel` that exists is a real folder under the name
+   *  its parent lists, as a destination must be. On a server, `known` holds the
+   *  folders its listings establish, and the first segment outside them must
+   *  have nothing there. */
+  async realDirs(rel: string, known: () => Promise<string[]>): Promise<boolean> {
+    if (!rel || rel === '.') return true
+    if (!this.root) {
+      const dirs = await known()
+      let walked = ''
+      for (const seg of rel.split('/')) {
+        walked = joinRel(walked, seg)
+        if (spell(walked, dirs) == null) return !(await this.occupied(walked))
+      }
+      return true
+    }
+    let walk = this.root
+    for (const seg of rel.split('/')) {
+      const parent = walk
+      walk = path.join(walk, seg)
+      try {
+        if (!(await fs.lstat(walk)).isDirectory()) return false
+        const folded = foldMcpScopePath(seg)
+        const listed = await fs.readdir(parent)
+        if (!listed.some((name) => foldMcpScopePath(name) === folded)) return false
+      } catch (err) {
+        return (err as NodeJS.ErrnoException).code === 'ENOENT'
+      }
+    }
+    return true
+  }
+
+  /** The one answer for every folder a client may not put a file in, hidden or
+   *  not. */
+  assetRefusal(): Error {
+    if (this.allow.length > 0) {
+      return new Error(`This assistant can put files only inside: ${this.allow.join(', ')}.`)
+    }
+    return new Error('This assistant cannot put files there.')
+  }
 
   bucketDir(folder: NoteFolder): string {
     if (folder === 'inbox' && this.primaryAtRoot) return ''
@@ -269,11 +374,16 @@ class ScopeView {
     // A segment the listings do not know is new only when nothing is there.
     // The walks skip symbolic links, so `Projects/inner -> ../Journal` reads
     // as missing, and creating through it would write into the hidden folder.
-    if (firstNew != null && this.onDisk && (await this.onDisk(firstNew))) {
+    if (firstNew != null && (await this.occupied(firstNew))) {
       throw this.createRefusal()
     }
     if (!bucket) return spelled
     return spelled.slice(bucket.length).replace(/^\//, '')
+  }
+
+  /** Whether a system folder is one of those, however it is spelled. */
+  isLinkedFolder(dir: string): boolean {
+    return this.linkedFolders.some((entry) => isInsideMcpScopeEntryFolded(dir, entry))
   }
 
   /** The one answer for every destination a client may not use, hidden or
@@ -301,6 +411,7 @@ class ScopeView {
 
 export class ScopedBackend implements VaultBackend {
   private view: Promise<ScopeView> | null = null
+  private assets: Promise<VaultAssetMeta[]> | null = null
 
   constructor(
     readonly inner: VaultBackend,
@@ -324,23 +435,54 @@ export class ScopedBackend implements VaultBackend {
     return this.view
   }
 
+  /**
+   * How this backend tells a free path from a taken one. Only "not there"
+   * counts as free, so a check that fails refuses the destination.
+   *
+   * A server has no route that says what is at a path, but its read does: a
+   * missing path is a 404, while a link to a folder is a 400 for being a
+   * directory and a link out of the vault a 400 for escaping. A server from
+   * before 2.20 answers 500 for a missing file, so a scoped client cannot make
+   * new folders on one. A link to nothing also reads as missing; a server that
+   * refuses writes through links then refuses a folder under it itself.
+   */
+  private occupiedCheck(): (rel: string) => Promise<boolean> {
+    if (this.inner.kind === 'local') {
+      const root = this.inner.root
+      return (rel) =>
+        fs.lstat(path.join(root, ...rel.split('/'))).then(
+          () => true,
+          (err: NodeJS.ErrnoException) => err.code !== 'ENOENT'
+        )
+    }
+    return (rel) =>
+      this.inner.readNote(rel).then(
+        () => true,
+        (err: unknown) => !(err instanceof RemoteRequestError && err.status === 404)
+      )
+  }
+
   private async build(): Promise<ScopeView> {
     const layout = await this.inner.vaultLayout()
-    const notes = await this.inner.listNotes()
+    // A linked note's content is whatever the link names, possibly a hidden
+    // note, and a write lands there too, so a path scope drops what is marked.
+    // Where nothing says what is marked, it cannot tell, and shares nothing. A
+    // scope that only limits access hides no path, so it keeps them.
+    const restricted = isMcpScopeRestricted(this.scope)
+    if (restricted && !(await this.inner.marksLinks())) throw new Error(UNMARKED_LINKS)
+    // The same goes for system folders: a server that does not say which are
+    // links has not said that none are.
+    const linkedFolders = restricted ? await this.inner.linkedSystemFolders() : []
+    if (!linkedFolders) throw new Error(UNMARKED_LINKS)
+    const listed = await this.inner.listNotes()
+    const notes = restricted ? listed.filter((note) => !note.symlink) : listed
     const folders = await this.inner.listFolders()
-    const root = this.inner.root
     const v = new ScopeView(
       layout.systemFolderPaths,
       layout.primaryNotesLocation === 'root',
       folders,
-      this.inner.kind === 'local' && root
-        ? (rel) =>
-            fs.lstat(path.join(root, ...rel.split('/'))).then(
-              () => true,
-              // Anything but plain absence counts as something being there.
-              (err: NodeJS.ErrnoException) => err.code !== 'ENOENT'
-            )
-        : null
+      this.occupiedCheck(),
+      this.inner.kind === 'local' ? this.inner.root : ''
     )
     for (const folder of FOLDERS) {
       const dir = v.bucketDir(folder)
@@ -358,10 +500,29 @@ export class ScopedBackend implements VaultBackend {
     }
     known.push(...v.dirs)
 
+    // An entry can name an attachment folder or an asset, which the listings
+    // above do not show, so those are read only for an entry they did not find.
+    let assetNames: string[] | null = null
+    const knownAssets = async (): Promise<string[]> => {
+      if (assetNames) return assetNames
+      assetNames = [...ATTACHMENTS_DIRS]
+      for (const asset of await this.inner.listAssets()) {
+        assetNames.push(asset.path)
+        for (
+          let dir = path.posix.dirname(asset.path);
+          dir !== '.' && dir !== '/';
+          dir = path.posix.dirname(dir)
+        ) {
+          assetNames.push(dir)
+        }
+      }
+      return assetNames
+    }
+
     // Entries take the vault's own spelling, so `--allow-path /projects`
     // finds `Projects/`.
     for (const entry of this.scope.allow) {
-      let canonical = spell(entry, known)
+      let canonical = spell(entry, known) ?? spell(entry, await knownAssets())
       if (canonical == null) {
         v.missingAllow.push(entry)
         canonical = entry
@@ -375,10 +536,12 @@ export class ScopedBackend implements VaultBackend {
     // ZenNotes, or belongs to another vault: what it hid may now sit under a
     // new name, so the scope shares nothing until it is fixed. Only stderr,
     // which lands in the client's logs and not in front of the model, names
-    // the entry.
+    // the entry. A marked note is out of the view, but it is there to name.
+    const nameable = [...known, ...listed.filter((note) => note.symlink).map((note) => note.path)]
     for (const entry of this.scope.deny) {
       const folded = foldMcpScopePath(entry)
-      if (!known.some((p) => foldMcpScopePath(p) === folded)) {
+      const named = (p: string): boolean => foldMcpScopePath(p) === folded
+      if (!nameable.some(named) && !(await knownAssets()).some(named)) {
         if (!staleDenyLogged.has(entry)) {
           staleDenyLogged.add(entry)
           process.stderr.write(
@@ -388,6 +551,25 @@ export class ScopedBackend implements VaultBackend {
         throw new Error(STALE_DENY)
       }
       v.deny.push(entry)
+    }
+    // A path scope cannot say what is behind a linked system folder, so nothing
+    // is, whatever the allow entries say. A local walk goes through one and
+    // writes land behind one anywhere. A deny entry here, since no client named
+    // it, and the server's read cannot tell a linked folder from a real one.
+    for (const dir of linkedFolders) {
+      hintLinkedFolder('system', dir)
+      v.linkedFolders.push(dir)
+      v.deny.push(dir)
+    }
+    // A local asset walk goes through a linked attachment folder too. A server's
+    // does not.
+    if (restricted && this.inner.kind === 'local') {
+      for (const dir of ATTACHMENTS_DIRS) {
+        if (await goesThroughLink(this.inner.root, dir)) {
+          hintLinkedFolder('attachment', dir)
+          v.deny.push(dir)
+        }
+      }
     }
     for (const note of notes) {
       if (v.visible(note.path)) v.notes.push(note)
@@ -414,6 +596,8 @@ export class ScopedBackend implements VaultBackend {
   describe = (): Promise<VaultDescription> => this.inner.describe()
   vaultLayout = (): Promise<VaultLayout> => this.inner.vaultLayout()
   templateFolder = (): Promise<string | null> => this.inner.templateFolder()
+  marksLinks = (): Promise<boolean> => this.inner.marksLinks()
+  linkedSystemFolders = (): Promise<string[] | null> => this.inner.linkedSystemFolders()
 
   listNotes = async (): Promise<NoteMeta[]> => [...(await this.load()).notes]
 
@@ -428,9 +612,206 @@ export class ScopedBackend implements VaultBackend {
     })
   }
 
-  listAssets = async (): Promise<VaultAssetMeta[]> => {
+  /** The asset listing this call sees, read once. An asset is visible when its
+   *  path is, so this holds no second idea of what a scope means. A server lists
+   *  a link to a file and marks it, as for notes; a scope with no paths in it
+   *  keeps them. */
+  private visibleAssets(): Promise<VaultAssetMeta[]> {
+    this.assets ??= (async () => {
+      const v = await this.load()
+      const restricted = isMcpScopeRestricted(this.scope)
+      return (await this.inner.listAssets()).filter(
+        (asset) => !(restricted && asset.symlink) && v.visible(asset.path)
+      )
+    })()
+    return this.assets
+  }
+
+  listAssets = async (): Promise<VaultAssetMeta[]> => [...(await this.visibleAssets())]
+
+  /** Resolves a client's path to a visible listed asset, the first step of every
+   *  per-asset operation. A hidden file answers exactly like a missing one. */
+  private async assetFor(raw: string, access: McpAccess): Promise<VaultAssetMeta> {
+    this.need(access)
+    await this.load()
+    const all = await this.visibleAssets()
+    const meta = trimsDifferently(raw) ? null : matchAsset(all, raw)
+    if (!meta) throw assetNotFound(raw)
+    return meta
+  }
+
+  /** The folders the listings establish, plus the attachment folders, which
+   *  listings hide. A server makes its own check on those. */
+  private async knownAssetDirs(v: ScopeView): Promise<string[]> {
+    const known = [...v.dirs, ...ATTACHMENTS_DIRS]
+    for (const asset of await this.visibleAssets().catch(() => [])) {
+      for (
+        let dir = path.posix.dirname(asset.path);
+        dir !== '.' && dir !== '/';
+        dir = path.posix.dirname(dir)
+      ) {
+        known.push(dir)
+      }
+    }
+    return known
+  }
+
+  /** A folder a file may be moved to, in the vault's spelling, or a refusal. */
+  private async assetDestination(v: ScopeView, raw: string): Promise<string> {
+    const clean = cleanRequest(raw)
+    if (!clean || trimsDifferently(raw)) throw v.assetRefusal()
+    const known = await this.knownAssetDirs(v)
+    let spelled = ''
+    for (const seg of clean.split('/')) {
+      const next = joinRel(spelled, seg)
+      spelled = spell(next, known) ?? next
+    }
+    if (!v.visible(spelled) || !(await v.realDirs(spelled, async () => known))) {
+      throw v.assetRefusal()
+    }
+    if (this.inner.kind !== 'local') return spelled
+    const listed = await foldersAsListed(this.inner.root, spelled)
+    if (listed === null || !v.visible(listed)) throw v.assetRefusal()
+    return listed
+  }
+
+  /** Whether this client sees a path at all, for a tool about to name one it did
+   *  not get from a listing. If that cannot be told, it does not. The vault's root
+   *  is shared unless an allow list narrows it. */
+  async sharesPath(rel: string): Promise<boolean> {
+    return await this.load().then(
+      (v) => (rel === '.' || rel === '' ? v.allow.length === 0 : v.visible(rel)),
+      () => false
+    )
+  }
+
+  /** The answer for a folder this client may not put a file in. */
+  async destinationRefusal(): Promise<Error> {
+    return (await this.load()).assetRefusal()
+  }
+
+  /** The refusal for handing a file's contents to a client that sees only part
+   *  of a server's vault. It holds until a server can say enough about a file
+   *  for this check to be made here. */
+  private refuseAssetBytes(): void {
+    if (isMcpScopeRestricted(this.scope) && this.inner.kind === 'remote') {
+      throw new Error(REMOTE_ASSET_BYTES)
+    }
+  }
+
+  readAsset = async (rel: string): Promise<Uint8Array> => {
+    const meta = await this.assetFor(rel, 'read')
+    this.refuseAssetBytes()
+    return await this.inner.readAsset(meta.path)
+  }
+
+  /** Only ever writes to the vault's assets folder, so that folder has to be
+   *  shared. The name comes back from the backend, and a name that lands on a
+   *  deny entry is undone rather than left where the client cannot see it. */
+  importAsset = async (filename: string, bytes: Uint8Array): Promise<ImportedVaultAsset> => {
+    this.need('write')
     const v = await this.load()
-    return (await this.inner.listAssets()).filter((asset) => v.visible(asset.path))
+    const refused = new Error(
+      "This assistant cannot add files: the vault's assets folder is not shared with it."
+    )
+    if (!v.visible(ASSETS_DIR) || !(await v.realDirs(ASSETS_DIR, () => this.knownAssetDirs(v)))) {
+      throw refused
+    }
+    const got = await this.inner.importAsset(filename, bytes)
+    if (!v.visible(got.path)) {
+      await this.inner.deleteAsset(got.path).catch(() => undefined)
+      throw refused
+    }
+    return got
+  }
+
+  /** Links are rewritten in visible notes only. A server rewrites every note
+   *  itself, so a client that sees part of its vault is refused, as with
+   *  renameNote. */
+  renameAsset = async (rel: string, name: string): Promise<VaultAssetMeta> => {
+    const meta = await this.assetFor(rel, 'write')
+    const v = await this.load()
+    if (!v.visible(path.posix.join(path.posix.dirname(meta.path), name))) {
+      throw new Error('This assistant cannot give the file that name.')
+    }
+    if (!isMcpScopeRestricted(this.scope)) return await this.inner.renameAsset(meta.path, name)
+    if (this.inner.kind === 'remote') throw new Error(REMOTE_ASSET_LINKS)
+    return await this.inner.renameAsset(meta.path, name, v.visible)
+  }
+
+  moveAsset = async (rel: string, targetDir: string): Promise<VaultAssetMeta> => {
+    const meta = await this.assetFor(rel, 'write')
+    const v = await this.load()
+    const dir = await this.assetDestination(v, targetDir)
+    if (!isMcpScopeRestricted(this.scope)) return await this.inner.moveAsset(meta.path, dir)
+    if (this.inner.kind === 'remote') throw new Error(REMOTE_ASSET_LINKS)
+    return await this.inner.moveAsset(meta.path, dir, v.visible).catch((err: unknown) => {
+      throw err instanceof AssetDestinationRefused ? v.assetRefusal() : err
+    })
+  }
+
+  duplicateAsset = async (rel: string): Promise<VaultAssetMeta> => {
+    const meta = await this.assetFor(rel, 'write')
+    this.refuseAssetBytes()
+    const v = await this.load()
+    const ext = path.posix.extname(meta.name)
+    const stem = ext ? meta.name.slice(0, -ext.length) : meta.name
+    if (!v.visible(path.posix.join(path.posix.dirname(meta.path), `${stem} copy${ext}`))) {
+      throw new Error('This assistant cannot give the file that name.')
+    }
+    const copy = await this.inner.duplicateAsset(meta.path)
+    // A numbered name can land where the first name would not.
+    if (!v.visible(copy.path)) {
+      await this.inner.deleteAsset(copy.path).catch(() => undefined)
+      throw new Error('This assistant cannot give the file that name.')
+    }
+    return copy
+  }
+
+  deleteAsset = async (rel: string): Promise<DeletedVaultAsset> =>
+    await this.inner.deleteAsset((await this.assetFor(rel, 'write')).path)
+
+  /** What was deleted from where the client can see. The store itself is
+   *  internal; only its entries' original paths decide. */
+  listDeletedAssets = async (): Promise<DeletedVaultAsset[]> => {
+    const v = await this.load()
+    return (await this.inner.listDeletedAssets()).filter((entry) => {
+      const clean = cleanRequest(entry.path)
+      return clean != null && !trimsDifferently(entry.path) && v.visible(clean)
+    })
+  }
+
+  /** Takes only an entry this client can list, and the folder it returns to must
+   *  still be a real one. */
+  restoreDeletedAsset = async (deleted: DeletedVaultAsset): Promise<VaultAssetMeta> => {
+    this.need('write')
+    const v = await this.load()
+    const entry = (await this.listDeletedAssets()).find((d) => d.undoToken === deleted.undoToken)
+    if (
+      !entry ||
+      !(await v.realDirs(path.posix.dirname(cleanRequest(entry.path) ?? ''), () =>
+        this.knownAssetDirs(v)
+      ))
+    ) {
+      throw deletedAssetNotFound(deleted.undoToken)
+    }
+    const restored = await this.inner.restoreDeletedAsset(entry)
+    // As with a copy: a number that landed out of view is undone.
+    if (!v.visible(restored.path)) {
+      await this.inner.deleteAsset(restored.path).catch(() => undefined)
+      throw deletedAssetNotFound(deleted.undoToken)
+    }
+    return restored
+  }
+
+  vaultSettings = (): Promise<Record<string, unknown>> => this.inner.vaultSettings()
+
+  /** For starting a daily note the way the app would. A template is not filed
+   *  under any folder a scope can name and can hold anything, so a client that
+   *  sees only part of the vault gets none. */
+  listTemplates = async (): Promise<CustomTemplateFile[]> => {
+    if (isMcpScopeRestricted(this.scope)) throw new Error(NOT_OFFERED)
+    return await this.inner.listTemplates()
   }
 
   readNote = async (rel: string): Promise<NoteContent> =>
@@ -482,26 +863,66 @@ export class ScopedBackend implements VaultBackend {
 
   // Archiving and trashing are lifecycle exits: the note may leave what the
   // client sees, and the user can undo either in the app.
-  archiveNote = async (rel: string): Promise<NoteMeta> =>
-    await this.inner.archiveNote((await this.noteFor(rel, 'write')).path)
+  /** A lifecycle move lands under the system folder at the note's own subpath,
+   *  so a link on that way takes it elsewhere. A server refuses one below the
+   *  system folder itself; this machine has no server to. */
+  private async refuseLinkedExit(meta: NoteMeta, target: NoteFolder): Promise<void> {
+    const v = await this.load()
+    const bucket = v.bucketDir(target)
+    if (v.isLinkedFolder(bucket)) throw v.createRefusal()
+    if (this.inner.kind !== 'local') return
+    const sub = folderSubpathOf(meta.path, meta.folder, v.primaryAtRoot, v.paths)
+    if (await goesThroughLink(this.inner.root, joinRel(bucket, sub))) throw v.createRefusal()
+  }
 
-  moveToTrash = async (rel: string): Promise<NoteMeta> =>
-    await this.inner.moveToTrash((await this.noteFor(rel, 'write')).path)
+  /** What a server says when it turns away a move between system folders can
+   *  name a link the client may not be shown, so it gets the same answer as on
+   *  this machine. */
+  private async answerRefusal(move: () => Promise<NoteMeta>): Promise<NoteMeta> {
+    try {
+      return await move()
+    } catch (err) {
+      if (err instanceof RemoteRequestError && (err.status === 400 || err.status === 404)) {
+        throw (await this.load()).createRefusal()
+      }
+      throw err
+    }
+  }
+
+  archiveNote = async (rel: string): Promise<NoteMeta> => {
+    const meta = await this.noteFor(rel, 'write')
+    await this.refuseLinkedExit(meta, 'archive')
+    return await this.answerRefusal(() => this.inner.archiveNote(meta.path))
+  }
+
+  moveToTrash = async (rel: string): Promise<NoteMeta> => {
+    const meta = await this.noteFor(rel, 'write')
+    await this.refuseLinkedExit(meta, 'trash')
+    return await this.answerRefusal(() => this.inner.moveToTrash(meta.path))
+  }
 
   /** A note brought back to the inbox must land where the client can see it:
-   *  the same subpath under the inbox bucket. */
+   *  the same subpath under the inbox bucket. The check folds case and accents,
+   *  but the restore keeps the note's own spelling. Where they differ, the note
+   *  would land somewhere other than what was checked: `archive/Pröjects` beside
+   *  `Projects`, or a link beside a real folder. */
   private async restoreTarget(rel: string): Promise<NoteMeta> {
     const meta = await this.noteFor(rel, 'write')
     const v = await this.load()
-    await v.destination('inbox', folderSubpathOf(meta.path, meta.folder, v.primaryAtRoot, v.paths))
+    const sub = folderSubpathOf(meta.path, meta.folder, v.primaryAtRoot, v.paths)
+    if ((await v.destination('inbox', sub)) !== sub) throw v.createRefusal()
     return meta
   }
 
-  unarchiveNote = async (rel: string): Promise<NoteMeta> =>
-    await this.inner.unarchiveNote((await this.restoreTarget(rel)).path)
+  unarchiveNote = async (rel: string): Promise<NoteMeta> => {
+    const meta = await this.restoreTarget(rel)
+    return await this.answerRefusal(() => this.inner.unarchiveNote(meta.path))
+  }
 
-  restoreFromTrash = async (rel: string): Promise<NoteMeta> =>
-    await this.inner.restoreFromTrash((await this.restoreTarget(rel)).path)
+  restoreFromTrash = async (rel: string): Promise<NoteMeta> => {
+    const meta = await this.restoreTarget(rel)
+    return await this.answerRefusal(() => this.inner.restoreFromTrash(meta.path))
+  }
 
   duplicateNote = async (rel: string): Promise<NoteMeta> =>
     await this.inner.duplicateNote((await this.noteFor(rel, 'write')).path)
@@ -587,7 +1008,9 @@ export class ScopedBackend implements VaultBackend {
   backlinks = async (rel: string): Promise<NoteMeta[]> => {
     const meta = await this.noteFor(rel, 'read')
     const v = await this.load()
-    return (await this.inner.backlinks(meta.path)).filter((note) => v.visible(note.path))
+    return (await this.inner.backlinks(meta.path)).filter(
+      (note) => v.byPath.has(note.path) && v.visible(note.path)
+    )
   }
 
   scanAllTasks = async (opts?: { includeExcluded?: boolean }): Promise<VaultTask[]> => {
@@ -595,6 +1018,14 @@ export class ScopedBackend implements VaultBackend {
     return (await this.inner.scanAllTasks(opts)).filter(
       (task) => v.byPath.has(task.sourcePath) && v.visible(task.sourcePath)
     )
+  }
+
+  scanTasksForPath = async (
+    rel: string,
+    opts?: { includeExcluded?: boolean }
+  ): Promise<VaultTask[]> => {
+    const meta = await this.noteFor(rel, 'read')
+    return await this.inner.scanTasksForPath(meta.path, opts)
   }
 
   toggleTask = async (taskId: string): Promise<VaultTask | null> => {

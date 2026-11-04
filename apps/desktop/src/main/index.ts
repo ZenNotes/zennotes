@@ -6579,6 +6579,8 @@ app.whenReady().then(async () => {
     console.warn("Quick capture hotkey registration failed", err);
   }
 
+  app.on("browser-window-focus", () => windowVaults.rescanUnwatchedVaults());
+
   app.on("activate", () => {
     // A dock click must bring back a usable window when none is left, and
     // the windows the tray is holding when only those are left.

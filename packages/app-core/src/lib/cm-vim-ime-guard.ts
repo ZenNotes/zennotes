@@ -1,6 +1,8 @@
-import { Compartment, type Extension } from '@codemirror/state'
+import { Compartment, Prec, type Extension } from '@codemirror/state'
 import { EditorView, ViewPlugin } from '@codemirror/view'
-import { getCM } from '@replit/codemirror-vim'
+import { getCM, Vim } from '@replit/codemirror-vim'
+import { sequenceTokenFromEvent } from './keymaps'
+import { toVimSequence } from './vim-key-sequence'
 
 /**
  * Keep the OS input method out of Vim normal and visual mode (#84, #464).
@@ -32,9 +34,33 @@ function editableConfig(editable: boolean): Extension {
     : [EditorView.editable.of(false), EditorView.contentAttributes.of({ tabindex: '0' })]
 }
 
+/**
+ * A Vim key bound to a dead-key chord (#1049). On a US Mac layout Option+E, I,
+ * N, U and ` start an accent, so the keydown says `key: "Dead"`, and
+ * codemirror-vim reads that as `<A-Dead>`: the Settings recorder saved
+ * `Alt+I` from the physical key, but the binding never fired. Outside insert
+ * mode nothing is being composed, so hand Vim the physical chord. Insert mode
+ * keeps the dead key: that is how accents get typed.
+ */
+const deadKeyChords = Prec.highest(
+  EditorView.domEventHandlers({
+    keydown(event, view) {
+      if (event.key !== 'Dead' || !event.altKey) return false
+      const cm = getCM(view)
+      if (!cm || cm.state.vim?.insertMode) return false
+      const token = sequenceTokenFromEvent(event)
+      const key = token ? toVimSequence(token) : null
+      if (!key || !Vim.handleKey(cm, key, 'user')) return false
+      event.preventDefault()
+      return true
+    }
+  })
+)
+
 export function vimImeGuard(enabled: () => boolean): Extension {
   const editable = new Compartment()
   return [
+    deadKeyChords,
     editable.of(editableConfig(true)),
     ViewPlugin.define((view) => {
       let current = true

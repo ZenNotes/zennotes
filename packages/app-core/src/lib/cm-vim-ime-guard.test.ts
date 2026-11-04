@@ -6,7 +6,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
-import { vim } from '@replit/codemirror-vim'
+import { getCM, vim, Vim } from '@replit/codemirror-vim'
 import { vimImeGuard } from './cm-vim-ime-guard'
 
 // jsdom has no layout. Focusing the editor makes CodeMirror measure on the
@@ -47,6 +47,50 @@ function press(target: EditorView, key: string): void {
 }
 
 const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
+
+describe('a Vim key bound to a dead-key chord (#1049)', () => {
+  // A real Option+I on a US Mac, read from Chromium: the key says Dead and only
+  // the code knows which letter it was.
+  const optionI = (target: EditorView): boolean => {
+    const event = new KeyboardEvent('keydown', {
+      key: 'Dead',
+      code: 'KeyI',
+      altKey: true,
+      bubbles: true,
+      cancelable: true
+    })
+    target.contentDOM.dispatchEvent(event)
+    return event.defaultPrevented
+  }
+
+  it('fires the mapping in normal mode and leaves accents alone in insert mode', async () => {
+    let fired = 0
+    Vim.defineAction('zenDeadKeyTest', () => {
+      fired += 1
+    })
+    Vim.mapCommand('<A-i>', 'action', 'zenDeadKeyTest', {}, { context: 'normal' })
+    try {
+      const v = mount(() => true)
+      await flush()
+      expect(optionI(v)).toBe(true)
+      expect(fired).toBe(1)
+
+      press(v, 'i')
+      await flush()
+      expect(getCM(v)?.state.vim?.insertMode).toBe(true)
+      expect(optionI(v)).toBe(false)
+      expect(fired).toBe(1)
+    } finally {
+      Vim.unmap('<A-i>', 'normal')
+    }
+  })
+
+  it('stays out of the way when nothing is bound to the chord', async () => {
+    const v = mount(() => true)
+    await flush()
+    expect(optionI(v)).toBe(false)
+  })
+})
 
 describe('vimImeGuard', () => {
   it('is non-editable in normal mode and editable again in insert mode', async () => {

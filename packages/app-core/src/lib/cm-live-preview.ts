@@ -1646,6 +1646,16 @@ function computeDecorations(view: EditorView): DecorationSet {
           }
         }
 
+        // `\>` reads as `>`, as in Preview. Only the backslash goes; the
+        // character it escapes is the text.
+        if (name === 'Escape') {
+          const line = state.doc.lineAt(node.from).number
+          if (!activeLines.has(line) && !replacedLines.has(line)) {
+            pending.push({ from: node.from, to: node.from + 1, deco: hide })
+          }
+          return
+        }
+
         const isPrefix = PREFIX_HIDE_WITH_SPACE.has(name)
         const isSimple = SIMPLE_HIDE.has(name)
         const isUrl = name === URL_NODE

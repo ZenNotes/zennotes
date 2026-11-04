@@ -719,6 +719,19 @@ describe('deleteAsset', () => {
     await expect(readFile(path.join(root, 'Two.png'), 'utf8')).resolves.toBe('second')
   })
 
+  it('leaves a wikilink that names a note when a file with that name moves', async () => {
+    const root = await makeTempDir('zennotes-asset-names-a-note-')
+    await ensureVaultLayout(root)
+    await mkdir(path.join(root, 'Docs'), { recursive: true })
+    await writeFile(path.join(root, 'Docs', 'Plan'), 'data')
+    await writeFile(path.join(root, 'inbox', 'Plan.md'), '# Plan\n')
+    await writeFile(path.join(root, 'inbox', 'N.md'), 'See [[Plan]] and ![[pic.png]].\n')
+    await renameAsset(root, 'Docs/Plan', 'Other')
+    await expect(readFile(path.join(root, 'inbox', 'N.md'), 'utf8')).resolves.toBe(
+      'See [[Plan]] and ![[pic.png]].\n'
+    )
+  })
+
   it('rewrites every reference to a renamed asset, in the shapes people write them (#785)', async () => {
     const root = await makeTempDir('zennotes-asset-rename-links-')
     await ensureVaultLayout(root)

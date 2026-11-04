@@ -62,7 +62,7 @@ export function TitleBar({ standalone = false }: { standalone?: boolean }): JSX.
           </span>
         )}
       </div>
-      {!isMac && (
+      {!isMac && window.zen.getAppInfo().runtime === 'desktop' && (
         <div className="flex items-center gap-1">
           <WinButton onClick={() => window.zen.windowMinimize()} label="–" />
           <WinButton onClick={() => window.zen.windowToggleMaximize()} label="▢" />

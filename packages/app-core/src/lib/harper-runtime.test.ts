@@ -202,4 +202,21 @@ describe('Harper runtime (#829)', () => {
     expect(await pending).not.toBeNull()
     expect(harper.words()).toEqual(VAULT.words)
   })
+
+  // The card named `zg` and `zG` whatever the keymap said (#1049).
+  it('names the keys the keymap holds, and none with Vim off', async () => {
+    const { harperEditorConfig } = await runtime()
+    const config = harperEditorConfig()
+    const state = store.state as unknown as Record<string, unknown>
+
+    state.vimMode = true
+    state.keymapOverrides = {}
+    expect(config.keyHints()).toEqual({ addWord: 'zg', ignore: 'zG' })
+
+    state.keymapOverrides = { 'vim.harperIgnore': 'x i', 'vim.harperAddWord': '' }
+    expect(config.keyHints()).toEqual({ addWord: '', ignore: 'xi' })
+
+    state.vimMode = false
+    expect(config.keyHints()).toEqual({ addWord: '', ignore: '' })
+  })
 })

@@ -30,6 +30,55 @@ jobs:
       - name: Reject high-severity production advisories
         run: npm audit --omit=dev --audit-level=high
 
+  # The scoped MCP tests against a real server, built from the server's main
+  # branch. The tests skip without the binary, and a server that stops marking
+  # links would only skip them too, so this job requires the marks.
+  server-contract:
+    name: Server contract (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+    env:
+      ZENNOTES_SERVER_CONTRACT_BINARY: ${{ github.workspace }}/.znserver-bin/zennotes-server
+      ZENNOTES_SERVER_CONTRACT_REQUIRE_MARKS: "1"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Check out the server
+        uses: actions/checkout@v6
+        with:
+          repository: ZenNotes/znserver
+          ref: main
+          path: .znserver
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+
+      - name: Build the server
+        working-directory: .znserver
+        run: go build -trimpath -o "$ZENNOTES_SERVER_CONTRACT_BINARY" ./cmd/zennotes-server
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run the scoped MCP tests against it
+        working-directory: apps/desktop
+        run: npx vitest run src/mcp/scoped-backend-links.test.ts src/mcp/scoped-backend-local-links.test.ts
+
   build:
     name: Build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

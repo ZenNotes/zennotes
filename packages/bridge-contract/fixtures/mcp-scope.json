@@ -43,6 +43,24 @@
         "Notes/Ideas.md": "# Ideas\n"
       }
     },
+    "assets": {
+      "files": {
+        ".zennotes/vault.json": "{\"primaryNotesLocation\":\"root\"}",
+        ".zennotes/deleted-assets/11111111-1111-4111-8111-111111111111/.zn-deleted.json": "{\"path\":\"assets/gone.png\",\"name\":\"gone.png\",\"deletedAt\":\"2026-01-02T00:00:00.000Z\"}",
+        ".zennotes/deleted-assets/11111111-1111-4111-8111-111111111111/gone.png": "gone",
+        ".zennotes/deleted-assets/22222222-2222-4222-8222-222222222222/.zn-deleted.json": "{\"path\":\"assets/secret/old.png\",\"name\":\"old.png\",\"deletedAt\":\"2026-01-01T00:00:00.000Z\"}",
+        ".zennotes/deleted-assets/22222222-2222-4222-8222-222222222222/old.png": "old",
+        "Projects/Plan.md": "# Plan\n\nIntro\n\n## Actions\n\n- [ ] ship it\n- [ ] write it due:2026-01-05 !low\n\n### Detail\n\nfine print\n\n## Later\n\n![[pic.png]]\n",
+        "Journal/Diary.md": "# Diary\n\n![[assets/pic.png]]\n\n- [ ] call mum\n",
+        "Journal/private.png": "png",
+        "assets/pic.png": "png",
+        "assets/words.txt": "plain words\n",
+        "assets/secret/hidden.png": "png"
+      },
+      "symlinks": {
+        "assets/inner": "../Journal"
+      }
+    },
     "remapped": {
       "files": {
         ".zennotes/vault.json": "{\"primaryNotesLocation\":\"inbox\",\"systemFolderPaths\":{\"inbox\":\"01 Inbox\",\"archive\":\"99 Archive\"}}",
@@ -50,6 +68,31 @@
         "01 Inbox/Private/B.md": "# B\n",
         "99 Archive/Projects/Old.md": "# Old\n",
         "99 Archive/Private/Gone.md": "# Gone\n"
+      }
+    },
+    "assetEdges": {
+      "files": {
+        ".zennotes/vault.json": "{\"primaryNotesLocation\":\"root\"}",
+        "Shared/pic.png": "png",
+        "Shared/n.md": "![[pic.png]]\n",
+        "Hidden/new.png": "png",
+        "assets/cafe.png": "png",
+        "dest/Caf\u00e9.png": "denied",
+        "dest/ok.txt": "ok",
+        "Data/t.csv": "a\n1\n",
+        "Data/t.csv.base.json": "{}"
+      }
+    },
+    "noteLinks": {
+      "files": {
+        ".zennotes/vault.json": "{\"primaryNotesLocation\":\"root\"}",
+        "Projects/Plan.md": "# Plan\n",
+        "Journal/Diary.md": "# Diary\n\nprivate needle\n- [ ] call mum\n\nsee [[Plan]]\n",
+        "Journal/secret.png": "png"
+      },
+      "symlinks": {
+        "Projects/alias.md": "../Journal/Diary.md",
+        "Projects/alias.png": "../Journal/secret.png"
       }
     }
   },
@@ -115,7 +158,7 @@
       "id": "listings-show-only-what-is-shared",
       "vault": "root",
       "flags": { "access": "write", "allow": ["/projects", "Areas/Health"], "deny": ["Projects/Clients"] },
-      "tools": { "count": 33, "absent": ["empty_trash"] },
+      "tools": { "count": 44, "absent": ["empty_trash"] },
       "calls": [
         {
           "tool": "list_notes",
@@ -265,18 +308,146 @@
       }
     },
     {
+      "id": "a-link-to-a-note-is-not-a-note",
+      "vault": "noteLinks",
+      "flags": {
+        "access": "write",
+        "allow": [
+          "Projects"
+        ]
+      },
+      "calls": [
+        {
+          "tool": "read_note",
+          "args": {
+            "path": "Projects/alias.md"
+          },
+          "expect": {
+            "error": "Note not found: Projects/alias.md"
+          }
+        },
+        {
+          "tool": "write_note",
+          "args": {
+            "path": "Projects/alias.md",
+            "body": "# Overwritten\n"
+          },
+          "expect": {
+            "error": "Note not found: Projects/alias.md"
+          }
+        },
+        {
+          "tool": "append_to_note",
+          "args": {
+            "path": "Projects/alias.md",
+            "text": "more"
+          },
+          "expect": {
+            "error": "Note not found: Projects/alias.md"
+          }
+        },
+        {
+          "tool": "delete_note",
+          "args": {
+            "path": "Projects/alias.md",
+            "confirm": true
+          },
+          "expect": {
+            "error": "Note not found: Projects/alias.md"
+          }
+        },
+        {
+          "tool": "list_notes",
+          "args": {},
+          "expect": {
+            "paths": [
+              "Projects/Plan.md"
+            ]
+          }
+        },
+        {
+          "tool": "list_assets",
+          "args": {},
+          "expect": {
+            "ok": true,
+            "excludes": [
+              "alias",
+              "secret"
+            ]
+          }
+        },
+        {
+          "tool": "list_tasks",
+          "args": {},
+          "expect": {
+            "ok": true,
+            "excludes": [
+              "alias",
+              "call mum"
+            ]
+          }
+        },
+        {
+          "tool": "search_text",
+          "args": {
+            "query": "needle"
+          },
+          "expect": {
+            "ok": true,
+            "excludes": [
+              "alias",
+              "needle"
+            ]
+          }
+        },
+        {
+          "tool": "search_by_title",
+          "args": {
+            "query": "alias"
+          },
+          "expect": {
+            "ok": true,
+            "excludes": [
+              "alias"
+            ]
+          }
+        },
+        {
+          "tool": "backlinks",
+          "args": {
+            "path": "Projects/Plan.md"
+          },
+          "expect": {
+            "paths": []
+          }
+        }
+      ],
+      "disk": {
+        "exists": [
+          "Projects/alias.md",
+          "Projects/alias.png"
+        ],
+        "equals": {
+          "Journal/Diary.md": "# Diary\n\nprivate needle\n- [ ] call mum\n\nsee [[Plan]]\n"
+        }
+      }
+    },
+    {
       "id": "read-access-lists-only-read-tools",
       "vault": "root",
       "flags": { "readOnly": true },
       "tools": {
         "exactly": [
           "backlinks",
+          "daily_note",
           "list_assets",
           "list_comments",
           "list_folders",
           "list_notes",
           "list_tags",
           "list_tasks",
+          "note_sections",
+          "read_asset",
           "read_note",
           "search_by_tag",
           "search_by_title",
@@ -306,12 +477,15 @@
         "exactly": [
           "add_comment",
           "backlinks",
+          "daily_note",
           "list_assets",
           "list_comments",
           "list_folders",
           "list_notes",
           "list_tags",
           "list_tasks",
+          "note_sections",
+          "read_asset",
           "read_note",
           "reply_to_comment",
           "resolve_comment",
@@ -339,8 +513,8 @@
       "vault": "root",
       "flags": { "access": "write" },
       "tools": {
-        "count": 34,
-        "include": ["empty_trash", "delete_folder"],
+        "count": 45,
+        "include": ["empty_trash", "delete_folder", "upload_asset", "update_task"],
         "annotations": {
           "list_notes": { "readOnlyHint": true, "idempotentHint": false, "openWorldHint": false },
           "write_note": { "readOnlyHint": false, "destructiveHint": true, "idempotentHint": false, "openWorldHint": false },
@@ -350,7 +524,14 @@
           "empty_trash": { "readOnlyHint": false, "destructiveHint": true, "idempotentHint": false, "openWorldHint": false },
           "append_to_note": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false },
           "move_to_trash": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false },
-          "create_note": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false }
+          "create_note": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false },
+          "read_asset": { "readOnlyHint": true, "idempotentHint": false, "openWorldHint": false },
+          "note_sections": { "readOnlyHint": true, "idempotentHint": false, "openWorldHint": false },
+          "daily_note": { "readOnlyHint": true, "idempotentHint": false, "openWorldHint": false },
+          "edit_section": { "readOnlyHint": false, "destructiveHint": true, "idempotentHint": false, "openWorldHint": false },
+          "update_task": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false },
+          "upload_asset": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false },
+          "delete_asset": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false }
         }
       },
       "calls": [
@@ -361,7 +542,7 @@
       "id": "deny-only-keeps-the-rest-of-the-vault",
       "vault": "root",
       "flags": { "deny": ["Journal"] },
-      "tools": { "count": 33, "absent": ["empty_trash"] },
+      "tools": { "count": 44, "absent": ["empty_trash"] },
       "calls": [
         {
           "tool": "list_notes",
@@ -537,6 +718,1006 @@
       "disk": {
         "exists": ["99 Archive/Projects/A.md"],
         "absent": ["01 Inbox/Projects/A.md"]
+      }
+    },
+    {
+      "id": "assets-answer-through-the-scope",
+      "vault": "assets",
+      "flags": {
+        "access": "read",
+        "allow": [
+          "assets",
+          "Projects"
+        ],
+        "deny": [
+          "assets/secret"
+        ]
+      },
+      "tools": {
+        "absent": [
+          "upload_asset",
+          "rename_asset",
+          "move_asset",
+          "duplicate_asset",
+          "delete_asset",
+          "restore_asset",
+          "update_task",
+          "edit_section"
+        ],
+        "include": [
+          "read_asset",
+          "note_sections",
+          "daily_note"
+        ]
+      },
+      "calls": [
+        {
+          "tool": "list_assets",
+          "args": {},
+          "expect": {
+            "paths": [
+              "assets/pic.png",
+              "assets/words.txt"
+            ]
+          }
+        },
+        {
+          "tool": "list_assets",
+          "args": {
+            "deleted": true
+          },
+          "expect": {
+            "paths": [
+              "assets/gone.png"
+            ]
+          }
+        },
+        {
+          "tool": "read_asset",
+          "args": {
+            "path": "assets/words.txt"
+          },
+          "expect": {
+            "contains": [
+              "plain words",
+              "text/plain"
+            ]
+          }
+        },
+        {
+          "tool": "read_asset",
+          "args": {
+            "path": "ASSETS/WORDS.TXT"
+          },
+          "expect": {
+            "contains": [
+              "plain words"
+            ]
+          }
+        },
+        {
+          "tool": "read_asset",
+          "args": {
+            "path": "assets/missing.png"
+          },
+          "expect": {
+            "error": "Asset not found: assets/missing.png"
+          }
+        },
+        {
+          "tool": "read_asset",
+          "args": {
+            "path": "assets/secret/hidden.png"
+          },
+          "expect": {
+            "error": "Asset not found: assets/secret/hidden.png"
+          }
+        },
+        {
+          "tool": "read_asset",
+          "args": {
+            "path": "Journal/private.png"
+          },
+          "expect": {
+            "error": "Asset not found: Journal/private.png"
+          }
+        },
+        {
+          "tool": "read_asset",
+          "args": {
+            "path": "assets/inner/private.png"
+          },
+          "expect": {
+            "error": "Asset not found: assets/inner/private.png"
+          }
+        },
+        {
+          "tool": "read_asset",
+          "args": {
+            "path": "assets/../Journal/private.png"
+          },
+          "expect": {
+            "error": "Asset not found: assets/../Journal/private.png"
+          }
+        },
+        {
+          "tool": "read_asset",
+          "args": {
+            "path": ".zennotes/vault.json"
+          },
+          "expect": {
+            "error": "Asset not found: .zennotes/vault.json"
+          }
+        },
+        {
+          "tool": "read_asset",
+          "args": {
+            "path": "Projects/Plan.md"
+          },
+          "expect": {
+            "error": "Asset not found: Projects/Plan.md"
+          }
+        },
+        {
+          "tool": "note_sections",
+          "args": {
+            "path": "Journal/Diary.md"
+          },
+          "expect": {
+            "error": "Note not found: Journal/Diary.md"
+          }
+        },
+        {
+          "tool": "note_sections",
+          "args": {
+            "path": "Projects/Plan.md",
+            "heading": "later"
+          },
+          "expect": {
+            "match": {
+              "path": "Projects/Plan.md",
+              "heading": "Later",
+              "body": "![[pic.png]]"
+            }
+          }
+        },
+        {
+          "tool": "note_sections",
+          "args": {
+            "path": "Projects/Plan.md"
+          },
+          "expect": {
+            "contains": [
+              "Actions",
+              "Detail"
+            ]
+          }
+        },
+        {
+          "tool": "vault_info",
+          "args": {},
+          "expect": {
+            "match": {
+              "access": {
+                "allow": [
+                  "Projects",
+                  "assets"
+                ],
+                "missingAllow": []
+              }
+            }
+          }
+        },
+        {
+          "tool": "upload_asset",
+          "args": {
+            "filename": "x.png",
+            "content_base64": "cG5n"
+          },
+          "expect": {
+            "notOffered": true
+          }
+        },
+        {
+          "tool": "delete_asset",
+          "args": {
+            "path": "assets/pic.png"
+          },
+          "expect": {
+            "notOffered": true
+          }
+        }
+      ],
+      "disk": {
+        "exists": [
+          "assets/pic.png"
+        ],
+        "absent": [
+          "assets/x.png"
+        ]
+      }
+    },
+    {
+      "id": "asset-writes-stay-inside-the-scope",
+      "vault": "assets",
+      "flags": {
+        "access": "write",
+        "allow": [
+          "assets",
+          "Projects"
+        ],
+        "deny": [
+          "assets/secret"
+        ]
+      },
+      "calls": [
+        {
+          "tool": "upload_asset",
+          "args": {
+            "filename": "plot.png",
+            "content_base64": "cG5n"
+          },
+          "expect": {
+            "match": {
+              "path": "assets/plot.png",
+              "markdown": "![[assets/plot.png]]",
+              "kind": "image"
+            }
+          }
+        },
+        {
+          "tool": "upload_asset",
+          "args": {
+            "filename": "plot.png",
+            "content_base64": "cG5n"
+          },
+          "expect": {
+            "match": {
+              "path": "assets/plot 2.png"
+            }
+          }
+        },
+        {
+          "tool": "upload_asset",
+          "args": {
+            "filename": "note.md",
+            "content_base64": "cG5n"
+          },
+          "expect": {
+            "error": "Notes are not attachments: use create_note or rename_note."
+          }
+        },
+        {
+          "tool": "upload_asset",
+          "args": {
+            "filename": ".hidden",
+            "content_base64": "cG5n"
+          },
+          "expect": {
+            "error": "A file name cannot start with a dot."
+          }
+        },
+        {
+          "tool": "upload_asset",
+          "args": {
+            "filename": "../../evil.png",
+            "content_base64": "cG5n"
+          },
+          "expect": {
+            "error": "Use only a file name, with no folder in it."
+          }
+        },
+        {
+          "tool": "upload_asset",
+          "args": {
+            "filename": "bad.png",
+            "content_base64": "not base64!"
+          },
+          "expect": {
+            "error": "content_base64 is not valid base64."
+          }
+        },
+        {
+          "tool": "rename_asset",
+          "args": {
+            "path": "assets/pic.png",
+            "name": "photo.png"
+          },
+          "expect": {
+            "match": {
+              "path": "assets/photo.png"
+            }
+          }
+        },
+        {
+          "tool": "rename_asset",
+          "args": {
+            "path": "assets/secret/hidden.png",
+            "name": "out.png"
+          },
+          "expect": {
+            "error": "Asset not found: assets/secret/hidden.png"
+          }
+        },
+        {
+          "tool": "rename_asset",
+          "args": {
+            "path": "assets/words.txt",
+            "name": "secret"
+          },
+          "expect": {
+            "error": "This assistant cannot give the file that name."
+          }
+        },
+        {
+          "tool": "rename_asset",
+          "args": {
+            "path": "assets/words.txt",
+            "name": "../out.txt"
+          },
+          "expect": {
+            "error": "Use only a file name, with no folder in it."
+          }
+        },
+        {
+          "tool": "move_asset",
+          "args": {
+            "path": "assets/words.txt",
+            "targetDir": "Journal"
+          },
+          "expect": {
+            "error": "This assistant can put files only inside: assets, Projects."
+          }
+        },
+        {
+          "tool": "move_asset",
+          "args": {
+            "path": "assets/words.txt",
+            "targetDir": "assets/secret"
+          },
+          "expect": {
+            "error": "This assistant can put files only inside: assets, Projects."
+          }
+        },
+        {
+          "tool": "move_asset",
+          "args": {
+            "path": "assets/words.txt",
+            "targetDir": "assets/inner"
+          },
+          "expect": {
+            "error": "This assistant can put files only inside: assets, Projects."
+          }
+        },
+        {
+          "tool": "move_asset",
+          "args": {
+            "path": "assets/words.txt",
+            "targetDir": ".zennotes"
+          },
+          "expect": {
+            "error": "This assistant cannot put files there."
+          }
+        },
+        {
+          "tool": "move_asset",
+          "args": {
+            "path": "assets/words.txt",
+            "targetDir": "../outside"
+          },
+          "expect": {
+            "error": "This assistant cannot put files there."
+          }
+        },
+        {
+          "tool": "move_asset",
+          "args": {
+            "path": "assets/words.txt",
+            "targetDir": "Projects/Files"
+          },
+          "expect": {
+            "match": {
+              "path": "Projects/Files/words.txt"
+            }
+          }
+        },
+        {
+          "tool": "duplicate_asset",
+          "args": {
+            "path": "assets/photo.png"
+          },
+          "expect": {
+            "match": {
+              "path": "assets/photo copy.png"
+            }
+          }
+        },
+        {
+          "tool": "duplicate_asset",
+          "args": {
+            "path": "Journal/private.png"
+          },
+          "expect": {
+            "error": "Asset not found: Journal/private.png"
+          }
+        },
+        {
+          "tool": "delete_asset",
+          "args": {
+            "path": "assets/photo copy.png"
+          },
+          "expect": {
+            "match": {
+              "path": "assets/photo copy.png",
+              "name": "photo copy.png"
+            }
+          }
+        },
+        {
+          "tool": "delete_asset",
+          "args": {
+            "path": "assets/secret/hidden.png"
+          },
+          "expect": {
+            "error": "Asset not found: assets/secret/hidden.png"
+          }
+        },
+        {
+          "tool": "restore_asset",
+          "args": {
+            "undoToken": "22222222-2222-4222-8222-222222222222"
+          },
+          "expect": {
+            "error": "Deleted asset not found: 22222222-2222-4222-8222-222222222222"
+          }
+        },
+        {
+          "tool": "restore_asset",
+          "args": {
+            "undoToken": "00000000-0000-4000-8000-000000000000"
+          },
+          "expect": {
+            "error": "Deleted asset not found: 00000000-0000-4000-8000-000000000000"
+          }
+        },
+        {
+          "tool": "restore_asset",
+          "args": {
+            "undoToken": "11111111-1111-4111-8111-111111111111"
+          },
+          "expect": {
+            "match": {
+              "path": "assets/gone.png"
+            }
+          }
+        }
+      ],
+      "disk": {
+        "exists": [
+          "assets/plot.png",
+          "assets/plot 2.png",
+          "assets/photo.png",
+          "assets/gone.png",
+          "Projects/Files/words.txt",
+          "assets/secret/hidden.png",
+          "Journal/private.png"
+        ],
+        "absent": [
+          "assets/pic.png",
+          "assets/words.txt",
+          "assets/secret/out.png",
+          "assets/note.md",
+          "assets/photo copy.png",
+          "Journal/words.txt",
+          ".zennotes/deleted-assets/11111111-1111-4111-8111-111111111111"
+        ],
+        "equals": {
+          "Projects/Plan.md": "# Plan\n\nIntro\n\n## Actions\n\n- [ ] ship it\n- [ ] write it due:2026-01-05 !low\n\n### Detail\n\nfine print\n\n## Later\n\n![[assets/photo.png]]\n",
+          "Journal/Diary.md": "# Diary\n\n![[assets/pic.png]]\n\n- [ ] call mum\n",
+          ".zennotes/deleted-assets/22222222-2222-4222-8222-222222222222/old.png": "old"
+        }
+      }
+    },
+    {
+      "id": "a-scope-without-the-assets-folder-cannot-upload",
+      "vault": "assets",
+      "flags": {
+        "access": "write",
+        "allow": [
+          "Projects"
+        ]
+      },
+      "calls": [
+        {
+          "tool": "list_assets",
+          "args": {},
+          "expect": {
+            "paths": []
+          }
+        },
+        {
+          "tool": "list_assets",
+          "args": {
+            "deleted": true
+          },
+          "expect": {
+            "paths": []
+          }
+        },
+        {
+          "tool": "upload_asset",
+          "args": {
+            "filename": "x.png",
+            "content_base64": "cG5n"
+          },
+          "expect": {
+            "error": "This assistant cannot add files: the vault's assets folder is not shared with it."
+          }
+        },
+        {
+          "tool": "restore_asset",
+          "args": {
+            "undoToken": "11111111-1111-4111-8111-111111111111"
+          },
+          "expect": {
+            "error": "Deleted asset not found: 11111111-1111-4111-8111-111111111111"
+          }
+        }
+      ],
+      "disk": {
+        "absent": [
+          "assets/x.png",
+          "assets/gone.png"
+        ]
+      }
+    },
+    {
+      "id": "a-deny-entry-can-name-an-attachment-or-its-folder",
+      "vault": "assets",
+      "flags": {
+        "access": "read",
+        "deny": [
+          "assets/pic.png",
+          "assets/secret"
+        ]
+      },
+      "calls": [
+        {
+          "tool": "list_assets",
+          "args": {},
+          "expect": {
+            "paths": [
+              "Journal/private.png",
+              "assets/words.txt"
+            ]
+          }
+        },
+        {
+          "tool": "read_asset",
+          "args": {
+            "path": "assets/pic.png"
+          },
+          "expect": {
+            "error": "Asset not found: assets/pic.png"
+          }
+        }
+      ]
+    },
+    {
+      "id": "task-and-section-edits-stay-inside-the-scope",
+      "vault": "assets",
+      "flags": {
+        "access": "write",
+        "allow": [
+          "Projects"
+        ]
+      },
+      "calls": [
+        {
+          "tool": "update_task",
+          "args": {
+            "id": "Projects/Plan.md#0",
+            "due": "2026-03-01",
+            "priority": "high"
+          },
+          "expect": {
+            "match": {
+              "id": "Projects/Plan.md#0",
+              "due": "2026-03-01",
+              "priority": "high"
+            }
+          }
+        },
+        {
+          "tool": "update_task",
+          "args": {
+            "id": "Projects/Plan.md#1",
+            "due": "",
+            "priority": "",
+            "state": "in-progress"
+          },
+          "expect": {
+            "match": {
+              "id": "Projects/Plan.md#1",
+              "inProgress": true
+            }
+          }
+        },
+        {
+          "tool": "update_task",
+          "args": {
+            "id": "Projects/Plan.md#7",
+            "due": "2026-03-01"
+          },
+          "expect": {
+            "contains": [
+              "null"
+            ]
+          }
+        },
+        {
+          "tool": "update_task",
+          "args": {
+            "id": "Projects/Plan.md#0",
+            "due": "soon"
+          },
+          "expect": {
+            "error": "due must be YYYY-MM-DD, or empty to clear it"
+          }
+        },
+        {
+          "tool": "update_task",
+          "args": {
+            "id": "Projects/Plan.md#0"
+          },
+          "expect": {
+            "error": "update_task needs at least one of due, priority, waiting, state, status, text"
+          }
+        },
+        {
+          "tool": "update_task",
+          "args": {
+            "id": "Journal/Diary.md#0",
+            "due": "2026-03-01"
+          },
+          "expect": {
+            "error": "Note not found: Journal/Diary.md"
+          }
+        },
+        {
+          "tool": "edit_section",
+          "args": {
+            "path": "Projects/Plan.md",
+            "heading": "Actions",
+            "mode": "append",
+            "text": "- [ ] new one"
+          },
+          "expect": {
+            "match": {
+              "path": "Projects/Plan.md"
+            }
+          }
+        },
+        {
+          "tool": "edit_section",
+          "args": {
+            "path": "Journal/Diary.md",
+            "heading": "Diary",
+            "mode": "append",
+            "text": "x"
+          },
+          "expect": {
+            "error": "Note not found: Journal/Diary.md"
+          }
+        },
+        {
+          "tool": "edit_section",
+          "args": {
+            "path": "Projects/Plan.md",
+            "heading": "Nope",
+            "mode": "append",
+            "text": "x"
+          },
+          "expect": {
+            "error": "No heading \"Nope\". Headings: Plan | Actions | Detail | Later."
+          }
+        },
+        {
+          "tool": "daily_note",
+          "args": {
+            "date": "2026-01-02"
+          },
+          "expect": {
+            "match": {
+              "date": "2026-01-02",
+              "exists": false,
+              "cannotCreate": "This note's folder is not shared with this assistant, so it cannot be created here."
+            },
+            "absentKeys": [
+              "createWith"
+            ],
+            "excludes": [
+              "Daily Notes"
+            ]
+          }
+        },
+        {
+          "tool": "daily_note",
+          "args": {
+            "date": "soon"
+          },
+          "expect": {
+            "error": "date must be today, yesterday, tomorrow or YYYY-MM-DD"
+          }
+        },
+        {
+          "tool": "create_note",
+          "args": {
+            "folder": "inbox",
+            "subpath": "Daily Notes",
+            "title": "2026-01-02"
+          },
+          "expect": {
+            "error": "This assistant can create and move notes only inside: Projects."
+          }
+        }
+      ],
+      "disk": {
+        "absent": [
+          "Daily Notes/2026-01-02.md"
+        ],
+        "equals": {
+          "Projects/Plan.md": "# Plan\n\nIntro\n\n## Actions\n\n- [ ] ship it due:2026-03-01 !high\n- [/] write it\n- [ ] new one\n\n### Detail\n\nfine print\n\n## Later\n\n![[pic.png]]\n",
+          "Journal/Diary.md": "# Diary\n\n![[assets/pic.png]]\n\n- [ ] call mum\n"
+        }
+      }
+    },
+    {
+      "id": "a-whole-vault-client-finds-and-starts-its-daily-note",
+      "vault": "assets",
+      "flags": {
+        "access": "write"
+      },
+      "calls": [
+        {
+          "tool": "read_asset",
+          "args": {
+            "path": ".zennotes/vault.json"
+          },
+          "expect": {
+            "error": "Asset not found: .zennotes/vault.json"
+          }
+        },
+        {
+          "tool": "read_asset",
+          "args": {
+            "path": "Projects/Plan.md"
+          },
+          "expect": {
+            "error": "Asset not found: Projects/Plan.md"
+          }
+        },
+        {
+          "tool": "move_asset",
+          "args": {
+            "path": "assets/pic.png",
+            "targetDir": "trash"
+          },
+          "expect": {
+            "error": "This assistant cannot put files there."
+          }
+        },
+        {
+          "tool": "move_asset",
+          "args": {
+            "path": "assets/pic.png",
+            "targetDir": ".zennotes/x"
+          },
+          "expect": {
+            "error": "This assistant cannot put files there."
+          }
+        },
+        {
+          "tool": "create_note",
+          "args": {
+            "folder": "inbox",
+            "subpath": "Daily Notes",
+            "title": "2026-01-02",
+            "body": "# 2026-01-02\n\n"
+          },
+          "expect": {
+            "match": {
+              "path": "Daily Notes/2026-01-02.md"
+            }
+          }
+        },
+        {
+          "tool": "daily_note",
+          "args": {
+            "date": "2026-01-02"
+          },
+          "expect": {
+            "match": {
+              "exists": true,
+              "path": "Daily Notes/2026-01-02.md"
+            }
+          }
+        }
+      ],
+      "disk": {
+        "exists": [
+          "assets/pic.png",
+          "Daily Notes/2026-01-02.md"
+        ]
+      }
+    },
+    {
+      "id": "daily-notes-follow-remapped-system-folders",
+      "vault": "remapped",
+      "flags": {
+        "access": "write"
+      },
+      "calls": [
+        {
+          "tool": "daily_note",
+          "args": {
+            "date": "2026-01-02"
+          },
+          "expect": {
+            "match": {
+              "exists": false,
+              "createWith": {
+                "folder": "inbox",
+                "subpath": "Daily Notes",
+                "title": "2026-01-02"
+              }
+            }
+          }
+        },
+        {
+          "tool": "create_note",
+          "args": {
+            "folder": "inbox",
+            "subpath": "Daily Notes",
+            "title": "2026-01-02"
+          },
+          "expect": {
+            "match": {
+              "path": "01 Inbox/Daily Notes/2026-01-02.md"
+            }
+          }
+        },
+        {
+          "tool": "daily_note",
+          "args": {
+            "date": "2026-01-02"
+          },
+          "expect": {
+            "match": {
+              "exists": true,
+              "path": "01 Inbox/Daily Notes/2026-01-02.md"
+            }
+          }
+        }
+      ],
+      "disk": {
+        "exists": [
+          "01 Inbox/Daily Notes/2026-01-02.md"
+        ]
+      }
+    },
+    {
+      "id": "a-refused-upload-writes-nothing",
+      "vault": "remapped",
+      "flags": {
+        "access": "write",
+        "allow": [
+          "01 Inbox/Projects"
+        ]
+      },
+      "calls": [
+        {
+          "tool": "upload_asset",
+          "args": {
+            "filename": "x.png",
+            "content_base64": "cG5n"
+          },
+          "expect": {
+            "error": "This assistant cannot add files: the vault's assets folder is not shared with it."
+          }
+        }
+      ],
+      "disk": {
+        "absent": [
+          "assets",
+          ".zennotes/deleted-assets"
+        ]
+      }
+    },
+    {
+      "id": "a-rewrite-does-not-show-a-hidden-file-of-the-same-name",
+      "vault": "assetEdges",
+      "flags": {
+        "access": "write",
+        "allow": [
+          "Shared"
+        ]
+      },
+      "calls": [
+        {
+          "tool": "rename_asset",
+          "args": {
+            "path": "Shared/pic.png",
+            "name": "new.png"
+          },
+          "expect": {
+            "match": {
+              "path": "Shared/new.png"
+            }
+          }
+        }
+      ],
+      "disk": {
+        "equals": {
+          "Shared/n.md": "![[Shared/new.png]]\n"
+        }
+      }
+    },
+    {
+      "id": "a-move-cannot-land-on-a-denied-name",
+      "vault": "assetEdges",
+      "flags": {
+        "access": "write",
+        "deny": [
+          "dest/Caf\u00e9.png"
+        ]
+      },
+      "calls": [
+        {
+          "tool": "move_asset",
+          "args": {
+            "path": "assets/cafe.png",
+            "targetDir": "dest"
+          },
+          "expect": {
+            "error": "This assistant cannot put files there."
+          }
+        }
+      ],
+      "disk": {
+        "absent": [
+          "dest/cafe.png"
+        ],
+        "equals": {
+          "assets/cafe.png": "png"
+        }
+      }
+    },
+    {
+      "id": "a-scope-cannot-split-a-database-pair",
+      "vault": "assetEdges",
+      "flags": {
+        "access": "write",
+        "allow": [
+          "Data/t.csv"
+        ]
+      },
+      "calls": [
+        {
+          "tool": "delete_asset",
+          "args": {
+            "path": "Data/t.csv"
+          },
+          "expect": {
+            "error": "That file belongs to a ZenNotes database. Change it from the app."
+          }
+        }
+      ],
+      "disk": {
+        "equals": {
+          "Data/t.csv": "a\n1\n",
+          "Data/t.csv.base.json": "{}"
+        }
       }
     }
   ]

@@ -17,6 +17,7 @@ import {
 } from '@shared/harper-settings'
 import { useStore } from '../store'
 import type { HarperEditorConfig } from './cm-harper'
+import { getKeymapDisplay, type KeymapId } from './keymaps'
 import {
   disposeHarper,
   harperLoaded,
@@ -168,6 +169,15 @@ export function harperEditorConfig(): HarperEditorConfig {
       if (!loaded) return
       await loaded.ignore(text, lint)
       await persist(loaded)
+    },
+    // Read when the card opens, so a rebound key shows at once. These are Vim
+    // keys: with Vim off they do nothing, so the card does not offer them.
+    keyHints: () => {
+      const { vimMode, keymapOverrides } = useStore.getState()
+      if (!vimMode) return { addWord: '', ignore: '' }
+      const hint = (id: KeymapId): string =>
+        getKeymapDisplay(keymapOverrides, id).replace(/\s+/g, '')
+      return { addWord: hint('vim.harperAddWord'), ignore: hint('vim.harperIgnore') }
     }
   }
 }

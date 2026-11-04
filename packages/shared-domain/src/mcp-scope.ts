@@ -191,7 +191,10 @@ export const MCP_TOOL_ACCESS: Readonly<Record<string, McpToolClass>> = {
   list_notes: 'read',
   list_folders: 'read',
   list_assets: 'read',
+  read_asset: 'read',
   read_note: 'read',
+  note_sections: 'read',
+  daily_note: 'read',
   search_text: 'read',
   search_by_title: 'read',
   search_by_tag: 'read',
@@ -203,6 +206,14 @@ export const MCP_TOOL_ACCESS: Readonly<Record<string, McpToolClass>> = {
   reply_to_comment: 'comment',
   resolve_comment: 'comment',
   toggle_task: 'write',
+  update_task: 'write',
+  edit_section: 'write',
+  upload_asset: 'write',
+  rename_asset: 'write',
+  move_asset: 'write',
+  duplicate_asset: 'write',
+  delete_asset: 'write',
+  restore_asset: 'write',
   write_note: 'write',
   append_to_note: 'write',
   prepend_to_note: 'write',
@@ -227,6 +238,7 @@ export const MCP_TOOL_ACCESS: Readonly<Record<string, McpToolClass>> = {
 export const MCP_DESTRUCTIVE_TOOLS: ReadonlySet<string> = new Set([
   'write_note',
   'replace_in_note',
+  'edit_section',
   'delete_note',
   'delete_folder',
   'empty_trash'
@@ -341,7 +353,7 @@ export function mcpScopeAccessInfo(
 /** Go's `%q` for the strings a flag can hold, so a refusal reads byte for
  *  byte the same from either engine: printable text as is, ASCII controls
  *  escaped the way strconv.Quote escapes them. */
-function goQuote(value: string): string {
+export function goQuote(value: string): string {
   const named: Record<string, string> = {
     '\u0007': '\\a',
     '\b': '\\b',

@@ -216,6 +216,25 @@ describe('WindowVaultRegistry', () => {
   })
 })
 
+describe('WindowVaultRegistry when a window gains focus', () => {
+  it('asks each open vault to re-read, and tolerates watchers with no such thing', () => {
+    const rescanNow = vi.fn(async () => undefined)
+    const makeWatcher = vi
+      .fn<() => VaultWatcherLike>()
+      .mockReturnValueOnce(Object.assign(new TestWatcher(), { rescanNow }))
+      .mockReturnValueOnce(new TestWatcher())
+    const registry = new WindowVaultRegistry({
+      makeWatcher,
+      invalidateVault: () => {},
+      sendVaultChange: () => {}
+    })
+    registry.setLocalVault(1, { root: path.resolve('/a'), name: 'a' })
+    registry.setLocalVault(2, { root: path.resolve('/b'), name: 'b' })
+    registry.rescanUnwatchedVaults()
+    expect(rescanNow).toHaveBeenCalledOnce()
+  })
+})
+
 describe('WindowVaultRegistry when a watcher runs out of watch handles', () => {
   it('watches the vault again later and has its windows re-read it', () => {
     vi.useFakeTimers()
