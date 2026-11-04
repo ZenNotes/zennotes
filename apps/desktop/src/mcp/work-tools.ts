@@ -43,7 +43,7 @@ import {
 import { renderTemplate } from '@renderer/lib/template-render'
 import type { VaultBackend } from '../cli/backend.js'
 import { ScopedBackend } from './scoped-backend.js'
-import { editSectionInBody, findSection, noteSections, sectionBody } from './note-sections.js'
+import { editSectionInBody, findSection, noteSections, sectionBody, usesCrlf } from './note-sections.js'
 import {
   optionalBoolean,
   optionalNumber,
@@ -191,7 +191,8 @@ function updateFileTask(start: string, task: VaultTask, input: UpdateTaskInput):
   if (claims.length > 1) {
     throw new Error('A task note keeps state, status and waiting in its one frontmatter status: pass only one of them.')
   }
-  let body = start
+  const crlf = usesCrlf(start)
+  let body = crlf ? start.replace(/\r\n/g, '\n') : start
   const today = toIsoDateLocal(new Date())
   switch (input.state) {
     case 'open':
@@ -224,7 +225,7 @@ function updateFileTask(start: string, task: VaultTask, input: UpdateTaskInput):
       body = updateFrontmatterFields(body, { status: input.status || null, completedDate: null })
     }
   }
-  return body
+  return crlf ? body.replace(/\n/g, '\r\n') : body
 }
 
 /** Edits one task through the backend's own read and write, so it takes a scope

@@ -31,7 +31,7 @@ const SECTION_LIST_ITEM_RE = /^\s*(?:[-+*]|\d+[.)])\s/
 
 /** Whether every line break of a note is CRLF, so an edit made in LF can be put
  *  back. A note with mixed endings comes out in LF. */
-function usesCrlf(body: string): boolean {
+export function usesCrlf(body: string): boolean {
   return body.includes('\r\n') && !/(^|[^\r])\n/.test(body)
 }
 

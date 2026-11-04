@@ -21,6 +21,7 @@ import os from 'node:os'
 import { parse as parseToml } from 'smol-toml'
 import { retitleLeadingHeading } from '@shared/note-heading-sync'
 import { rewriteAssetReferences } from '@shared/asset-link-rename'
+import { noteTurn } from './note-turns'
 import { goQuote } from '@shared/mcp-scope'
 import { IMAGE_FILE_EXTENSIONS } from '@shared/pasted-image'
 import { normalizeNoteComments } from '@shared/note-comments'
@@ -1156,7 +1157,17 @@ async function renameNoClobber(from: string, to: string): Promise<void> {
     const code = (err as NodeJS.ErrnoException).code
     if (code === 'EEXIST' || code === 'ENOENT') throw err
     if (code === 'EXDEV') {
-      await fs.copyFile(from, to, fsConstants.COPYFILE_EXCL)
+      const source = await fs.stat(from)
+      try {
+        await fs.copyFile(from, to, fsConstants.COPYFILE_EXCL)
+        await fs.utimes(to, source.atime, source.mtime)
+      } catch (copyErr) {
+        // A taken name is someone else's file; anything else leaves a partial one.
+        if ((copyErr as NodeJS.ErrnoException).code !== 'EEXIST') {
+          await fs.rm(to, { force: true }).catch(() => undefined)
+        }
+        throw copyErr
+      }
     } else {
       await fs.writeFile(to, '', { flag: 'wx' })
       try {
@@ -1199,8 +1210,10 @@ async function placeAtFreeName(
  *  trash and whatever `rewriteIn` turns down. The snapshots are from before the
  *  change, so references still resolve to the asset under its old path. This
  *  walk's note listing carries no attachment flag, so it reads each note and
- *  writes only the ones whose text changes. Returns the notes it could not
- *  update, which still point at the old name. */
+ *  writes only the ones whose text changes, one note's turn at a time, since a
+ *  tool may be editing it. Returns the notes it changed the text of but could not
+ *  write, which still point at the old name. A note it cannot read is passed
+ *  over, since nothing says it links to the file. */
 async function rewriteAssetLinks(
   root: string,
   notesBefore: NoteMeta[],
@@ -1213,8 +1226,9 @@ async function rewriteAssetLinks(
   const notes = notesBefore.filter((note) => note.folder !== 'trash')
   for (const note of notes) {
     if (rewriteIn && !rewriteIn(note.path)) continue
-    try {
-      const content = await readNote(root, note.path)
+    await noteTurn(root, note.path, async () => {
+      const content = await readNote(root, note.path).catch(() => null)
+      if (!content) return
       const { body, changed } = rewriteAssetReferences(
         content.body,
         assetsBefore,
@@ -1223,11 +1237,10 @@ async function rewriteAssetLinks(
         newRel,
         { notes, fullPath: rewriteIn != null }
       )
-      if (changed > 0) await writeNote(root, note.path, body)
-    } catch {
-      // One note that cannot be read or written leaves the rest to do.
-      failed.push(note.path)
-    }
+      if (changed === 0) return
+      // One note that cannot be written leaves the rest to do.
+      await writeNote(root, note.path, body).catch(() => failed.push(note.path))
+    })
   }
   return failed
 }
@@ -1294,7 +1307,7 @@ function markdownForAsset(rel: string, name: string, kind: ImportedVaultAssetKin
 }
 
 /** A name that cannot terminate or retarget the link written for it. */
-function importedAssetFilename(filename: string): string {
+export function importedAssetFilename(filename: string): string {
   const safe = path
     .basename(filename)
     // eslint-disable-next-line no-control-regex
@@ -1312,8 +1325,10 @@ export async function renameAsset(
   nextName: string,
   rewriteIn?: (notePath: string) => boolean
 ): Promise<VaultAssetMeta> {
-  return await assetWriteTurn(root, async () => {
-    const [assetsBefore, notesBefore] = await Promise.all([listAssets(root), listNotes(root)])
+  // The link rewrite reads every note, so it runs after this vault's asset turn.
+  const notesBefore = await listNotes(root)
+  const moved = await assetWriteTurn(root, async () => {
+    const assetsBefore = await listAssets(root)
     const source = await assertAssetFile(root, rel)
     const cleanName = cleanAssetFilename(nextName)
     const destAbs = path.join(path.dirname(source.abs), cleanName)
@@ -1338,8 +1353,13 @@ export async function renameAsset(
         const [src, dst] = await Promise.all([fileIdentity(source.abs), fileIdentity(destAbs)])
         if (!isSameFile(src, dst)) throw alreadyThere()
         const tmp = `${source.abs}.${process.pid}.${Date.now()}000.tmp`
-        await fs.rename(source.abs, tmp)
-        await fs.rename(tmp, destAbs)
+        await renameWithRetry(source.abs, tmp)
+        try {
+          await renameWithRetry(tmp, destAbs)
+        } catch (err) {
+          await renameWithRetry(tmp, source.abs).catch(() => undefined)
+          throw err
+        }
         // Two hard links of one file: that rename does nothing, and leaves it.
         await fs.rm(tmp, { force: true })
       } else {
@@ -1348,12 +1368,29 @@ export async function renameAsset(
         })
       }
     }
-    const meta = await assetMetaForPath(root, destAbs)
-    if (meta.path === source.rel) return meta
-    return await withLinkRewrite(meta, () =>
-      rewriteAssetLinks(root, notesBefore, assetsBefore, source.rel, meta.path, rewriteIn)
-    )
+    return { meta: await assetMetaForPath(root, destAbs), oldRel: source.rel, assetsBefore }
   })
+  const { meta, oldRel, assetsBefore } = moved
+  if (meta.path === oldRel) return meta
+  return await withLinkRewrite(meta, () =>
+    rewriteAssetLinks(root, notesBefore, assetsBefore, oldRel, meta.path, rewriteIn)
+  )
+}
+
+/** A vault-relative folder with each segment that exists spelled as its parent
+ *  lists it, so what a note is given reads the same as the listing. A folder
+ *  named another way on a case-insensitive volume is that folder. */
+async function spelledAsListed(root: string, rel: string): Promise<string> {
+  const fold = (name: string): string => name.normalize('NFC').toLowerCase()
+  const out: string[] = []
+  const segments = rel.split('/').filter(Boolean)
+  for (const [at, seg] of segments.entries()) {
+    const listed = await fs.readdir(path.join(root, ...out)).catch(() => [] as string[])
+    const match = listed.includes(seg) ? seg : listed.find((name) => fold(name) === fold(seg))
+    if (match === undefined) return [...out, ...segments.slice(at)].join('/')
+    out.push(match)
+  }
+  return out.join('/')
 }
 
 /** A path as it really lies on disk, for a folder that may not exist yet. */
@@ -1393,10 +1430,11 @@ export async function moveAsset(
   targetDir: string,
   rewriteIn?: (notePath: string) => boolean
 ): Promise<VaultAssetMeta> {
-  return await assetWriteTurn(root, async () => {
-    const [assetsBefore, notesBefore] = await Promise.all([listAssets(root), listNotes(root)])
+  const notesBefore = await listNotes(root)
+  const moved = await assetWriteTurn(root, async () => {
+    const assetsBefore = await listAssets(root)
     const source = await assertAssetFile(root, rel)
-    const normalized = trimVaultRelative(targetDir)
+    const normalized = await spelledAsListed(root, trimVaultRelative(targetDir))
     if (normalized.split('/').includes(INTERNAL_VAULT_DIR)) {
       throw new Error('cannot move assets into internal ZenNotes files')
     }
@@ -1411,7 +1449,9 @@ export async function moveAsset(
       fs.stat(destDir, { bigint: true }),
       fs.stat(path.dirname(source.abs), { bigint: true })
     ])
-    if (isSameFile(destIdentity, sourceDirIdentity)) return await assetMetaForPath(root, source.abs)
+    if (isSameFile(destIdentity, sourceDirIdentity)) {
+      return { meta: await assetMetaForPath(root, source.abs), oldRel: source.rel, assetsBefore }
+    }
     // A filter also has to accept where the file lands, which only this knows.
     const destAbs = await placeAtFreeName(destDir, path.basename(source.abs), async (candidate) => {
       if (rewriteIn && !rewriteIn(toPosix(path.relative(root, candidate)))) {
@@ -1419,12 +1459,13 @@ export async function moveAsset(
       }
       await renameNoClobber(source.abs, candidate)
     })
-    const meta = await assetMetaForPath(root, destAbs)
-    if (meta.path === source.rel) return meta
-    return await withLinkRewrite(meta, () =>
-      rewriteAssetLinks(root, notesBefore, assetsBefore, source.rel, meta.path, rewriteIn)
-    )
+    return { meta: await assetMetaForPath(root, destAbs), oldRel: source.rel, assetsBefore }
   })
+  const { meta, oldRel, assetsBefore } = moved
+  if (meta.path === oldRel) return meta
+  return await withLinkRewrite(meta, () =>
+    rewriteAssetLinks(root, notesBefore, assetsBefore, oldRel, meta.path, rewriteIn)
+  )
 }
 
 /** Copy an asset next to itself as `<name> copy<ext>`. */
@@ -1634,6 +1675,11 @@ export async function writeNote(root: string, rel: string, body: string): Promis
   const { abs, folder } = await resolveNote(root, rel)
   await fs.mkdir(path.dirname(abs), { recursive: true })
   await prepareNoteCreation(root, toPosix(path.relative(root, abs)))
+  // A rename does not ask the file, only its folder, so a read-only note has to
+  // be asked first.
+  await fs.access(abs, fsConstants.W_OK).catch((err: NodeJS.ErrnoException) => {
+    if (err.code !== 'ENOENT') throw err
+  })
   // Whole or not at all: a crash partway leaves the note as it was.
   await writeFileAtomic(abs, body)
   return await readMeta(root, abs, folder)

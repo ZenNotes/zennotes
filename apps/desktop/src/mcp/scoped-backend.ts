@@ -748,7 +748,13 @@ export class ScopedBackend implements VaultBackend {
     if (!v.visible(path.posix.join(path.posix.dirname(meta.path), `${stem} copy${ext}`))) {
       throw new Error('This assistant cannot give the file that name.')
     }
-    return await this.inner.duplicateAsset(meta.path)
+    const copy = await this.inner.duplicateAsset(meta.path)
+    // A numbered name can land where the first name would not.
+    if (!v.visible(copy.path)) {
+      await this.inner.deleteAsset(copy.path).catch(() => undefined)
+      throw new Error('This assistant cannot give the file that name.')
+    }
+    return copy
   }
 
   deleteAsset = async (rel: string): Promise<DeletedVaultAsset> =>
@@ -758,9 +764,10 @@ export class ScopedBackend implements VaultBackend {
    *  internal; only its entries' original paths decide. */
   listDeletedAssets = async (): Promise<DeletedVaultAsset[]> => {
     const v = await this.load()
-    return (await this.inner.listDeletedAssets()).filter(
-      (entry) => cleanRequest(entry.path) != null && v.visible(entry.path)
-    )
+    return (await this.inner.listDeletedAssets()).filter((entry) => {
+      const clean = cleanRequest(entry.path)
+      return clean != null && !trimsDifferently(entry.path) && v.visible(clean)
+    })
   }
 
   /** Takes only an entry this client can list, and the folder it returns to must
@@ -771,7 +778,9 @@ export class ScopedBackend implements VaultBackend {
     const entry = (await this.listDeletedAssets()).find((d) => d.undoToken === deleted.undoToken)
     if (
       !entry ||
-      !(await v.realDirs(path.posix.dirname(entry.path), () => this.knownAssetDirs(v)))
+      !(await v.realDirs(path.posix.dirname(cleanRequest(entry.path) ?? ''), () =>
+        this.knownAssetDirs(v)
+      ))
     ) {
       throw deletedAssetNotFound(deleted.undoToken)
     }

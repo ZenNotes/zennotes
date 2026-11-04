@@ -94,19 +94,16 @@ export async function writeFileAtomic(absPath: string, data: string): Promise<vo
   // next save retries) beats two writers sharing one temp file.
   const handle = await fs.open(tmp, 'wx')
   try {
-    await handle.writeFile(data, 'utf8')
     try {
-      await handle.sync()
-    } catch (syncErr) {
-      console.warn('fsync failed for atomic write', syncErr)
+      await handle.writeFile(data, 'utf8')
+      try {
+        await handle.sync()
+      } catch (syncErr) {
+        console.warn('fsync failed for atomic write', syncErr)
+      }
+    } finally {
+      await handle.close()
     }
-  } catch (err) {
-    await handle.close()
-    await fs.unlink(tmp).catch(() => undefined)
-    throw err
-  }
-  await handle.close()
-  try {
     if (existingMode !== null) await fs.chmod(tmp, existingMode)
     await renameWithRetry(tmp, target)
   } catch (err) {

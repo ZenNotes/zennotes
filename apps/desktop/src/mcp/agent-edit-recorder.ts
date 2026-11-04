@@ -14,6 +14,7 @@ import { parse as parseToml } from 'smol-toml'
 import { agentEditRecordable, beginAgentEdit, finishAgentEdit } from '@shared/agent-edits'
 import { readAgentEditRecord, writeAgentEditRecord } from '../main/agent-edit-files'
 import type { VaultBackend } from '../cli/backend'
+import { noteTurn } from './note-turns'
 import { portableConfigDir, splitTaskId } from './vault-ops'
 
 function stringArg(args: Record<string, unknown>, key: string): string | null {
@@ -66,21 +67,6 @@ export async function reviewAgentEditsEnabled(): Promise<boolean> {
   }
 }
 
-// Tool calls are handled concurrently, and two edits to one note racing on
-// its record would lose one of them, so edits to the same note take turns.
-const queues = new Map<string, Promise<unknown>>()
-
-function oneAtATime<T>(key: string, run: () => Promise<T>): Promise<T> {
-  const previous = queues.get(key) ?? Promise.resolve()
-  const next = previous.then(run, run)
-  queues.set(key, next)
-  const forget = (): void => {
-    if (queues.get(key) === next) queues.delete(key)
-  }
-  next.then(forget, forget)
-  return next
-}
-
 async function noteText(backend: VaultBackend, rel: string): Promise<string | null> {
   try {
     return (await backend.readNote(rel)).body
@@ -114,7 +100,7 @@ export async function runRecordingAgentEdit<T>(
     () => named
   )
 
-  return await oneAtATime(`${backend.root}\0${rel}`, async () => {
+  return await noteTurn(backend.root, rel, async () => {
     if (!(await reviewAgentEditsEnabled())) return await run()
     const before = await noteText(backend, rel)
     // Not a note we can read (the tool reports its own error), or one too

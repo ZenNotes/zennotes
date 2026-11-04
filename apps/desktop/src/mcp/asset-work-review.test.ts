@@ -194,7 +194,7 @@ describe('asset writes at the same time', () => {
 })
 
 describe('a name rename_asset can give a file', () => {
-  it.each(['b#c.png', 'h?i.png', '50%25.png', 'd|e.png', 'f]g.png', 'j[k.png', 'l^m.png', 'n\no.png', 'p\tq.png', 'r:s.png', 't.png.'])(
+  it.each(['b#c.png', 'h?i.png', '50%25.png', 'd|e.png', 'f]g.png', 'j[k.png', 'l^m.png', 'n\no.png', 'p\tq.png', 'r:s.png', 't.png.', 'u*v.png', 'w"x.png', '<c.png', 'y>z.png', 'a`b.png'])(
     'refuses %j, whose links would break',
     async (name) => {
       await seed({ 'assets/a.png': 'a', 'N.md': '![[assets/a.png]]\n' })
@@ -214,7 +214,7 @@ describe('a name rename_asset can give a file', () => {
     })
   })
 
-  it.each(['note.md.', 'note.md ..', 'note.MD::$DATA', 'note.md:x'])('treats %j as a note', async (name) => {
+  it.each(['note.md.', 'note.md ..', 'note.md .', 'note.MD:x'])('treats %j as a note', async (name) => {
     await seed({ 'assets/a.png': 'a' })
     const client = await connect()
     const words = 'Notes are not attachments'
@@ -222,7 +222,7 @@ describe('a name rename_asset can give a file', () => {
     expect(await refused(client, 'rename_asset', { path: 'assets/a.png', name })).toContain(words)
   })
 
-  it.each(['CON', 'con.png', 'NUL', 'Aux.txt', 'COM1.png', 'lpt9'])('refuses %j, a name Windows keeps', async (name) => {
+  it.each(['CON', 'con.png', 'con .png', 'CONIN$', 'conout$.txt', 'NUL', 'Aux.txt', 'COM1.png', 'lpt9', 'com\u00b9.png'])('refuses %j, a name Windows keeps', async (name) => {
     await seed({ 'assets/a.png': 'a' })
     const client = await connect()
     const words = 'reserved on Windows'
@@ -719,5 +719,249 @@ describe('agent edit review under a scope', () => {
     await ok(client, 'edit_section', { path: 'PROJECTS/PLAN.MD', heading: 'A', mode: 'append', text: 'two' })
     expect(await readAgentEditRecord(root, 'Projects/Plan.md')).not.toBeNull()
     expect(await fsp.readdir(inVault('.zennotes/agent-edits'))).toEqual(['Projects'])
+  })
+})
+
+describe('a link rewrite beside a note edit', () => {
+  const asset = (name: string): string => `assets/${name}.png`
+
+  it.each([
+    ['append_to_note', (i: number) => ({ path: 'n.md', text: `marker${i}` })],
+    ['edit_section', (i: number) => ({ path: 'n.md', heading: 'H', mode: 'append', text: `marker${i}` })],
+    ['update_task', (i: number) => ({ id: 'n.md#0', text: `marker${i}` })]
+  ] as const)('keeps both when %s runs in the same batch', async (tool, args) => {
+    const client = await connect()
+    await seed({ 'assets/keep.png': 'k' })
+    for (let i = 0; i < 25; i += 1) {
+      const from = `a${i}`
+      const to = `b${i}`
+      await seed({ [asset(from)]: 'x', 'n.md': `# H\n\n- [ ] task\n\n![[${asset(from)}]]\n` })
+      const results = await Promise.all([
+        call(client, 'rename_asset', { path: asset(from), name: `${to}.png` }),
+        call(client, tool, args(i))
+      ])
+      expect(results.map((result) => result.isError)).toEqual([false, false])
+      const body = await file('n.md')
+      expect(body).toContain(`marker${i}`)
+      expect(body).toContain(`![[${asset(to)}]]`)
+    }
+  })
+
+  it('lets other asset calls go while it reads the notes', async () => {
+    await seed({ 'assets/a.png': 'a', 'n.md': '![[assets/a.png]]\n' })
+    const client = await connect()
+    const readFile = fsp.readFile.bind(fsp)
+    let release: () => void = () => undefined
+    const hold = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let rewriting: () => void = () => undefined
+    const reached = new Promise<void>((resolve) => {
+      rewriting = resolve
+    })
+    // Once the file has moved, a read of the note is the link rewrite.
+    vi.spyOn(fsp, 'readFile').mockImplementation((async (p: string, options: never) => {
+      if (p === inVault('n.md') && (await exists('assets/b.png'))) {
+        rewriting()
+        await hold
+      }
+      return await readFile(p, options)
+    }) as never)
+    const renaming = call(client, 'rename_asset', { path: 'assets/a.png', name: 'b.png' })
+    await reached
+    const answered = await Promise.race([
+      call(client, 'upload_asset', { filename: 'u.png', content_base64: 'cG5n' }).then(() => 'answered'),
+      new Promise((resolve) => setTimeout(() => resolve('waiting'), 1000))
+    ])
+    release()
+    await renaming
+    expect(answered).toBe('answered')
+    expect(await file('n.md')).toBe('![[assets/b.png]]\n')
+  })
+})
+
+describe('a change of case that fails', () => {
+  it('leaves the file under its old name', async () => {
+    await seed({ 'assets/Photo.png': 'P' })
+    if (!(await exists('assets/photo.png'))) return // a case-sensitive volume has no such rename
+    const rename = fsp.rename.bind(fsp)
+    vi.spyOn(fsp, 'rename').mockImplementation((async (from: string, to: string) => {
+      if (from.endsWith('.tmp') && to.endsWith('photo.png')) {
+        throw Object.assign(new Error('locked'), { code: 'EBUSY' })
+      }
+      return await rename(from, to)
+    }) as never)
+    await expect(renameAsset(root, 'assets/Photo.png', 'photo.png')).rejects.toThrow('locked')
+    expect(await fsp.readdir(inVault('assets'))).toEqual(['Photo.png'])
+  }, 20000)
+})
+
+describe('a name upload_asset would write', () => {
+  it('passes the same check once it is cleaned', async () => {
+    await seed({ 'd.csv': 'a\n' })
+    const client = await connect()
+    expect(await refused(client, 'upload_asset', { filename: 'd.csv.base.json .', content_base64: 'cG5n' })).toContain(
+      'cannot be managed as an attachment'
+    )
+    expect(await refused(client, 'upload_asset', { filename: 'note?.md', content_base64: 'cG5n' })).toContain(
+      'Notes are not attachments'
+    )
+    expect(await exists('assets')).toBe(false)
+  })
+})
+
+describe('a move target with whitespace around it', () => {
+  it.each([' .hidden', ' Target', 'Target ', 'db.base '])('refuses %j for any client', async (targetDir) => {
+    await seed({ 'assets/a.png': 'a' })
+    const client = await connect()
+    expect(await refused(client, 'move_asset', { path: 'assets/a.png', targetDir })).toContain(
+      'This assistant cannot put files there.'
+    )
+    expect(await file('assets/a.png')).toBe('a')
+    expect(await exists('.hidden')).toBe(false)
+  })
+})
+
+describe('a read-only note', () => {
+  it('stays as it is, whichever tool writes', async () => {
+    await seed({ 'N.md': 'old\n' })
+    await fsp.chmod(inVault('N.md'), 0o444)
+    await expect(writeNote(root, 'N.md', 'new\n')).rejects.toThrow()
+    expect(await file('N.md')).toBe('old\n')
+    await fsp.chmod(inVault('N.md'), 0o644)
+  })
+})
+
+describe('a move under another spelling', () => {
+  it('writes the folder as the listing spells it', async () => {
+    await seed({ 'Caf\u00e9/keep.txt': 'k', 'pub/n.png': 'z', 'N.md': '![[pub/n.png]]\n' })
+    const client = await connect()
+    const insensitive = await exists('CAF\u00c9')
+    const moved = JSON.parse(await ok(client, 'move_asset', { path: 'pub/n.png', targetDir: 'CAF\u00c9' })) as { path: string }
+    const want = insensitive ? 'Caf\u00e9/n.png' : 'CAF\u00c9/n.png'
+    expect(moved.path).toBe(want)
+    expect(await file('N.md')).toBe(`![[${want}]]\n`)
+    const listed = (await listAssets(root)).map((asset) => asset.path)
+    expect(listed).toContain(want)
+  })
+})
+
+describe('a wikilink with an anchor', () => {
+  it('stays when it names a note', async () => {
+    await seed({ 'Report.md': '# Report\n', 'Docs/Report': 'data', 'N.md': '[[Report#Heading]] and [[Report^block]]\n' })
+    const client = await connect()
+    await ok(client, 'rename_asset', { path: 'Docs/Report', name: 'Renamed' })
+    expect(await file('N.md')).toBe('[[Report#Heading]] and [[Report^block]]\n')
+  })
+})
+
+describe('a deleted record written by hand', () => {
+  const token = '11111111-1111-4111-8111-111111111111'
+  const record = async (target: string): Promise<void> => {
+    await seed({
+      'pub/sec/keep.txt': 'k',
+      'pub/ok.png': 'k',
+      [`.zennotes/deleted-assets/${token}/.zn-deleted.json`]: JSON.stringify({
+        path: target,
+        name: 'r.png',
+        deletedAt: '2026-01-01T00:00:00.000Z'
+      }),
+      [`.zennotes/deleted-assets/${token}/r.png`]: 'x'
+    })
+  }
+
+  it.each(['pub\\sec\\r.png', 'pub/sec\\r.png', ' pub/sec/r.png'])('is hidden by its real path: %j', async (target) => {
+    await record(target)
+    const client = await connect({ access: 'write', deny: ['pub/sec'] })
+    expect(JSON.parse(await ok(client, 'list_assets', { deleted: true }))).toEqual([])
+    expect(await refused(client, 'restore_asset', { undoToken: token })).toContain('Deleted asset not found')
+    expect(await fsp.readdir(inVault('pub/sec'))).toEqual(['keep.txt'])
+  })
+})
+
+describe('update_task on a Windows task note', () => {
+  it('keeps its line endings', async () => {
+    const NOTE = 'Do.md'
+    await seed({ [NOTE]: '---\r\ntags: [task]\r\nstatus: open\r\n---\r\n# Do\r\n\r\nbody\r\n' })
+    const client = await connect()
+    await ok(client, 'update_task', { id: `${NOTE}#task`, due: '2026-01-01' })
+    const body = await file(NOTE)
+    expect(body).toContain('due: 2026-01-01\r\n')
+    expect(body.replace(/\r\n/g, '')).not.toContain('\n')
+  })
+})
+
+describe('linksNotUpdated', () => {
+  it('does not name a note it could not read', async () => {
+    await seed({ 'assets/a.png': 'a', 'Other.md': 'nothing here\n', 'Good.md': '![[assets/a.png]]\n' })
+    const client = await connect()
+    const readFile = fsp.readFile.bind(fsp)
+    vi.spyOn(fsp, 'readFile').mockImplementation((async (p: string, options: never) => {
+      if (p === inVault('Other.md')) throw Object.assign(new Error('denied'), { code: 'EACCES' })
+      return await readFile(p, options)
+    }) as never)
+    const moved = JSON.parse(await ok(client, 'rename_asset', { path: 'assets/a.png', name: 'b.png' }))
+    expect(moved).not.toHaveProperty('linksNotUpdated')
+    expect(await file('Good.md')).toBe('![[assets/b.png]]\n')
+  })
+})
+
+describe('a move across volumes', () => {
+  const crossVolume = (): void => {
+    vi.spyOn(fsp, 'link').mockRejectedValue(Object.assign(new Error('EXDEV'), { code: 'EXDEV' }))
+  }
+
+  it('keeps the modified time', async () => {
+    await seed({ 'a/z.png': 'z' })
+    const old = new Date('2020-01-01T00:00:00Z')
+    await fsp.utimes(inVault('a/z.png'), old, old)
+    crossVolume()
+    await createBackend({ kind: 'local', root }).moveAsset('a/z.png', 'b')
+    expect((await fsp.stat(inVault('b/z.png'))).mtime.toISOString()).toBe(old.toISOString())
+    expect(await exists('a/z.png')).toBe(false)
+  })
+
+  it('leaves no partial copy when the copy fails', async () => {
+    await seed({ 'a/z.png': 'z' })
+    crossVolume()
+    vi.spyOn(fsp, 'copyFile').mockImplementation((async (_from: string, to: string) => {
+      await fsp.writeFile(to, 'pa')
+      throw Object.assign(new Error('no space'), { code: 'ENOSPC' })
+    }) as never)
+    await expect(createBackend({ kind: 'local', root }).moveAsset('a/z.png', 'b')).rejects.toThrow('no space')
+    expect(await exists('b/z.png')).toBe(false)
+    expect(await file('a/z.png')).toBe('z')
+  })
+})
+
+describe('duplicate_asset under a scope', () => {
+  it('undoes a copy that lands outside what it can see', async () => {
+    await seed({ 'pub/x.png': 'x', 'pub/x copy.png': 'c', 'pub/y.png': 'y' })
+    const client = await connect({ access: 'write', allow: ['pub/x.png', 'pub/x copy.png'] })
+    expect(await refused(client, 'duplicate_asset', { path: 'pub/x.png' })).toContain(
+      'This assistant cannot give the file that name.'
+    )
+    expect((await fsp.readdir(inVault('pub'))).sort()).toEqual(['x copy.png', 'x.png', 'y.png'])
+  })
+})
+
+describe('writeFileAtomic', () => {
+  it('leaves no scratch file when closing fails', async () => {
+    await seed({ 'N.md': 'old\n' })
+    const open = fsp.open.bind(fsp)
+    vi.spyOn(fsp, 'open').mockImplementation((async (p: string, flags: string) => {
+      const handle = await open(p, flags)
+      if (!p.startsWith(inVault('N.md'))) return handle
+      const close = handle.close.bind(handle)
+      handle.close = (async () => {
+        await close()
+        throw Object.assign(new Error('close failed'), { code: 'EIO' })
+      }) as never
+      return handle
+    }) as never)
+    await expect(writeNote(root, 'N.md', 'new\n')).rejects.toThrow('close failed')
+    vi.restoreAllMocks()
+    expect(await file('N.md')).toBe('old\n')
+    expect((await fsp.readdir(root)).filter((name) => name.startsWith('N.md.'))).toEqual([])
   })
 })

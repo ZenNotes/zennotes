@@ -174,7 +174,9 @@ export function rewriteAssetReferences(
         const rest = pipe >= 0 ? wikiContent.slice(pipe) : ''
         const resolution = resolveOld(target)
         if (!resolution) return full
-        if (options.notes && resolveWikilinkTarget(options.notes, target)) return full
+        // `[[Report#Heading]]` names the note as `[[Report]]` does.
+        const doc = target.split(/[#^]/)[0]
+        if (options.notes && resolveWikilinkTarget(options.notes, doc)) return full
         const next = `${embed ?? ''}[[${retarget(target, resolution, 'wikilink')}${rest}]]`
         // A bare name that still resolves after a move reads exactly as before.
         if (next !== full) changed++

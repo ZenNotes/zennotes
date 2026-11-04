@@ -29,6 +29,7 @@ import {
   ScopedBackend
 } from './scoped-backend.js'
 import { optionalBoolean, RawToolResult, requireString, type ToolDef } from './tool-support.js'
+import { importedAssetFilename } from './vault-ops.js'
 
 /** A tool call carries the file as base64 inside one JSON-RPC message, held in
  *  memory several times over. */
@@ -68,7 +69,7 @@ function isLooseCsvInternal(rel: string): boolean {
 }
 
 /** Device names Windows keeps, with or without an extension. */
-const WINDOWS_RESERVED_NAME = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i
+const WINDOWS_RESERVED_NAME = /^(?:con|prn|aux|nul|conin\$|conout\$|com[1-9\u00b9\u00b2\u00b3]|lpt[1-9\u00b9\u00b2\u00b3]) *(?:\.|$)/i
 
 /** Refuses a name the asset listing would not show afterwards, since a file the
  *  listing cannot see is one no tool can reach again. */
@@ -77,7 +78,7 @@ function checkAssetName(name: string): void {
   if (!trimmed || trimmed === '.' || trimmed === '..') throw new Error('A file name is required.')
   if (/[/\\\u0000]/.test(trimmed)) throw new Error('Use only a file name, with no folder in it.')
   if (trimmed.startsWith('.')) throw new Error('A file name cannot start with a dot.')
-  // Windows reads `note.md.` and `note.md::$DATA` as note.md.
+  // However it is dressed up, a note's name is a note's.
   if (trimmed.split(':')[0].replace(/[. ]+$/, '').toLowerCase().endsWith('.md')) {
     throw new Error('Notes are not attachments: use create_note or rename_note.')
   }
@@ -93,13 +94,13 @@ function checkAssetName(name: string): void {
  *  link to the file, or do not survive on another system, and the rename would
  *  still report success. */
 // eslint-disable-next-line no-control-regex
-const NAME_BREAKS_LINKS = /[#?|[\]^%:\u0000-\u001f\u007f]|[. ]$/
+const NAME_BREAKS_LINKS = /[#?|[\]^%:*"<>`\u0000-\u001f\u007f]|[. ]$/
 
 function checkAssetNewName(name: string): void {
   checkAssetName(name)
   if (NAME_BREAKS_LINKS.test(name.trim())) {
     throw new Error(
-      'A file name cannot contain # ? | [ ] ^ % : or a control character, or end with a dot, since links to it would break.'
+      'A file name cannot contain # ? | [ ] ^ % : * " < > ` or a control character, or end with a dot, since links to it would break.'
     )
   }
 }
@@ -110,7 +111,8 @@ function checkAssetNewName(name: string): void {
 async function checkAssetTargetDir(backend: VaultBackend, raw: string): Promise<string> {
   const refused = new Error('This assistant cannot put files there.')
   const clean = cleanRequest(raw)
-  if (!clean) throw refused
+  // The move trims what it is given, so this has to be what it will use.
+  if (!clean || raw.trim() !== raw) throw refused
   // A name other systems cannot hold or read the same way.
   if (clean.split('/').some((seg) => /[. ]$|:/.test(seg))) throw refused
   if (clean.split('/').some((seg) => seg.toLowerCase().endsWith(FORM_DIR_SUFFIX))) throw refused
@@ -284,7 +286,10 @@ export const ASSET_TOOLS: ToolDef[] = [
       const name = requireString(args, 'filename')
       const encoded = requireString(args, 'content_base64')
       checkAssetName(name)
-      return await backend.importAsset(name.trim(), decodeAssetBase64(encoded))
+      // The name it will really have has to pass too.
+      const cleaned = importedAssetFilename(name.trim())
+      checkAssetName(cleaned)
+      return await backend.importAsset(cleaned, decodeAssetBase64(encoded))
     }
   },
   {

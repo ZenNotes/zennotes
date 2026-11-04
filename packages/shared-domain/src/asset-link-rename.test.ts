@@ -222,4 +222,11 @@ describe('a Markdown link whose file gains a space or a parenthesis', () => {
       rewriteAssetReferences(body, assets, 'N.md', 'assets/a.png', 'assets/b.png', { fullPath: true }).body
     ).toBe('![[assets/b.png]]\n')
   })
+
+  it('reads through an anchor when it asks whether a wikilink names a note', () => {
+    const assets = [{ path: 'Docs/Report' }]
+    const notes = [{ path: 'Report.md', title: 'Report', folder: 'inbox' }]
+    const body = '[[Report#Heading]] [[Report^block]] [[Report|alias]]\n'
+    expect(rewriteAssetReferences(body, assets, 'N.md', 'Docs/Report', 'Docs/Renamed', { notes }).body).toBe(body)
+  })
 })
