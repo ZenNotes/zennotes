@@ -125,6 +125,10 @@ export interface VaultBackend {
   /** The vault root on disk. Empty for a remote vault — `zn open` uses this
    *  to resolve vault-relative paths and has nothing to resolve against. */
   readonly root: string
+  /** Whether a listing says which of its notes and assets are links, so a path
+   *  scope can leave them out. A vault on this machine lists none; a server
+   *  says so in its capabilities. A request that fails rejects. */
+  marksLinks(): Promise<boolean>
 
   describe(): Promise<VaultDescription>
   /** Where the system folders live and whether the inbox is the vault root:
@@ -254,6 +258,7 @@ class LocalBackend implements VaultBackend {
   }
   templateFolder = (): Promise<string | null> => readTemplateFolder(this.root)
   listNotes = (): Promise<NoteMeta[]> => listNotes(this.root)
+  marksLinks = async (): Promise<boolean> => true
   listAssets = (): Promise<VaultAssetMeta[]> => listAssets(this.root)
   listFolders = (): Promise<{ folder: NoteFolder; subpath: string }[]> => listFolders(this.root)
   readNote = (rel: string): Promise<NoteContent> => readNote(this.root, rel)
@@ -365,6 +370,14 @@ class RemoteBackend implements VaultBackend {
   }
   templateFolder = async (): Promise<string | null> =>
     resolveTemplateFolder(await this.client.getVaultSettings())
+  marksLinks = async (): Promise<boolean> => {
+    try {
+      return (await this.client.getCapabilities()).supportsSymlinkMarks === true
+    } catch (err) {
+      if (err instanceof RemoteRequestError && err.status === 404) return false
+      throw err
+    }
+  }
   listNotes = (): Promise<NoteMeta[]> => this.client.listNotes()
   listAssets = async (): Promise<VaultAssetMeta[]> =>
     (await this.client.listAssets()).map((asset) => ({
