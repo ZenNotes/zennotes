@@ -51,6 +51,18 @@
         "99 Archive/Projects/Old.md": "# Old\n",
         "99 Archive/Private/Gone.md": "# Gone\n"
       }
+    },
+    "noteLinks": {
+      "files": {
+        ".zennotes/vault.json": "{\"primaryNotesLocation\":\"root\"}",
+        "Projects/Plan.md": "# Plan\n",
+        "Journal/Diary.md": "# Diary\n\nprivate needle\n- [ ] call mum\n\nsee [[Plan]]\n",
+        "Journal/secret.png": "png"
+      },
+      "symlinks": {
+        "Projects/alias.md": "../Journal/Diary.md",
+        "Projects/alias.png": "../Journal/secret.png"
+      }
     }
   },
   "flagCases": [
@@ -262,6 +274,27 @@
       "disk": {
         "exists": ["Projects/Sub/Step.md", "Projects/Fresh/Deeper/New.md"],
         "absent": ["Journal/ThroughLink.md", "Journal/Made", "Journal/Step.md", "Journal/Sub/Step.md", "Projects/Plan.md/Under.md"]
+      }
+    },
+    {
+      "id": "a-link-to-a-note-is-not-a-note",
+      "vault": "noteLinks",
+      "flags": { "access": "write", "allow": ["Projects"] },
+      "calls": [
+        { "tool": "read_note", "args": { "path": "Projects/alias.md" }, "expect": { "error": "Note not found: Projects/alias.md" } },
+        { "tool": "write_note", "args": { "path": "Projects/alias.md", "body": "# Overwritten\n" }, "expect": { "error": "Note not found: Projects/alias.md" } },
+        { "tool": "append_to_note", "args": { "path": "Projects/alias.md", "text": "more" }, "expect": { "error": "Note not found: Projects/alias.md" } },
+        { "tool": "delete_note", "args": { "path": "Projects/alias.md", "confirm": true }, "expect": { "error": "Note not found: Projects/alias.md" } },
+        { "tool": "list_notes", "args": {}, "expect": { "paths": ["Projects/Plan.md"] } },
+        { "tool": "list_assets", "args": {}, "expect": { "ok": true, "excludes": ["alias", "secret"] } },
+        { "tool": "list_tasks", "args": {}, "expect": { "ok": true, "excludes": ["alias", "call mum"] } },
+        { "tool": "search_text", "args": { "query": "needle" }, "expect": { "ok": true, "excludes": ["alias", "needle"] } },
+        { "tool": "search_by_title", "args": { "query": "alias" }, "expect": { "ok": true, "excludes": ["alias"] } },
+        { "tool": "backlinks", "args": { "path": "Projects/Plan.md" }, "expect": { "paths": [] } }
+      ],
+      "disk": {
+        "exists": ["Projects/alias.md", "Projects/alias.png"],
+        "equals": { "Journal/Diary.md": "# Diary\n\nprivate needle\n- [ ] call mum\n\nsee [[Plan]]\n" }
       }
     },
     {
