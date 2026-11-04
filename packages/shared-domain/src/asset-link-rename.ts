@@ -42,6 +42,9 @@ export interface AssetLinkRewrite {
   body: string
   /** Number of references rewritten. */
   changed: number
+  /** Set when a wikilink to the file had to stay as it was, since its target
+   *  cannot hold the new path. */
+  stranded?: boolean
 }
 
 export interface AssetLinkRewriteOptions {
@@ -52,6 +55,9 @@ export interface AssetLinkRewriteOptions {
    *  see all of `assets`: whether a bare name stays unique depends on them. */
   fullPath?: boolean
 }
+
+/** What a wikilink target reads as something other than a path. */
+const WIKILINK_SYNTAX = /[#?|[\]^]/
 
 function basenameOf(path: string): string {
   return path.slice(path.lastIndexOf('/') + 1)
@@ -114,8 +120,10 @@ export function rewriteAssetReferences(
   const assetsAfter = assets.map((asset) => (asset.path === oldPath ? { path: newPath } : asset))
   const newBase = basenameOf(newPath)
   const newBaseLower = newBase.toLowerCase()
-  const bareStillUnique =
+  const bareUnique =
     assetsAfter.filter((asset) => basenameOf(asset.path).toLowerCase() === newBaseLower).length === 1
+  const bareStillUnique = bareUnique && !options.fullPath
+  let stranded = false
 
   const resolveOld = (reference: string): AssetReferenceResolution | null => {
     const trimmed = reference.trim()
@@ -133,21 +141,27 @@ export function rewriteAssetReferences(
   const retarget = (
     reference: string,
     resolution: AssetReferenceResolution,
-    kind: 'wikilink' | 'href'
+    kind: 'wikilink' | 'href',
+    forceBare = false
   ): string => {
     const angled = reference.startsWith('<') && reference.endsWith('>')
     const inner = angled ? reference.slice(1, -1) : reference
     const { path, suffix } = splitSuffix(inner)
     const bare = !path.includes('/')
     let next: string
-    if (resolution.reading === 'basename' || (kind === 'wikilink' && bare)) {
-      next = bareStillUnique && !options.fullPath ? newBase : newPath
+    if (forceBare) {
+      next = newBase
+    } else if (resolution.reading === 'basename' || (kind === 'wikilink' && bare)) {
+      next = bareStillUnique ? newBase : newPath
     } else if (resolution.reading === 'note-relative' && kind === 'href') {
       next = relativeTo(noteDir, newPath)
     } else {
       next = resolution.absolute ? `/${newPath}` : newPath
     }
-    const out = `${encodeLike(path, next)}${suffix}`
+    let encoded = encodeLike(path, next)
+    // In a folder's name these would read as the start of a fragment or a query.
+    if (kind === 'href') encoded = encoded.replace(/#/g, '%23').replace(/\?/g, '%3F')
+    const out = `${encoded}${suffix}`
     // A Markdown destination with a space or a parenthesis only stays a link in
     // angle brackets, and a rename or a numbered name can bring either in.
     if (angled || (kind === 'href' && /[ \t()]/.test(out))) {
@@ -177,7 +191,17 @@ export function rewriteAssetReferences(
         // `[[Report#Heading]]` names the note as `[[Report]]` does.
         const doc = target.split(/[#^]/)[0]
         if (options.notes && resolveWikilinkTarget(options.notes, doc)) return full
-        const next = `${embed ?? ''}[[${retarget(target, resolution, 'wikilink')}${rest}]]`
+        // `![[Issue #5/pic.png]]` names a heading in a note, so a target cannot
+        // hold such a path. A bare name is used where it will do.
+        let forceBare = false
+        if (WIKILINK_SYNTAX.test(newPath)) {
+          if (WIKILINK_SYNTAX.test(newBase) || (!options.fullPath && !bareUnique)) {
+            stranded = true
+            return full
+          }
+          forceBare = true
+        }
+        const next = `${embed ?? ''}[[${retarget(target, resolution, 'wikilink', forceBare)}${rest}]]`
         // A bare name that still resolves after a move reads exactly as before.
         if (next !== full) changed++
         return next
@@ -190,5 +214,5 @@ export function rewriteAssetReferences(
       return next
     }
   )
-  return { body: next, changed }
+  return stranded ? { body: next, changed, stranded } : { body: next, changed }
 }

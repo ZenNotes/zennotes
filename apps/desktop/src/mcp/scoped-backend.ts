@@ -46,6 +46,7 @@ import { RemoteRequestError } from '../main/remote/connection.js'
 import {
   AssetDestinationRefused,
   ATTACHMENTS_DIRS,
+  foldersAsListed,
   goesThroughLink,
   sanitizeTitle,
   type CustomTemplateFile,
@@ -124,7 +125,8 @@ function spell(p: string, known: readonly string[]): string | null {
   let count = 0
   for (const k of known) {
     if (k === p) return k
-    if (foldMcpScopePath(k) === folded) {
+    // The lists can name one path twice, which is still one path.
+    if (foldMcpScopePath(k) === folded && k !== match) {
       match = k
       count += 1
     }
@@ -667,16 +669,25 @@ export class ScopedBackend implements VaultBackend {
     if (!v.visible(spelled) || !(await v.realDirs(spelled, async () => known))) {
       throw v.assetRefusal()
     }
-    return spelled
+    if (this.inner.kind !== 'local') return spelled
+    const listed = await foldersAsListed(this.inner.root, spelled)
+    if (listed === null || !v.visible(listed)) throw v.assetRefusal()
+    return listed
   }
 
   /** Whether this client sees a path at all, for a tool about to name one it did
-   *  not get from a listing. If that cannot be told, it does not. */
+   *  not get from a listing. If that cannot be told, it does not. The vault's root
+   *  is shared unless an allow list narrows it. */
   async sharesPath(rel: string): Promise<boolean> {
     return await this.load().then(
-      (v) => v.visible(rel),
+      (v) => (rel === '.' || rel === '' ? v.allow.length === 0 : v.visible(rel)),
       () => false
     )
+  }
+
+  /** The answer for a folder this client may not put a file in. */
+  async destinationRefusal(): Promise<Error> {
+    return (await this.load()).assetRefusal()
   }
 
   /** The refusal for handing a file's contents to a client that sees only part
@@ -784,7 +795,13 @@ export class ScopedBackend implements VaultBackend {
     ) {
       throw deletedAssetNotFound(deleted.undoToken)
     }
-    return await this.inner.restoreDeletedAsset(entry)
+    const restored = await this.inner.restoreDeletedAsset(entry)
+    // As with a copy: a number that landed out of view is undone.
+    if (!v.visible(restored.path)) {
+      await this.inner.deleteAsset(restored.path).catch(() => undefined)
+      throw deletedAssetNotFound(deleted.undoToken)
+    }
+    return restored
   }
 
   vaultSettings = (): Promise<Record<string, unknown>> => this.inner.vaultSettings()

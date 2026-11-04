@@ -229,4 +229,22 @@ describe('a Markdown link whose file gains a space or a parenthesis', () => {
     const body = '[[Report#Heading]] [[Report^block]] [[Report|alias]]\n'
     expect(rewriteAssetReferences(body, assets, 'N.md', 'Docs/Report', 'Docs/Renamed', { notes }).body).toBe(body)
   })
+
+  it('says when a wikilink cannot hold the new path', () => {
+    const assets = [{ path: 'assets/a.png' }, { path: 'Other/a.png' }]
+    const body = '![[assets/a.png]] ![x](assets/a.png)\n'
+    const out = rewriteAssetReferences(body, assets, 'N.md', 'assets/a.png', 'Issue #5/a.png')
+    expect(out.stranded).toBe(true)
+    expect(out.body).toBe('![[assets/a.png]] ![x](<Issue %235/a.png>)\n')
+  })
+
+  it('uses a bare name in a wikilink where that resolves', () => {
+    const out = rewriteAssetReferences('![[assets/a.png]]\n', [{ path: 'assets/a.png' }], 'N.md', 'assets/a.png', 'a?b/a.png')
+    expect(out).toEqual({ body: '![[a.png]]\n', changed: 1 })
+  })
+
+  it('cannot use a bare name that holds link syntax itself', () => {
+    const out = rewriteAssetReferences('![[a.png]]\n', [{ path: 'a.png' }], 'N.md', 'a.png', 'x#y.png')
+    expect(out).toMatchObject({ body: '![[a.png]]\n', stranded: true })
+  })
 })

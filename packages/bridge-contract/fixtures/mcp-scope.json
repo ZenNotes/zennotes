@@ -70,6 +70,19 @@
         "99 Archive/Private/Gone.md": "# Gone\n"
       }
     },
+    "assetEdges": {
+      "files": {
+        ".zennotes/vault.json": "{\"primaryNotesLocation\":\"root\"}",
+        "Shared/pic.png": "png",
+        "Shared/n.md": "![[pic.png]]\n",
+        "Hidden/new.png": "png",
+        "assets/cafe.png": "png",
+        "dest/Caf\u00e9.png": "denied",
+        "dest/ok.txt": "ok",
+        "Data/t.csv": "a\n1\n",
+        "Data/t.csv.base.json": "{}"
+      }
+    },
     "noteLinks": {
       "files": {
         ".zennotes/vault.json": "{\"primaryNotesLocation\":\"root\"}",
@@ -1418,11 +1431,11 @@
             "match": {
               "date": "2026-01-02",
               "exists": false,
-              "createWith": {
-                "folder": "inbox",
-                "title": "2026-01-02"
-              }
+              "cannotCreate": "This note's folder is not shared with this assistant, so it cannot be created here."
             },
+            "absentKeys": [
+              "createWith"
+            ],
             "excludes": [
               "Daily Notes"
             ]
@@ -1619,6 +1632,92 @@
           "assets",
           ".zennotes/deleted-assets"
         ]
+      }
+    },
+    {
+      "id": "a-rewrite-does-not-show-a-hidden-file-of-the-same-name",
+      "vault": "assetEdges",
+      "flags": {
+        "access": "write",
+        "allow": [
+          "Shared"
+        ]
+      },
+      "calls": [
+        {
+          "tool": "rename_asset",
+          "args": {
+            "path": "Shared/pic.png",
+            "name": "new.png"
+          },
+          "expect": {
+            "match": {
+              "path": "Shared/new.png"
+            }
+          }
+        }
+      ],
+      "disk": {
+        "equals": {
+          "Shared/n.md": "![[Shared/new.png]]\n"
+        }
+      }
+    },
+    {
+      "id": "a-move-cannot-land-on-a-denied-name",
+      "vault": "assetEdges",
+      "flags": {
+        "access": "write",
+        "deny": [
+          "dest/Caf\u00e9.png"
+        ]
+      },
+      "calls": [
+        {
+          "tool": "move_asset",
+          "args": {
+            "path": "assets/cafe.png",
+            "targetDir": "dest"
+          },
+          "expect": {
+            "error": "This assistant cannot put files there."
+          }
+        }
+      ],
+      "disk": {
+        "absent": [
+          "dest/cafe.png"
+        ],
+        "equals": {
+          "assets/cafe.png": "png"
+        }
+      }
+    },
+    {
+      "id": "a-scope-cannot-split-a-database-pair",
+      "vault": "assetEdges",
+      "flags": {
+        "access": "write",
+        "allow": [
+          "Data/t.csv"
+        ]
+      },
+      "calls": [
+        {
+          "tool": "delete_asset",
+          "args": {
+            "path": "Data/t.csv"
+          },
+          "expect": {
+            "error": "That file belongs to a ZenNotes database. Change it from the app."
+          }
+        }
+      ],
+      "disk": {
+        "equals": {
+          "Data/t.csv": "a\n1\n",
+          "Data/t.csv.base.json": "{}"
+        }
       }
     }
   ]

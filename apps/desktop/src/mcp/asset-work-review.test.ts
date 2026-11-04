@@ -214,7 +214,7 @@ describe('a name rename_asset can give a file', () => {
     })
   })
 
-  it.each(['note.md.', 'note.md ..', 'note.md .', 'note.MD:x'])('treats %j as a note', async (name) => {
+  it.each(['note.md.', 'note.md ..', 'note.md .'])('treats %j as a note', async (name) => {
     await seed({ 'assets/a.png': 'a' })
     const client = await connect()
     const words = 'Notes are not attachments'
@@ -222,12 +222,39 @@ describe('a name rename_asset can give a file', () => {
     expect(await refused(client, 'rename_asset', { path: 'assets/a.png', name })).toContain(words)
   })
 
-  it.each(['CON', 'con.png', 'con .png', 'CONIN$', 'conout$.txt', 'NUL', 'Aux.txt', 'COM1.png', 'lpt9', 'com\u00b9.png'])('refuses %j, a name Windows keeps', async (name) => {
+  it('treats a name that reads as a note after a colon as one, for a rename', async () => {
     await seed({ 'assets/a.png': 'a' })
     const client = await connect()
-    const words = 'reserved on Windows'
-    expect(await refused(client, 'upload_asset', { filename: name, content_base64: 'cG5n' })).toContain(words)
-    expect(await refused(client, 'rename_asset', { path: 'assets/a.png', name })).toContain(words)
+    expect(await refused(client, 'rename_asset', { path: 'assets/a.png', name: 'note.MD:x' })).toContain(
+      'Notes are not attachments'
+    )
+    expect(JSON.parse(await ok(client, 'upload_asset', { filename: 'note.MD:x', content_base64: 'cG5n' }))).toMatchObject({
+      path: 'assets/note.MD-x'
+    })
+  })
+
+  it.each(['CON', 'con.png', 'con .png', 'CONIN$', 'conout$.txt', 'NUL', 'Aux.txt', 'COM1.png', 'lpt9', 'com\u00b9.png'])(
+    'refuses %j for a rename, a name Windows keeps',
+    async (name) => {
+      await seed({ 'assets/a.png': 'a' })
+      const client = await connect()
+      expect(await refused(client, 'rename_asset', { path: 'assets/a.png', name })).toContain('reserved on Windows')
+    }
+  )
+
+  it.each([
+    ['aux.png', 'assets/_aux.png'],
+    ['CON', 'assets/_CON']
+  ])('cleans %j for an upload', async (filename, want) => {
+    const client = await connect()
+    expect(JSON.parse(await ok(client, 'upload_asset', { filename, content_base64: 'cG5n' }))).toMatchObject({ path: want })
+  })
+
+  it.each(['x.csv.bak', 'x.csv.base.json.bak', 'x.csv.base.json', 'x.excalidraw .'])('refuses %j, not a file of the user\'s', async (filename) => {
+    const client = await connect()
+    expect(await refused(client, 'upload_asset', { filename, content_base64: 'cG5n' })).toContain(
+      'cannot be managed as an attachment'
+    )
   })
 })
 
@@ -546,30 +573,198 @@ describe('a path scope and a rename or move', () => {
 
 describe('daily_note under a path scope', () => {
   const SETTINGS = '{"primaryNotesLocation":"root","dailyNotes":{"enabled":true,"directory":"Days"}}'
+  const NOT_SHARED = "This note's folder is not shared with this assistant, so it cannot be created here."
 
-  it('leaves out a folder the client cannot see', async () => {
+  it('says it cannot create a note in a folder the client cannot see', async () => {
     await seed({ '.zennotes/vault.json': SETTINGS, 'Projects/P.md': '# P\n' })
     const client = await connect({ access: 'write', allow: ['Projects'] })
     const answer = await ok(client, 'daily_note', { date: '2026-01-02' })
     expect(answer).not.toContain('Days')
-    expect(JSON.parse(answer).createWith).toMatchObject({ folder: 'inbox', title: '2026-01-02' })
+    expect(JSON.parse(answer)).toMatchObject({ exists: false, cannotCreate: NOT_SHARED })
+    expect(JSON.parse(answer)).not.toHaveProperty('createWith')
   })
 
-  it('names one it can see', async () => {
+  it('says so when only the note itself is hidden', async () => {
+    await seed({ '.zennotes/vault.json': SETTINGS, 'Days/old.md': '# old\n' })
+    const client = await connect({ access: 'write', allow: ['Days/old.md'] })
+    expect(JSON.parse(await ok(client, 'daily_note', { date: '2026-01-02' }))).toMatchObject({ cannotCreate: NOT_SHARED })
+  })
+
+  it('offers to create one it can see', async () => {
     await seed({ '.zennotes/vault.json': SETTINGS, 'Days/old.md': '# old\n' })
     const client = await connect({ access: 'write', allow: ['Days'] })
     expect(JSON.parse(await ok(client, 'daily_note', { date: '2026-01-02' })).createWith.subpath).toBe('Days')
   })
+
+  it('treats the root as shared when no allow list narrows it', async () => {
+    const root_ = '{"primaryNotesLocation":"root","dailyNotes":{"enabled":true,"directory":""}}'
+    await seed({ '.zennotes/vault.json': root_, 'P.md': '# P\n', 'J/H.md': '# H\n' })
+    const deny = await connect({ access: 'write', deny: ['J'] })
+    expect(JSON.parse(await ok(deny, 'daily_note', { date: '2026-01-02' }))).toHaveProperty('createWith')
+  })
 })
 
 describe('a destination whose name other systems read differently', () => {
-  it.each(['Target.', 'Target ./Sub', 'Tar:get', 'Target. /x', 'Sub/Target.'])('refuses %j', async (targetDir) => {
+  it.each(['Target.', 'Target ./Sub', 'Tar:get', 'Target. /x', 'Sub/Target.'])('refuses %j as a new folder', async (targetDir) => {
     await seed({ 'assets/a.png': 'a' })
     const client = await connect()
     expect(await refused(client, 'move_asset', { path: 'assets/a.png', targetDir })).toContain(
       'This assistant cannot put files there.'
     )
     expect(await file('assets/a.png')).toBe('a')
+  })
+
+  const real = process.platform === 'win32' ? ['Clients/Acme Inc.', 'v1.'] : ['Clients/Acme Inc.', 'v1.', 'Notes: 2026']
+
+  it.each(real)('takes %j, a folder that already exists', async (targetDir) => {
+    await seed({ 'assets/a.png': 'a', [`${targetDir}/keep.txt`]: 'k' })
+    const client = await connect()
+    expect(JSON.parse(await ok(client, 'move_asset', { path: 'assets/a.png', targetDir }))).toMatchObject({
+      path: `${targetDir}/a.png`
+    })
+  })
+
+  it('applies the rule under a scope only once the path is visible', async () => {
+    await seed({ 'Open/a.png': 'a', 'Open/v1./keep.txt': 'k', 'Journal/J.md': '# J\n' })
+    const client = await connect({ access: 'write', allow: ['Open'] })
+    expect(await refused(client, 'move_asset', { path: 'Open/a.png', targetDir: 'Open/new.' })).toContain(
+      'This assistant can put files only inside: Open.'
+    )
+    expect(await exists('Open/new.')).toBe(false)
+    expect(JSON.parse(await ok(client, 'move_asset', { path: 'Open/a.png', targetDir: 'Open/v1.' }))).toMatchObject({
+      path: 'Open/v1./a.png'
+    })
+  })
+})
+
+describe('what a move answers about a path it may not see', () => {
+  it('is the same whatever is there', async () => {
+    await seed({
+      '.zennotes/vault.json': '{"primaryNotesLocation":"root","systemFolderPaths":{"trash":"Binned"}}',
+      'Open/a.png': 'a',
+      'Journal/Diary.md': '# D\n',
+      'Binned/Old.md': '# O\n'
+    })
+    const client = await connect({ access: 'write', allow: ['Open'] })
+    for (const targetDir of ['Journal/Diary.md/x', 'Journal/Nope.md/x', 'Journal', 'Binned', 'Binned/x', 'Nowhere']) {
+      expect(await refused(client, 'move_asset', { path: 'Open/a.png', targetDir })).toBe(
+        'Error: This assistant can put files only inside: Open.'
+      )
+    }
+    expect(await file('Open/a.png')).toBe('a')
+  })
+
+  it('does not look under a hidden path on the disk', async () => {
+    await seed({ 'Open/a.png': 'a', 'Journal/Diary.md': '# D\n' })
+    const client = await connect({ access: 'write', allow: ['Open'] })
+    const lstat = vi.spyOn(fsp, 'lstat')
+    await refused(client, 'move_asset', { path: 'Open/a.png', targetDir: 'Journal/Diary.md/x' })
+    expect(lstat.mock.calls.map(([p]) => String(p)).filter((p) => p.includes('Diary.md/x'))).toEqual([])
+    expect(lstat.mock.calls.map(([p]) => String(p)).filter((p) => p.endsWith(path.join('Journal', 'Diary.md', 'x')))).toEqual([])
+  })
+})
+
+describe('a move through a folder link', () => {
+  it('is refused for a client with no scope too', async () => {
+    await seed({ 'assets/a.png': 'a', 'Real/keep.txt': 'k' })
+    await fsp.symlink('Real', inVault('Alias'))
+    const client = await connect()
+    expect(await refused(client, 'move_asset', { path: 'assets/a.png', targetDir: 'Alias' })).toContain(
+      'This assistant cannot put files there.'
+    )
+    expect(await file('assets/a.png')).toBe('a')
+  })
+})
+
+describe('a folder a wikilink cannot name', () => {
+  const FOLDER = 'Issue #5'
+
+  it('encodes it in a Markdown link', async () => {
+    await seed({ 'assets/a.png': 'a', 'N.md': '![x](assets/a.png)\n', [`${FOLDER}/keep.txt`]: 'k' })
+    const client = await connect()
+    await ok(client, 'move_asset', { path: 'assets/a.png', targetDir: FOLDER })
+    expect(await file('N.md')).toBe('![x](<Issue %235/a.png>)\n')
+  })
+
+  it('keeps a bare wikilink where that resolves', async () => {
+    await seed({ 'assets/a.png': 'a', 'N.md': '![[assets/a.png]]\n', [`${FOLDER}/keep.txt`]: 'k' })
+    const client = await connect()
+    const moved = JSON.parse(await ok(client, 'move_asset', { path: 'assets/a.png', targetDir: FOLDER }))
+    expect(await file('N.md')).toBe('![[a.png]]\n')
+    expect(moved).not.toHaveProperty('linksNotUpdated')
+  })
+
+  it('leaves a wikilink as it was where a bare name is ambiguous, and says so', async () => {
+    await seed({
+      'assets/a.png': 'a',
+      'Other/a.png': 'other',
+      'N.md': '![[assets/a.png]]\n',
+      [`${FOLDER}/keep.txt`]: 'k'
+    })
+    const client = await connect()
+    const moved = JSON.parse(await ok(client, 'move_asset', { path: 'assets/a.png', targetDir: FOLDER }))
+    expect(await file('N.md')).toBe('![[assets/a.png]]\n')
+    expect(moved.linksNotUpdated).toEqual(['N.md'])
+  })
+
+  it('always keeps the bare name under a path scope', async () => {
+    await seed({
+      'Open/a.png': 'a',
+      'Open/N.md': '![[Open/a.png]]\n',
+      [`Open/${FOLDER}/keep.txt`]: 'k',
+      'Hid/a.png': 'hidden'
+    })
+    const client = await connect({ access: 'write', allow: ['Open'] })
+    const moved = JSON.parse(await ok(client, 'move_asset', { path: 'Open/a.png', targetDir: `Open/${FOLDER}` }))
+    expect(await file('Open/N.md')).toBe('![[a.png]]\n')
+    expect(moved).not.toHaveProperty('linksNotUpdated')
+  })
+})
+
+describe('a wikilink under a filter', () => {
+  it('is read as naming visible notes only', async () => {
+    await seed({ 'Open/Plan': 'data', 'Open/N.md': '![[Plan]]\n', 'Hid/Plan.md': '# Hidden note\n' })
+    const client = await connect({ access: 'write', allow: ['Open'] })
+    await ok(client, 'rename_asset', { path: 'Open/Plan', name: 'Other' })
+    expect(await file('Open/N.md')).toBe('![[Open/Other]]\n')
+  })
+})
+
+describe('a restore under a scope', () => {
+  it('undoes a number that lands out of view', async () => {
+    const token = '11111111-1111-4111-8111-111111111111'
+    await seed({
+      'Open/x.png': 'x',
+      [`.zennotes/deleted-assets/${token}/.zn-deleted.json`]: JSON.stringify({
+        path: 'Open/x.png',
+        name: 'x.png',
+        deletedAt: '2026-01-01T00:00:00.000Z'
+      }),
+      [`.zennotes/deleted-assets/${token}/x.png`]: 'old'
+    })
+    const client = await connect({ access: 'write', allow: ['Open/x.png'] })
+    expect(await refused(client, 'restore_asset', { undoToken: token })).toContain(`Deleted asset not found: ${token}`)
+    expect(await fsp.readdir(inVault('Open'))).toEqual(['x.png'])
+    expect(await file('Open/x.png')).toBe('x')
+  })
+})
+
+describe('a finished task note', () => {
+  it('keeps the day it was finished when marked done again', async () => {
+    const NOTE = 'Do.md'
+    const body = '---\ntags: [task]\nstatus: done\ncompletedDate: 2026-01-01\n---\n# Do\n'
+    await seed({ [NOTE]: body })
+    const client = await connect()
+    await ok(client, 'update_task', { id: `${NOTE}#task`, state: 'done' })
+    expect(await file(NOTE)).toBe(body)
+  })
+})
+
+describe('a database pair spelled another way', () => {
+  it('is still a pair', async () => {
+    await seed({ 'Data/T.csv': 'a\n', 'Data/t.csv.base.json': '{}' })
+    const client = await connect()
+    expect(await refused(client, 'delete_asset', { path: 'Data/T.csv' })).toContain('belongs to a ZenNotes database')
   })
 })
 

@@ -7,6 +7,7 @@
  * has the same tools in internal/mcp/worktools.go.
  */
 
+import path from 'node:path'
 import {
   setTaskFileCancelled,
   setTaskFileInProgress,
@@ -199,7 +200,8 @@ function updateFileTask(start: string, task: VaultTask, input: UpdateTaskInput):
       body = setTaskFileStatus(body, false, today)
       break
     case 'done':
-      body = setTaskFileStatus(body, true, today)
+      // Already finished keeps the day it was finished.
+      if (!task.checked) body = setTaskFileStatus(body, true, today)
       break
     case 'in-progress':
       body = setTaskFileInProgress(body, true)
@@ -355,14 +357,24 @@ async function dailyNote(
     ) as unknown as NoteMeta | null
   }
   if (found) return { ...result, exists: true, path: found.path, note: found }
-  // A folder this client cannot see stays unnamed, here as anywhere.
-  const named = !(backend instanceof ScopedBackend) || (await backend.sharesPath(rel))
+  // A folder this client cannot see stays unnamed, and starting the note anywhere
+  // else would only misfile it.
+  if (
+    backend instanceof ScopedBackend &&
+    !((await backend.sharesPath(path.posix.dirname(rel))) && (await backend.sharesPath(rel)))
+  ) {
+    return {
+      ...result,
+      exists: false,
+      cannotCreate: "This note's folder is not shared with this assistant, so it cannot be created here."
+    }
+  }
   return {
     ...result,
     exists: false,
     createWith: {
       folder: 'inbox',
-      ...(named ? { subpath: location.subpath } : {}),
+      subpath: location.subpath,
       title: location.title,
       body: await periodicBody(backend, plan.periodic.templateId, location.title, date)
     }
@@ -423,7 +435,7 @@ export const WORK_TOOLS: ToolDef[] = [
     schema: {
       name: 'daily_note',
       description:
-        "Find the daily note for a date (or the weekly or monthly note holding it) under this vault's own folder and naming settings, which you cannot guess. Changes nothing. If `exists`, use its `path`. If not, pass `createWith` to create_note as it is, which starts the note from the vault's template, and use the `path` create_note returns. `enabled: false` means the user has this kind of note turned off, so ask before creating one.",
+        "Find the daily note for a date (or the weekly or monthly note holding it) under this vault's own folder and naming settings, which you cannot guess. Changes nothing. If `exists`, use its `path`. If not, pass `createWith` to create_note as it is, which starts the note from the vault's template, and use the `path` create_note returns. `cannotCreate` means this assistant may not create it. `enabled: false` means the user has this kind of note turned off, so ask before creating one.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -487,7 +499,7 @@ export const WORK_TOOLS: ToolDef[] = [
     schema: {
       name: 'edit_section',
       description:
-        'Edit the part of a note under one heading: `append` (the usual choice, such as a new item under Action Items; it goes above any subheading), `prepend`, or `replace`, which rewrites everything under the heading, subheadings included. The heading and the rest of the note keep their bytes. Fails with the note\'s headings if there is no such heading.',
+        'Edit the part of a note under one heading: `append` (the usual choice, such as a new item under Action Items; it goes above any subheading), `prepend`, or `replace`, which rewrites everything under the heading, subheadings included. The heading and the rest of the note keep their text. Fails with the note\'s headings if there is no such heading.',
       inputSchema: {
         type: 'object',
         properties: {

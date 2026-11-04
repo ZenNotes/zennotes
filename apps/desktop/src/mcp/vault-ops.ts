@@ -21,6 +21,7 @@ import os from 'node:os'
 import { parse as parseToml } from 'smol-toml'
 import { retitleLeadingHeading } from '@shared/note-heading-sync'
 import { rewriteAssetReferences } from '@shared/asset-link-rename'
+import { foldMcpScopePath } from '@shared/mcp-scope'
 import { noteTurn } from './note-turns'
 import { goQuote } from '@shared/mcp-scope'
 import { IMAGE_FILE_EXTENSIONS } from '@shared/pasted-image'
@@ -1212,8 +1213,9 @@ async function placeAtFreeName(
  *  change, so references still resolve to the asset under its old path. This
  *  walk's note listing carries no attachment flag, so it reads each note and
  *  writes only the ones whose text changes, one note's turn at a time, since a
- *  tool may be editing it. Returns the notes it could not read or write, whose
- *  links may still use the old name. */
+ *  tool may be editing it. Returns the notes it could not read or write, or
+ *  whose wikilinks cannot hold the new path, which may still use the old name. A
+ *  filter also limits which notes a wikilink can be read as naming. */
 async function rewriteAssetLinks(
   root: string,
   notesBefore: NoteMeta[],
@@ -1224,25 +1226,30 @@ async function rewriteAssetLinks(
 ): Promise<string[]> {
   const failed: string[] = []
   const notes = notesBefore.filter((note) => note.folder !== 'trash')
-  for (const note of notes) {
-    if (rewriteIn && !rewriteIn(note.path)) continue
+  const nameable = rewriteIn ? notes.filter((note) => rewriteIn(note.path)) : notes
+  for (const note of nameable) {
     await noteTurn(root, note.path, async () => {
       const content = await readNote(root, note.path).catch(() => null)
       if (!content) {
         failed.push(note.path)
         return
       }
-      const { body, changed } = rewriteAssetReferences(
+      const { body, changed, stranded } = rewriteAssetReferences(
         content.body,
         assetsBefore,
         note.path,
         oldRel,
         newRel,
-        { notes, fullPath: rewriteIn != null }
+        { notes: nameable, fullPath: rewriteIn != null }
       )
-      if (changed === 0) return
       // One note that cannot be written leaves the rest to do.
-      await writeNote(root, note.path, body).catch(() => failed.push(note.path))
+      const written =
+        changed === 0 ||
+        (await writeNote(root, note.path, body).then(
+          () => true,
+          () => false
+        ))
+      if (!written || stranded) failed.push(note.path)
     })
   }
   return failed
@@ -1309,6 +1316,11 @@ function markdownForAsset(rel: string, name: string, kind: ImportedVaultAssetKin
   return `[${name}](<${rel.replace(/>/g, '%3E')}>)`
 }
 
+/** A device name Windows keeps, with or without an extension. */
+export function isReservedFileName(name: string): boolean {
+  return /^(?:con|prn|aux|nul|conin\$|conout\$|com[1-9\u00b9\u00b2\u00b3]|lpt[1-9\u00b9\u00b2\u00b3]) *(?:\.|$)/i.test(name)
+}
+
 /** A name that cannot terminate or retarget the link written for it. */
 export function importedAssetFilename(filename: string): string {
   const safe = path
@@ -1319,6 +1331,7 @@ export function importedAssetFilename(filename: string): string {
     .trim()
     // Another system reads a trailing dot as no dot at all.
     .replace(/[. ]+$/, '')
+  if (isReservedFileName(safe)) return `_${safe}`
   return safe && safe !== '.' && safe !== '..' ? safe : 'file'
 }
 
@@ -1352,7 +1365,11 @@ export async function renameAsset(
         const sameName =
           cleanName.normalize('NFC').toLowerCase() ===
           path.basename(source.abs).normalize('NFC').toLowerCase()
-        if (!sameName) throw alreadyThere()
+        // Both names listed means two entries, a hard link with one of its own to lose.
+        const listed = await fs.readdir(path.dirname(source.abs))
+        if (!sameName || (listed.includes(cleanName) && listed.includes(path.basename(source.abs)))) {
+          throw alreadyThere()
+        }
         const [src, dst] = await Promise.all([fileIdentity(source.abs), fileIdentity(destAbs)])
         if (!isSameFile(src, dst)) throw alreadyThere()
         const tmp = `${source.abs}.${process.pid}.${Date.now()}000.tmp`
@@ -1380,50 +1397,39 @@ export async function renameAsset(
   )
 }
 
-/** A vault-relative folder with each segment that exists spelled as its parent
- *  lists it, so what a note is given reads the same as the listing. A folder
- *  named another way on a case-insensitive volume is that folder. */
-async function spelledAsListed(root: string, rel: string): Promise<string> {
-  const fold = (name: string): string => name.normalize('NFC').toLowerCase()
-  const out: string[] = []
-  const segments = rel.split('/').filter(Boolean)
-  for (const [at, seg] of segments.entries()) {
-    const listed = await fs.readdir(path.join(root, ...out)).catch(() => [] as string[])
-    const match = listed.includes(seg) ? seg : listed.find((name) => fold(name) === fold(seg))
-    if (match === undefined) return [...out, ...segments.slice(at)].join('/')
-    out.push(match)
-  }
-  return out.join('/')
-}
-
-/** A path as it really lies on disk, for a folder that may not exist yet. */
-async function realPathOfNew(abs: string): Promise<string> {
-  const rest: string[] = []
-  for (let at = abs; ; at = path.dirname(at)) {
-    try {
-      return path.join(await fs.realpath(at), ...rest)
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code
-      if ((code !== 'ENOENT' && code !== 'ENOTDIR') || at === path.dirname(at)) throw err
-      rest.unshift(path.basename(at))
-    }
-  }
-}
-
 /** A move whose final path the caller turned down, numbered name included. */
 export class AssetDestinationRefused extends Error {}
 
-/** Whether a folder lands in the trash or the internal folder, whatever links it
- *  goes through. The trash's contents are destroyed by empty_trash and the app. */
-async function landsInProtectedFolder(root: string, destDir: string): Promise<boolean> {
-  const real = await realPathOfNew(destDir)
-  const trash = (await readSystemFolderPaths(root)).trash ?? 'trash'
-  for (const dir of [trash, INTERNAL_VAULT_DIR]) {
-    const protectedDir = await realPathOfNew(path.join(root, dir))
-    const inside = path.relative(protectedDir, real)
-    if (inside === '' || (!inside.startsWith('..') && !path.isAbsolute(inside))) return true
+/** Whether a folder about to be made means the same folder on every system. */
+function holdsEverywhere(seg: string): boolean {
+  return !/[. ]$|:/.test(seg)
+}
+
+/** A vault-relative folder with each segment that exists written as its parent
+ *  lists it, so a note reads like the listing. Null for a segment that is not a
+ *  real folder under a name its parent lists, or a new one that would not hold on
+ *  every system. */
+export async function foldersAsListed(root: string, rel: string): Promise<string | null> {
+  const segments = rel.split('/')
+  const out: string[] = []
+  let walk = root
+  for (const [at, seg] of segments.entries()) {
+    const info = await fs.lstat(path.join(walk, seg)).catch((err: NodeJS.ErrnoException) =>
+      err.code === 'ENOENT' ? ('free' as const) : null
+    )
+    if (info === 'free') {
+      const fresh = segments.slice(at)
+      return fresh.every(holdsEverywhere) ? [...out, ...fresh].join('/') : null
+    }
+    if (!info || !info.isDirectory()) return null
+    const listed = await fs.readdir(walk).catch(() => [] as string[])
+    const folded = foldMcpScopePath(seg)
+    const name = listed.includes(seg) ? seg : listed.find((n) => foldMcpScopePath(n) === folded)
+    if (name === undefined) return null
+    out.push(name)
+    walk = path.join(walk, name)
   }
-  return false
+  return out.join('/')
 }
 
 /** Move an asset into `targetDir`, creating it; a taken name gets a number. */
@@ -1437,14 +1443,11 @@ export async function moveAsset(
   const moved = await assetWriteTurn(root, async () => {
     const assetsBefore = await listAssets(root)
     const source = await assertAssetFile(root, rel)
-    const normalized = await spelledAsListed(root, trimVaultRelative(targetDir))
+    const normalized = trimVaultRelative(targetDir)
     if (normalized.split('/').includes(INTERNAL_VAULT_DIR)) {
       throw new Error('cannot move assets into internal ZenNotes files')
     }
     const destDir = await resolveSafe(root, normalized || ASSETS_DIR)
-    if (await landsInProtectedFolder(root, destDir)) {
-      throw new Error('This assistant cannot put files there.')
-    }
     await fs.mkdir(destDir, { recursive: true })
     // By identity: a folder spelled another way on a case-insensitive volume is
     // this one too, and a move would only give the file a number.

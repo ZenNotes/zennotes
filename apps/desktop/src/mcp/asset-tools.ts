@@ -17,7 +17,7 @@ import {
   isDatabaseSidecarPath
 } from '@shared/databases'
 import { isExcalidrawPath } from '@shared/excalidraw'
-import { isInsideMcpScopeEntryFolded } from '@shared/mcp-scope'
+import { foldMcpScopePath, isInsideMcpScopeEntryFolded } from '@shared/mcp-scope'
 import { resolveFolderPath } from '@shared/system-folder-paths'
 import { isAtomicWriteTempPath } from '../main/atomic-write.js'
 import type { VaultAssetMeta, VaultBackend } from '../cli/backend.js'
@@ -29,7 +29,7 @@ import {
   ScopedBackend
 } from './scoped-backend.js'
 import { optionalBoolean, RawToolResult, requireString, type ToolDef } from './tool-support.js'
-import { importedAssetFilename } from './vault-ops.js'
+import { foldersAsListed, importedAssetFilename, isReservedFileName } from './vault-ops.js'
 
 /** A tool call carries the file as base64 inside one JSON-RPC message, held in
  *  memory several times over. */
@@ -53,7 +53,8 @@ async function refuseDatabaseFile(meta: VaultAssetMeta, backend: VaultBackend): 
   // The whole listing: a pair stays a pair when a scope hides half of it.
   const listing = backend instanceof ScopedBackend ? backend.inner : backend
   const all = await listing.listAssets()
-  if (all.some((asset) => asset.path === meta.path + DATABASE_SIDECAR_SUFFIX)) throw refusal
+  const sidecar = foldMcpScopePath(meta.path + DATABASE_SIDECAR_SUFFIX)
+  if (all.some((asset) => foldMcpScopePath(asset.path) === sidecar)) throw refusal
 }
 
 /** What a loose CSV keeps beside it that is not the user's: its schema file and
@@ -68,24 +69,19 @@ function isLooseCsvInternal(rel: string): boolean {
   )
 }
 
-/** Device names Windows keeps, with or without an extension. */
-const WINDOWS_RESERVED_NAME = /^(?:con|prn|aux|nul|conin\$|conout\$|com[1-9\u00b9\u00b2\u00b3]|lpt[1-9\u00b9\u00b2\u00b3]) *(?:\.|$)/i
-
 /** Refuses a name the asset listing would not show afterwards, since a file the
- *  listing cannot see is one no tool can reach again. */
+ *  listing cannot see is one no tool can reach again. Dots and spaces at the end
+ *  of a name do not count. */
 function checkAssetName(name: string): void {
   const trimmed = name.trim()
+  const bare = trimmed.toLowerCase().replace(/[. ]+$/, '')
   if (!trimmed || trimmed === '.' || trimmed === '..') throw new Error('A file name is required.')
   if (/[/\\\u0000]/.test(trimmed)) throw new Error('Use only a file name, with no folder in it.')
   if (trimmed.startsWith('.')) throw new Error('A file name cannot start with a dot.')
-  // However it is dressed up, a note's name is a note's.
-  if (trimmed.split(':')[0].replace(/[. ]+$/, '').toLowerCase().endsWith('.md')) {
+  if (bare.endsWith('.md')) {
     throw new Error('Notes are not attachments: use create_note or rename_note.')
   }
-  if (WINDOWS_RESERVED_NAME.test(trimmed)) {
-    throw new Error('That name is reserved on Windows, so choose another.')
-  }
-  if (isExcalidrawPath(trimmed) || isAtomicWriteTempPath(trimmed) || isDatabaseSidecarPath(trimmed)) {
+  if (isExcalidrawPath(bare) || isAtomicWriteTempPath(trimmed) || isLooseCsvInternal(bare)) {
     throw new Error('That kind of file cannot be managed as an attachment.')
   }
 }
@@ -98,7 +94,14 @@ const NAME_BREAKS_LINKS = /[#?|[\]^%:*"<>`\u0000-\u001f\u007f]|[. ]$/
 
 function checkAssetNewName(name: string): void {
   checkAssetName(name)
-  if (NAME_BREAKS_LINKS.test(name.trim())) {
+  const trimmed = name.trim()
+  if (trimmed.split(':')[0].replace(/[. ]+$/, '').toLowerCase().endsWith('.md')) {
+    throw new Error('Notes are not attachments: use create_note or rename_note.')
+  }
+  if (isReservedFileName(trimmed)) {
+    throw new Error('That name is reserved on Windows, so choose another.')
+  }
+  if (NAME_BREAKS_LINKS.test(trimmed)) {
     throw new Error(
       'A file name cannot contain # ? | [ ] ^ % : * " < > ` or a control character, or end with a dot, since links to it would break.'
     )
@@ -107,20 +110,24 @@ function checkAssetNewName(name: string): void {
 
 /** Refuses a destination whatever the scope: anything that is not a plain
  *  vault-relative folder, a database's insides, and the trash, whose contents
- *  empty_trash and the app destroy. */
+ *  empty_trash and the app destroy. Under a scope nothing here looks at the disk,
+ *  and the trash answers as any other folder the client may not use: what is there
+ *  is for ScopedBackend to judge once the path is known to be visible. */
 async function checkAssetTargetDir(backend: VaultBackend, raw: string): Promise<string> {
   const refused = new Error('This assistant cannot put files there.')
   const clean = cleanRequest(raw)
   // The move trims what it is given, so this has to be what it will use.
   if (!clean || raw.trim() !== raw) throw refused
-  // A name other systems cannot hold or read the same way.
-  if (clean.split('/').some((seg) => /[. ]$|:/.test(seg))) throw refused
   if (clean.split('/').some((seg) => seg.toLowerCase().endsWith(FORM_DIR_SUFFIX))) throw refused
   const { systemFolderPaths } = await backend.vaultLayout()
+  const scoped = backend instanceof ScopedBackend ? backend : null
   if (isInsideMcpScopeEntryFolded(clean, resolveFolderPath('trash', systemFolderPaths))) {
-    throw refused
+    throw scoped ? await scoped.destinationRefusal() : refused
   }
-  return clean
+  if (scoped || backend.kind !== 'local') return clean
+  const listed = await foldersAsListed(backend.root, clean)
+  if (listed === null) throw refused
+  return listed
 }
 
 /** Reads what a client plausibly sends: standard or URL-safe, padded or not,
