@@ -1496,13 +1496,18 @@ export async function readDatabaseVaultLayout(root: string): Promise<{
 }
 
 /** Whether a vault-relative directory is, or sits under, a link. Anything but
- *  plain absence counts as one. */
+ *  plain absence counts as one. A file with more of the path below it does too,
+ *  since it cannot be walked: POSIX says so with ENOTDIR, but Windows answers
+ *  ENOENT, the same as for nothing there. */
 export async function goesThroughLink(root: string, rel: string): Promise<boolean> {
+  const segments = rel.split('/').filter(Boolean)
   let walked = root
-  for (const seg of rel.split('/').filter(Boolean)) {
+  for (const [at, seg] of segments.entries()) {
     walked = path.join(walked, seg)
     try {
-      if ((await fs.lstat(walked)).isSymbolicLink()) return true
+      const info = await fs.lstat(walked)
+      if (info.isSymbolicLink()) return true
+      if (at < segments.length - 1 && !info.isDirectory()) return true
     } catch (err) {
       return (err as NodeJS.ErrnoException).code !== 'ENOENT'
     }

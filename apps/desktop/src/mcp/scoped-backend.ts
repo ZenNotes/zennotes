@@ -254,7 +254,9 @@ class ScopeView {
    *  listings skip symbolic links, so a folder they do not know may be a link
    *  into a hidden one, and a write through it would land there. On a server,
    *  `known` holds the folders its listings prove are real, and the first segment
-   *  outside them must have nothing there. */
+   *  outside them must have nothing there. On this machine a folder is only a
+   *  name its parent lists: a file system can answer to spellings a scope cannot
+   *  name. */
   async realDirs(rel: string, known: () => Promise<string[]>): Promise<boolean> {
     if (!rel || rel === '.') return true
     if (!this.root) {
@@ -268,9 +270,13 @@ class ScopeView {
     }
     let walk = this.root
     for (const seg of rel.split('/')) {
+      const parent = walk
       walk = path.join(walk, seg)
       try {
         if (!(await fs.lstat(walk)).isDirectory()) return false
+        const folded = foldMcpScopePath(seg)
+        const listed = await fs.readdir(parent)
+        if (!listed.some((name) => foldMcpScopePath(name) === folded)) return false
       } catch (err) {
         return (err as NodeJS.ErrnoException).code === 'ENOENT'
       }

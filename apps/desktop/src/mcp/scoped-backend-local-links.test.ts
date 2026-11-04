@@ -337,8 +337,68 @@ describe('where a local vault keeps its system folders', () => {
 
   it('counts a path it cannot walk as going through a link', async () => {
     expect(await goesThroughLink(root, 'Open/Free.md/below')).toBe(true)
+    expect(await goesThroughLink(root, 'Open/Free.md/below/more')).toBe(true)
+    expect(await goesThroughLink(root, 'Open/Free.md')).toBe(false)
     expect(await goesThroughLink(root, 'Open/Missing/below')).toBe(false)
     expect(await goesThroughLink(root, 'Open')).toBe(false)
+  })
+})
+
+// Windows makes a junction without any privilege. Elsewhere this is a symlink.
+describe('a junction to a hidden folder', () => {
+  const allow = newMcpScope({ access: 'write', allow: ['Open'] })
+
+  beforeEach(async () => {
+    await fsp.symlink(inVault('Journal'), inVault('Open/jn'), 'junction')
+    await fsp.writeFile(inVault('Journal/secret.png'), 'png')
+    await fsp.writeFile(inVault('Open/pic.png'), 'png')
+  })
+
+  it('shows nothing through it', async () => {
+    const notes = (await callTool('list_notes', {}, backend, allow)) as { path: string }[]
+    expect(notes.map((note) => note.path)).toEqual(['Open/Free.md'])
+    const assets = (await callTool('list_assets', {}, backend, allow)) as { path: string }[]
+    expect(assets.map((asset) => asset.path)).toEqual(['Open/pic.png'])
+    await expect(callTool('read_note', { path: 'Open/jn/Diary.md' }, backend, allow)).rejects.toThrow(
+      new Error('Note not found: Open/jn/Diary.md')
+    )
+  })
+
+  it('takes nothing through it', async () => {
+    const refusal = 'This assistant can create and move notes only inside: Open.'
+    await expect(
+      callTool('create_note', { folder: 'inbox', subpath: 'Open/jn', title: 'In' }, backend, allow)
+    ).rejects.toThrow(new Error(refusal))
+    await expect(
+      callTool('move_asset', { path: 'Open/pic.png', targetDir: 'Open/jn' }, backend, allow)
+    ).rejects.toThrow(new Error('This assistant can put files only inside: Open.'))
+    expect(await goesThroughLink(root, 'Open/jn/below')).toBe(true)
+    expect(await exists(inVault('Journal/In.md'))).toBe(false)
+    expect(await exists(inVault('Journal/pic.png'))).toBe(false)
+  })
+})
+
+describe('a destination folder its parent does not list', () => {
+  it('is not one a file can move to', async () => {
+    await fsp.mkdir(inVault('Open/Kept'))
+    await fsp.writeFile(inVault('Open/pic.png'), 'png')
+    const allow = newMcpScope({ access: 'write', allow: ['Open'] })
+    const readdir = fsp.readdir.bind(fsp)
+    // A plain listing of the parent, as the check reads it, leaves the folder out.
+    const spy = vi.spyOn(fsp, 'readdir').mockImplementation((async (dir: string, options?: unknown) => {
+      const listed = await readdir(dir, options as never)
+      return options === undefined && path.resolve(dir) === path.resolve(inVault('Open'))
+        ? (listed as unknown as string[]).filter((name) => name !== 'Kept')
+        : listed
+    }) as never)
+    try {
+      await expect(
+        callTool('move_asset', { path: 'Open/pic.png', targetDir: 'Open/Kept' }, backend, allow)
+      ).rejects.toThrow(new Error('This assistant can put files only inside: Open.'))
+    } finally {
+      spy.mockRestore()
+    }
+    expect(await exists(inVault('Open/pic.png'))).toBe(true)
   })
 })
 
