@@ -7742,10 +7742,15 @@ export const useStore = create<Store>((set, get) => {
     const revision = taskIndexRevision
     // A scan that went stale is dropped, which is right, but the same vault still
     // needs an answer: a layout that moved under it left Tasks on "scanning..."
-    // until the next resume (#1023). Another vault has its own state and scan.
+    // until the next resume (#1023). A folder move or a local edit keeps the tasks
+    // it already rewrote, so that only ends the loading state. Another vault has
+    // its own state and scan.
     const dropIfStale = async (): Promise<boolean> => {
       if (isCurrent() && revision === taskIndexRevision) return false
-      if (get().vault === scannedVault && window.zen === scannedBridge) await get().refreshTasks()
+      if (get().vault === scannedVault && window.zen === scannedBridge) {
+        if (isCurrent()) set({ tasksLoading: false })
+        else await get().refreshTasks()
+      }
       return true
     }
     set({ tasksLoading: true })
