@@ -106,8 +106,13 @@ export async function runRecordingAgentEdit<T>(
   // A remote vault's notes are written by its server; recording there needs
   // the server's own change (see the design doc).
   if (!noteOf || backend.kind !== 'local') return await run()
-  const rel = noteOf(args)
-  if (!rel) return await run()
+  const named = noteOf(args)
+  if (!named) return await run()
+  // The record belongs to the note, however the client spelled its path.
+  const rel = await backend.readNote(named).then(
+    (note) => note.path,
+    () => named
+  )
 
   return await oneAtATime(`${backend.root}\0${rel}`, async () => {
     if (!(await reviewAgentEditsEnabled())) return await run()

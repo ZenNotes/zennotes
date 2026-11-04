@@ -143,9 +143,7 @@ export function cleanRequest(raw: string): string | null {
   return parts.length > 0 ? parts.join('/') : null
 }
 
-/** Whether the asset routes would use another path than this one: they trim
- *  surrounding whitespace, on a vault here and on a server, so " Journal" would
- *  pass the scope check and reach "Journal". */
+/** A path with whitespace around it is not one the listings hold. */
 function trimsDifferently(raw: string): boolean {
   return raw.trim() !== raw
 }
@@ -250,13 +248,10 @@ class ScopeView {
     private readonly root: string
   ) {}
 
-  /** Whether every segment of `rel` that exists is a real directory. The
-   *  listings skip symbolic links, so a folder they do not know may be a link
-   *  into a hidden one, and a write through it would land there. On a server,
-   *  `known` holds the folders its listings prove are real, and the first segment
-   *  outside them must have nothing there. On this machine a folder is only a
-   *  name its parent lists: a file system can answer to spellings a scope cannot
-   *  name. */
+  /** Whether every segment of `rel` that exists is a real folder under the name
+   *  its parent lists, as a destination must be. On a server, `known` holds the
+   *  folders its listings establish, and the first segment outside them must
+   *  have nothing there. */
   async realDirs(rel: string, known: () => Promise<string[]>): Promise<boolean> {
     if (!rel || rel === '.') return true
     if (!this.root) {
@@ -642,10 +637,8 @@ export class ScopedBackend implements VaultBackend {
     return meta
   }
 
-  /** The folders the listings prove are real, plus the attachment folders,
-   *  which listings hide. Whether one of those is itself a link cannot be told on
-   *  a server, since a read answers the same for a real folder, so the server
-   *  refuses that write itself. */
+  /** The folders the listings establish, plus the attachment folders, which
+   *  listings hide. A server makes its own check on those. */
   private async knownAssetDirs(v: ScopeView): Promise<string[]> {
     const known = [...v.dirs, ...ATTACHMENTS_DIRS]
     for (const asset of await this.visibleAssets().catch(() => [])) {
@@ -729,6 +722,7 @@ export class ScopedBackend implements VaultBackend {
     const meta = await this.assetFor(rel, 'write')
     const v = await this.load()
     const dir = await this.assetDestination(v, targetDir)
+    if (!v.visible(path.posix.join(dir, meta.name))) throw v.assetRefusal()
     if (!isMcpScopeRestricted(this.scope)) return await this.inner.moveAsset(meta.path, dir)
     if (this.inner.kind === 'remote') throw new Error(REMOTE_ASSET_LINKS)
     return await this.inner.moveAsset(meta.path, dir, v.visible)

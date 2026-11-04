@@ -6,7 +6,7 @@
  */
 
 import { goQuote } from '@shared/mcp-scope'
-import { parseOutline } from '@renderer/lib/outline'
+import { ATX_RE, parseOutline } from '@renderer/lib/outline'
 
 /** A heading and what sits under it, up to the next heading of the same or a
  *  higher level. Lines are zero-based, as in insert_at_line and a task's
@@ -27,8 +27,13 @@ interface SectionExtent extends NoteSection {
 
 export type SectionEditMode = 'append' | 'prepend' | 'replace'
 
-const SECTION_ATX_RE = /^#{1,6}\s+\S/
 const SECTION_LIST_ITEM_RE = /^\s*(?:[-+*]|\d+[.)])\s/
+
+/** Whether every line break of a note is CRLF, so an edit made in LF can be put
+ *  back. A note with mixed endings comes out in LF. */
+function usesCrlf(body: string): boolean {
+  return body.includes('\r\n') && !/(^|[^\r])\n/.test(body)
+}
 
 function splitNoteLines(body: string): string[] {
   return body.replace(/\r\n/g, '\n').split('\n')
@@ -40,7 +45,7 @@ function sectionExtents(body: string): SectionExtent[] {
   const outline = parseOutline(normalized)
   return outline.map((item, i) => {
     const line = item.line - 1
-    const bodyStart = SECTION_ATX_RE.test(lines[line]) ? line + 1 : line + 2
+    const bodyStart = ATX_RE.test(lines[line]) ? line + 1 : line + 2
     let end = lines.length
     for (const later of outline.slice(i + 1)) {
       if (later.level <= item.level) {
@@ -151,5 +156,6 @@ export function editSectionInBody(
   // A section that ended the note still ends it with a newline.
   out.push('')
   if (end < lines.length) out.push(...lines.slice(end))
-  return out.join('\n')
+  const edited = out.join('\n')
+  return usesCrlf(body) ? edited.replace(/\n/g, '\r\n') : edited
 }

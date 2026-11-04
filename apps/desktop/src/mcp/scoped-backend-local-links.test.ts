@@ -345,7 +345,7 @@ describe('where a local vault keeps its system folders', () => {
 })
 
 // Windows makes a junction without any privilege. Elsewhere this is a symlink.
-describe('a junction to a hidden folder', () => {
+describe('a junction', () => {
   const allow = newMcpScope({ access: 'write', allow: ['Open'] })
 
   beforeEach(async () => {
@@ -354,7 +354,7 @@ describe('a junction to a hidden folder', () => {
     await fsp.writeFile(inVault('Open/pic.png'), 'png')
   })
 
-  it('shows nothing through it', async () => {
+  it('shows nothing behind it', async () => {
     const notes = (await callTool('list_notes', {}, backend, allow)) as { path: string }[]
     expect(notes.map((note) => note.path)).toEqual(['Open/Free.md'])
     const assets = (await callTool('list_assets', {}, backend, allow)) as { path: string }[]
@@ -364,7 +364,7 @@ describe('a junction to a hidden folder', () => {
     )
   })
 
-  it('takes nothing through it', async () => {
+  it('takes no write', async () => {
     const refusal = 'This assistant can create and move notes only inside: Open.'
     await expect(
       callTool('create_note', { folder: 'inbox', subpath: 'Open/jn', title: 'In' }, backend, allow)
@@ -460,11 +460,11 @@ describe('an attachment folder that is a link', () => {
     expect(assets.map((a) => a.path)).toEqual(['assets/real.png'])
   })
 
-  it('lists the file where it really is for a client with no path scope', async () => {
+  it('stays as it was for a client with no path scope', async () => {
     await fsp.symlink('Journal', inVault('assets'))
     const read = newMcpScope({ access: 'read' })
     const assets = (await callTool('list_assets', {}, backend, read)) as { path: string }[]
-    expect(assets.map((a) => a.path)).toEqual(['Journal/secret.png'])
+    expect(assets.map((a) => a.path)).toContain('assets/secret.png')
   })
 })
 

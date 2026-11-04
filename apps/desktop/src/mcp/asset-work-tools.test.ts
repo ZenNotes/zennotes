@@ -78,10 +78,8 @@ async function refused(client: Client, name: string, args: Record<string, unknow
   return text
 }
 
-/** The vault in `root` answering as a server does: a read of a missing path is
- *  a 404, and `links` lists what it lists from a link and marks. A folder in
- *  `folderLinks` is a link to a folder, which a server's read answers with a 400
- *  and its listings leave out. */
+/** The vault in `root` answering as a server does. `links` are marked in its
+ *  listings, and a read of `folderLinks` answers 400. */
 function serverVault(links: string[] = [], folderLinks: string[] = []): VaultBackend {
   const local = createBackend({ kind: 'local', root })
   return {
@@ -288,7 +286,7 @@ describe('the asset tools on files that are not theirs to change', () => {
 })
 
 describe('a path scope and links', () => {
-  it('never writes through a symbolic link', async () => {
+  it('keeps every write inside the scope', async () => {
     await seed({
       'Journal/Diary.md': '# Diary\n',
       'Shared/pic.png': 'png',
@@ -329,7 +327,7 @@ describe('a path scope and links', () => {
     expect(await file('assets/x 2.png')).toBe('hidden')
   })
 
-  it('a server rewrites every note, and cannot say enough about a file, so a path scope is refused there', async () => {
+  it('a path scope on a server cannot rename, move, read or copy a file', async () => {
     await seed({ 'assets/pic.png': 'png' })
     const remote = serverVault()
     const scoped = new ScopedBackend(remote, newMcpScope({ access: 'write', allow: ['assets'] }))
@@ -446,7 +444,7 @@ describe('an assets folder that is not a folder', () => {
 })
 
 describe('a path with whitespace around it', () => {
-  it('does not reach the file the routes would trim it to', async () => {
+  it('answers as missing for a name that does hold one', async () => {
     await seed({ ' x.png': 'shown', 'x.png': 'hidden' })
     const client = await connect({ access: 'read', deny: ['x.png'] })
     const { text, isError } = await call(client, 'read_asset', { path: ' x.png' })
@@ -454,7 +452,7 @@ describe('a path with whitespace around it', () => {
     expect(text).toContain('Asset not found:  x.png')
   })
 
-  it('names nothing, since the asset routes would trim it', async () => {
+  it('answers as missing', async () => {
     await seed({ 'Projects/pic.png': 'png', 'Journal/secret.png': 'secret' })
     const client = await connect({ access: 'write', deny: ['Journal'] })
     const missing = 'Asset not found:  Journal/secret.png'

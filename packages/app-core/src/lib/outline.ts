@@ -44,7 +44,7 @@ export function activeOutlineLineForCursor(
   return activeLine
 }
 
-const ATX_RE = /^(#{1,6})\s+(.+?)\s*#*\s*$/
+export const ATX_RE = /^(#{1,6})\s+(.+?)\s*#*\s*$/
 const SETEXT_UNDERLINE_RE = /^(=+|-{2,})\s*$/
 
 export function parseOutline(body: string): OutlineItem[] {

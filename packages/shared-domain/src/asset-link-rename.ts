@@ -28,6 +28,7 @@ import {
   type AssetPathRef,
   type AssetReferenceResolution
 } from './asset-path-resolution'
+import { resolveWikilinkTarget, type RenameNoteRef } from './wikilink-rename'
 
 // Code first so references inside spans and fences are left untouched, then a
 // wikilink, then a markdown destination. The destination is matched from its
@@ -41,6 +42,12 @@ export interface AssetLinkRewrite {
   body: string
   /** Number of references rewritten. */
   changed: number
+}
+
+export interface AssetLinkRewriteOptions {
+  /** The notes a wikilink can name. A note wins over a file of the same name,
+   *  as it does when the link is followed, so that link is left alone. */
+  notes?: RenameNoteRef[]
 }
 
 function basenameOf(path: string): string {
@@ -92,7 +99,8 @@ export function rewriteAssetReferences(
   assets: ReadonlyArray<AssetPathRef>,
   notePath: string,
   oldPath: string,
-  newPath: string
+  newPath: string,
+  options: AssetLinkRewriteOptions = {}
 ): AssetLinkRewrite {
   if (!newPath || oldPath === newPath) return { body, changed: 0 }
   if (!body.includes('[[') && !body.includes('](')) return { body, changed: 0 }
@@ -163,6 +171,7 @@ export function rewriteAssetReferences(
         const rest = pipe >= 0 ? wikiContent.slice(pipe) : ''
         const resolution = resolveOld(target)
         if (!resolution) return full
+        if (options.notes && resolveWikilinkTarget(options.notes, target)) return full
         const next = `${embed ?? ''}[[${retarget(target, resolution, 'wikilink')}${rest}]]`
         // A bare name that still resolves after a move reads exactly as before.
         if (next !== full) changed++

@@ -16,6 +16,7 @@ import {
 import type { NoteMeta as AppNoteMeta, VaultSettings } from '@shared/ipc'
 import { BUILTIN_TEMPLATES } from '@shared/builtin-templates'
 import { findTemplate, mergeTemplates, parseCustomTemplate } from '@shared/template-files'
+import { completeRecurringTaskAtLine } from '@shared/task-recurrence'
 import { toIsoDateLocal } from '@shared/tasks'
 import {
   setTaskCancelledAtIndex,
@@ -72,6 +73,7 @@ interface UpdateTaskInput {
   state?: string
   status?: string
   text?: string
+  expectedText?: string
 }
 
 /** What the task parser reads as an `@key:value` value. */
@@ -116,19 +118,41 @@ async function findTask(
 /**
  * The edit is applied to the task's line on its own: list_tasks numbers tasks by
  * the scan that produced the id (a server's own parser, or this engine's), and
- * the line setters count fenced code their own way. Editing the line a scan
- * pointed at cannot land on another task.
+ * the line setters count fenced code their own way. An id is a position in the
+ * note, so an edit since the scan can put another task there; `expectedText`
+ * catches that. Every other line keeps its bytes, line ending included.
+ *
+ * `insertedTasks` is how far the task moved: finishing a recurring one writes its
+ * next occurrence above it, as toggle_task does.
  */
-function updateTaskLine(body: string, task: VaultTask, input: UpdateTaskInput): string | null {
+function updateTaskLine(
+  body: string,
+  task: VaultTask,
+  input: UpdateTaskInput
+): { body: string; insertedTasks: number } | null {
   if (task.forwarded && input.state !== undefined) {
     throw new Error('That task was forwarded to another note; change it there.')
   }
-  const lines = body.replace(/\r\n/g, '\n').split('\n')
+  const lines = body.split('\n')
   const at = task.lineNumber
-  const tidy = (line: string): string => line.replace(/[ \t]+$/, '')
+  const tidy = (line: string): string => line.replace(/\s+$/, '')
   if (at < 0 || at >= lines.length || tidy(lines[at]) !== tidy(task.rawText)) return null
-  let line = lines[at]
+  const ending = lines[at].endsWith('\r') ? '\r' : ''
+  let line = ending ? lines[at].slice(0, -1) : lines[at]
   if (input.text !== undefined) line = setTaskTextAtIndex(line, 0, input.text)
+  if (input.due !== undefined) line = setTaskDueAtIndex(line, 0, input.due || null)
+  if (input.priority !== undefined) {
+    line = setTaskPriorityAtIndex(line, 0, (input.priority || null) as 'high' | 'med' | 'low' | null)
+  }
+  if (input.waiting !== undefined) line = setTaskWaitingAtIndex(line, 0, input.waiting)
+  if (input.status !== undefined) line = setTaskFieldAtIndex(line, 0, 'status', input.status || null)
+  if (input.state === 'done') {
+    lines[at] = line + ending
+    const recurring = completeRecurringTaskAtLine(lines.join('\n'), at, {
+      today: toIsoDateLocal(new Date())
+    })
+    if (recurring) return { body: recurring.body, insertedTasks: recurring.insertedTasks }
+  }
   switch (input.state) {
     case 'open':
       line = setTaskInProgressAtIndex(setTaskCheckedAtIndex(line, 0, false), 0, false)
@@ -143,14 +167,8 @@ function updateTaskLine(body: string, task: VaultTask, input: UpdateTaskInput): 
       line = setTaskCancelledAtIndex(line, 0, true)
       break
   }
-  if (input.due !== undefined) line = setTaskDueAtIndex(line, 0, input.due || null)
-  if (input.priority !== undefined) {
-    line = setTaskPriorityAtIndex(line, 0, (input.priority || null) as 'high' | 'med' | 'low' | null)
-  }
-  if (input.waiting !== undefined) line = setTaskWaitingAtIndex(line, 0, input.waiting)
-  if (input.status !== undefined) line = setTaskFieldAtIndex(line, 0, 'status', input.status || null)
-  lines[at] = line
-  return lines.join('\n')
+  lines[at] = line + ending
+  return { body: lines.join('\n'), insertedTasks: 0 }
 }
 
 /** TaskNotes' priority vocabulary, which a task note's frontmatter speaks. */
@@ -162,9 +180,14 @@ const TASK_FILE_PRIORITY: Record<string, string | null> = {
 }
 
 /** A whole-note task, whose fields are its frontmatter. */
-function updateFileTask(start: string, input: UpdateTaskInput): string {
+function updateFileTask(start: string, task: VaultTask, input: UpdateTaskInput): string {
   if (input.text !== undefined) {
     throw new Error('A task note has no line of text to change; use rename_note for its title.')
+  }
+  // State, status and waiting are all its one `status:` field.
+  const claims = [input.state, input.status, input.waiting].filter((value) => value !== undefined)
+  if (claims.length > 1) {
+    throw new Error('A task note has one status, so pass only one of state, status and waiting.')
   }
   let body = start
   const today = toIsoDateLocal(new Date())
@@ -187,8 +210,18 @@ function updateFileTask(start: string, input: UpdateTaskInput): string {
   }
   if (input.due !== undefined) field('due', input.due || null)
   if (input.priority !== undefined) field('priority', TASK_FILE_PRIORITY[input.priority])
-  if (input.waiting !== undefined) field('waiting', input.waiting ? 'true' : null)
-  if (input.status !== undefined) field('status', input.status || null)
+  if (input.waiting === true) {
+    body = updateFrontmatterFields(body, { status: 'waiting', completedDate: null })
+  } else if (input.waiting === false && task.waiting) {
+    field('status', 'open')
+  }
+  if (input.status !== undefined) {
+    if (input.status.toLowerCase() === 'done') {
+      body = setTaskFileStatus(body, true, today)
+    } else {
+      body = updateFrontmatterFields(body, { status: input.status || null, completedDate: null })
+    }
+  }
   return body
 }
 
@@ -200,17 +233,20 @@ async function updateTask(backend: VaultBackend, input: UpdateTaskInput): Promis
   const { rel, indexStr } = splitTaskId(input.id)
   const task = await findTask(backend, rel, indexStr)
   if (!task) return null
+  if (input.expectedText !== undefined && task.content.trim() !== input.expectedText.trim()) return null
   const note = await backend.readNote(task.sourcePath)
   let next: string
+  let index = indexStr
   if (indexStr === 'task') {
-    next = updateFileTask(note.body, input)
+    next = updateFileTask(note.body, task, input)
   } else {
     const edited = updateTaskLine(note.body, task, input)
     if (edited === null) return null
-    next = edited
+    next = edited.body
+    index = String(Number(indexStr) + edited.insertedTasks)
   }
   if (next !== note.body) await backend.writeNote(task.sourcePath, next)
-  return await findTask(backend, task.sourcePath, indexStr)
+  return await findTask(backend, task.sourcePath, index)
 }
 
 /* ---------- daily_note ------------------------------------------------- */
@@ -336,6 +372,11 @@ export const WORK_TOOLS: ToolDef[] = [
         type: 'object',
         properties: {
           id: { type: 'string', description: 'Task id from list_tasks: sourcePath#taskIndex.' },
+          expectedText: {
+            type: 'string',
+            description:
+              "The task's `content` from list_tasks. An id is its position in the note, so pass this if the note may have changed: a different task there answers null and changes nothing."
+          },
           due: { type: 'string', description: 'YYYY-MM-DD, or "" to clear.' },
           priority: {
             type: 'string',
@@ -360,6 +401,7 @@ export const WORK_TOOLS: ToolDef[] = [
     handler: async (args, backend) =>
       await updateTask(backend, {
         id: requireString(args, 'id'),
+        expectedText: optionalString(args, 'expectedText'),
         due: optionalString(args, 'due'),
         priority: optionalString(args, 'priority'),
         waiting: optionalBoolean(args, 'waiting'),

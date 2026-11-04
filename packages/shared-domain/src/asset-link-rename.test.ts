@@ -203,4 +203,14 @@ describe('a Markdown link whose file gains a space or a parenthesis', () => {
     )
     expect(second).toEqual({ body: '[x](<../assets/final.pdf#page=3>)\n', changed: 1 })
   })
+
+  it('leaves a wikilink that names a note, when told the notes', () => {
+    const assets = [{ path: 'Docs/Plan' }]
+    const notes = [{ path: 'Plan.md', title: 'Plan', folder: 'inbox' }]
+    const body = 'See [[Plan]] and [[Plan|the plan]] and ![[Docs/Plan]].\n'
+    expect(rewriteAssetReferences(body, assets, 'N.md', 'Docs/Plan', 'Docs/Other', { notes }).body).toBe(
+      'See [[Plan]] and [[Plan|the plan]] and ![[Docs/Other]].\n'
+    )
+    expect(rewriteAssetReferences(body, assets, 'N.md', 'Docs/Plan', 'Docs/Other').changed).toBe(3)
+  })
 })

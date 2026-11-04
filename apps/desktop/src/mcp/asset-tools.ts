@@ -1,8 +1,8 @@
 /**
  * Attachments (ZenNotes/tui#34). Every tool finds its file in the vault's asset
- * listing, whatever the scope: the listing walks real files only and leaves out
- * notes, hidden and internal files, database folders and symbolic links, so
- * nothing else can be named through these tools. Deleting is the soft delete
+ * listing, whatever the scope: the listing leaves out notes, hidden and internal
+ * files, database folders and links to files, so nothing else can be named
+ * through these tools. Deleting is the soft delete
  * the app's Trash can undo. Purging is left out on purpose: it cannot be undone,
  * an assistant never needs it to finish a task, and the user can do it in the
  * app. The Go `zn mcp` has the same tools in internal/mcp/assets.go, with the
@@ -21,7 +21,13 @@ import { isInsideMcpScopeEntryFolded } from '@shared/mcp-scope'
 import { resolveFolderPath } from '@shared/system-folder-paths'
 import { isAtomicWriteTempPath } from '../main/atomic-write.js'
 import type { VaultAssetMeta, VaultBackend } from '../cli/backend.js'
-import { assetNotFound, cleanRequest, deletedAssetNotFound, matchAsset } from './scoped-backend.js'
+import {
+  assetNotFound,
+  cleanRequest,
+  deletedAssetNotFound,
+  matchAsset,
+  ScopedBackend
+} from './scoped-backend.js'
 import { optionalBoolean, RawToolResult, requireString, type ToolDef } from './tool-support.js'
 
 /** A tool call carries the file as base64 inside one JSON-RPC message, held in
@@ -31,25 +37,26 @@ const MAX_UPLOAD_ASSET_BYTES = 16 * 1024 * 1024
 const MAX_READ_ASSET_BYTES = 5 * 1024 * 1024
 const MIB = 1024 * 1024
 
-async function findAsset(
-  backend: VaultBackend,
-  raw: string
-): Promise<{ meta: VaultAssetMeta; all: VaultAssetMeta[] }> {
-  const all = await backend.listAssets()
-  const meta = matchAsset(all, raw)
+async function findAsset(backend: VaultBackend, raw: string): Promise<{ meta: VaultAssetMeta }> {
+  const meta = matchAsset(await backend.listAssets(), raw)
   if (!meta) throw assetNotFound(raw)
-  return { meta, all }
+  return { meta }
 }
 
 /** Keeps these tools off a loose CSV database and its schema file: they move as
  *  a pair, which only the database code knows how to do. */
-function refuseDatabaseFile(meta: VaultAssetMeta, all: readonly VaultAssetMeta[]): void {
-  const isLooseCsv = meta.path.toLowerCase().endsWith('.csv') && !formDirContaining(meta.path)
-  const refused =
-    isDatabaseSidecarPath(meta.path) ||
-    (isLooseCsv && all.some((asset) => asset.path === meta.path + DATABASE_SIDECAR_SUFFIX))
-  if (refused) throw new Error('That file belongs to a ZenNotes database. Change it from the app.')
+async function refuseDatabaseFile(meta: VaultAssetMeta, backend: VaultBackend): Promise<void> {
+  const refusal = new Error('That file belongs to a ZenNotes database. Change it from the app.')
+  if (isDatabaseSidecarPath(meta.path)) throw refusal
+  if (!meta.path.toLowerCase().endsWith('.csv') || formDirContaining(meta.path)) return
+  // The whole listing: a pair stays a pair when a scope hides half of it.
+  const listing = backend instanceof ScopedBackend ? backend.inner : backend
+  const all = await listing.listAssets()
+  if (all.some((asset) => asset.path === meta.path + DATABASE_SIDECAR_SUFFIX)) throw refusal
 }
+
+/** Device names Windows keeps, with or without an extension. */
+const WINDOWS_RESERVED_NAME = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i
 
 /** Refuses a name the asset listing would not show afterwards, since a file the
  *  listing cannot see is one no tool can reach again. */
@@ -58,11 +65,30 @@ function checkAssetName(name: string): void {
   if (!trimmed || trimmed === '.' || trimmed === '..') throw new Error('A file name is required.')
   if (/[/\\\u0000]/.test(trimmed)) throw new Error('Use only a file name, with no folder in it.')
   if (trimmed.startsWith('.')) throw new Error('A file name cannot start with a dot.')
-  if (trimmed.toLowerCase().endsWith('.md')) {
+  // Windows reads `note.md.` and `note.md::$DATA` as note.md.
+  if (trimmed.split(':')[0].replace(/[. ]+$/, '').toLowerCase().endsWith('.md')) {
     throw new Error('Notes are not attachments: use create_note or rename_note.')
+  }
+  if (WINDOWS_RESERVED_NAME.test(trimmed)) {
+    throw new Error('That name is reserved on Windows, so choose another.')
   }
   if (isExcalidrawPath(trimmed) || isAtomicWriteTempPath(trimmed) || isDatabaseSidecarPath(trimmed)) {
     throw new Error('That kind of file cannot be managed as an attachment.')
+  }
+}
+
+/** What upload_asset cleans out of a name, refused for a rename. These break every
+ *  link to the file, or do not survive on another system, and the rename would
+ *  still report success. */
+// eslint-disable-next-line no-control-regex
+const NAME_BREAKS_LINKS = /[#?|[\]^%:\u0000-\u001f\u007f]|[. ]$/
+
+function checkAssetNewName(name: string): void {
+  checkAssetName(name)
+  if (NAME_BREAKS_LINKS.test(name.trim())) {
+    throw new Error(
+      'A file name cannot contain # ? | [ ] ^ % : or a control character, or end with a dot, since links to it would break.'
+    )
   }
 }
 
@@ -103,7 +129,10 @@ export function decodeAssetBase64(raw: string): Uint8Array {
     .replace(/[ \t\r\n]/g, '')
     .replace(/-/g, '+')
     .replace(/_/g, '/')
-    .replace(/=+$/, '')
+  // A loop, not /=+$/, which takes quadratic time on a run of = before the end.
+  let end = text.length
+  while (end > 0 && text[end - 1] === '=') end -= 1
+  text = text.slice(0, end)
   if (Math.floor((text.length * 6) / 8) > MAX_UPLOAD_ASSET_BYTES) throw tooLarge
   if (!/^[A-Za-z0-9+/]*$/.test(text) || text.length % 4 === 1) {
     throw new Error('content_base64 is not valid base64.')
@@ -248,7 +277,7 @@ export const ASSET_TOOLS: ToolDef[] = [
     schema: {
       name: 'rename_asset',
       description:
-        'Rename an attachment in place. Notes that embed or link it are updated to the new name.',
+        'Rename an attachment in place. Notes that embed or link it are updated to the new name, and `linksNotUpdated` lists any that could not be.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -261,9 +290,9 @@ export const ASSET_TOOLS: ToolDef[] = [
     handler: async (args, backend) => {
       const rel = requireString(args, 'path')
       const name = requireString(args, 'name')
-      checkAssetName(name)
-      const { meta, all } = await findAsset(backend, rel)
-      refuseDatabaseFile(meta, all)
+      checkAssetNewName(name)
+      const { meta } = await findAsset(backend, rel)
+      await refuseDatabaseFile(meta, backend)
       return await backend.renameAsset(meta.path, name.trim())
     }
   },
@@ -271,7 +300,7 @@ export const ASSET_TOOLS: ToolDef[] = [
     schema: {
       name: 'move_asset',
       description:
-        'Move an attachment to another folder, creating it if needed. Notes that embed or link it are updated. A taken name gets a number, so use the returned `path`.',
+        'Move an attachment to another folder, creating it if needed. Notes that embed or link it are updated, and `linksNotUpdated` lists any that could not be. A taken name gets a number, so use the returned `path`.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -284,8 +313,8 @@ export const ASSET_TOOLS: ToolDef[] = [
     handler: async (args, backend) => {
       const rel = requireString(args, 'path')
       const rawDir = requireString(args, 'targetDir')
-      const { meta, all } = await findAsset(backend, rel)
-      refuseDatabaseFile(meta, all)
+      const { meta } = await findAsset(backend, rel)
+      await refuseDatabaseFile(meta, backend)
       return await backend.moveAsset(meta.path, await checkAssetTargetDir(backend, rawDir))
     }
   },
@@ -296,8 +325,8 @@ export const ASSET_TOOLS: ToolDef[] = [
       inputSchema: PATH_ONLY_SCHEMA
     },
     handler: async (args, backend) => {
-      const { meta, all } = await findAsset(backend, requireString(args, 'path'))
-      refuseDatabaseFile(meta, all)
+      const { meta } = await findAsset(backend, requireString(args, 'path'))
+      await refuseDatabaseFile(meta, backend)
       return await backend.duplicateAsset(meta.path)
     }
   },
@@ -309,8 +338,8 @@ export const ASSET_TOOLS: ToolDef[] = [
       inputSchema: PATH_ONLY_SCHEMA
     },
     handler: async (args, backend) => {
-      const { meta, all } = await findAsset(backend, requireString(args, 'path'))
-      refuseDatabaseFile(meta, all)
+      const { meta } = await findAsset(backend, requireString(args, 'path'))
+      await refuseDatabaseFile(meta, backend)
       return await backend.deleteAsset(meta.path)
     }
   },
@@ -338,7 +367,7 @@ export const LIST_ASSETS_TOOL: ToolDef = {
   schema: {
     name: 'list_assets',
     description:
-      "List files under the vault’s attachments directory (images, PDFs, audio, video, other binaries). Useful when a note references an asset you need to inspect. With deleted: true, lists the attachments in the app's Trash instead, with the undoToken restore_asset takes.",
+      "List every file in the vault that is not a note (images, PDFs, audio, video, other binaries), wherever it is. Useful when a note references an asset you need to inspect. With deleted: true, lists the attachments in the app's Trash instead, with the undoToken restore_asset takes.",
     inputSchema: {
       type: 'object',
       properties: {
