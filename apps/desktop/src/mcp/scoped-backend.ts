@@ -88,6 +88,8 @@ const REMOTE_ASSET_BYTES =
 
 const ASSETS_DIR = 'assets'
 
+const NO_COPY_NAME = 'This assistant cannot give the note that name.'
+
 const notFound = (rel: string): Error => new Error(`Note not found: ${rel}`)
 export const assetNotFound = (rel: string): Error => new Error(`Asset not found: ${rel}`)
 export const deletedAssetNotFound = (token: string): Error =>
@@ -109,6 +111,18 @@ function hintLinkedFolder(kind: string, dir: string): void {
   process.stderr.write(
     `[zennotes-mcp] the ${kind} folder ${dir} is a symbolic link, so it is hidden from a client with --allow-path or --deny-path\n`
   )
+}
+
+/** `cafe` finds `Café`, as a loose spelling should. `Café` does not find `Cafe`:
+ *  someone who wrote the accent meant that folder, and this is a different one.
+ *  Mirrors accentsAgree in ZenNotes/tui. */
+function accentsAgree(entry: string, canonical: string): boolean {
+  const lower = (value: string): string => {
+    let out = ''
+    for (const ch of value.normalize('NFC')) out += ch.toLowerCase()
+    return out
+  }
+  return lower(entry) === lower(canonical) || lower(entry) === foldMcpScopePath(entry)
 }
 
 function joinRel(dir: string, sub: string): string {
@@ -304,15 +318,47 @@ class ScopeView {
     return this.allow.length === 0 || this.allow.some((entry) => isInsideMcpScopeEntry(p, entry))
   }
 
+  /** A path without the system folder it sits in, the same path when it sits in
+   *  none and '' when it names one. In any case, since entries match that way. */
+  private withoutSystemFolder(p: string): string {
+    const folded = foldMcpScopePath(p)
+    for (const folder of FOLDERS) {
+      const dir = this.bucketDir(folder)
+      if (dir && isInsideMcpScopeEntry(folded, foldMcpScopePath(dir))) {
+        return p.split('/').slice(dir.split('/').length).join('/')
+      }
+    }
+    return p
+  }
+
+  /** A note keeps its folders when it is archived or trashed, so what a deny entry
+   *  hides stays hidden there: archive/Journal/x.md for an entry on Journal. */
   denied(p: string): boolean {
-    return this.deny.some((entry) => isInsideMcpScopeEntryFolded(p, entry))
+    const inSystemFolder = this.withoutSystemFolder(p)
+    return this.deny.some((entry) => {
+      if (isInsideMcpScopeEntryFolded(p, entry)) return true
+      const within = this.withoutSystemFolder(entry)
+      return (
+        within !== '' &&
+        inSystemFolder !== p &&
+        isInsideMcpScopeEntryFolded(inSystemFolder, within)
+      )
+    })
   }
 
   visible = (p: string): boolean => this.covers(p) && !this.denied(p)
 
   /** Whether a deny entry lies at or below `p`. */
   denyInside(p: string): boolean {
-    return this.deny.some((entry) => isInsideMcpScopeEntryFolded(entry, p))
+    const inSystemFolder = this.withoutSystemFolder(p)
+    return this.deny.some((entry) => {
+      if (isInsideMcpScopeEntryFolded(entry, p)) return true
+      return (
+        inSystemFolder !== '' &&
+        inSystemFolder !== p &&
+        isInsideMcpScopeEntryFolded(this.withoutSystemFolder(entry), inSystemFolder)
+      )
+    })
   }
 
   /** A client's note path resolved to a visible listed note. */
@@ -523,7 +569,7 @@ export class ScopedBackend implements VaultBackend {
     // finds `Projects/`.
     for (const entry of this.scope.allow) {
       let canonical = spell(entry, known) ?? spell(entry, await knownAssets())
-      if (canonical == null) {
+      if (canonical == null || !accentsAgree(entry, canonical)) {
         v.missingAllow.push(entry)
         canonical = entry
       }
@@ -924,8 +970,21 @@ export class ScopedBackend implements VaultBackend {
     return await this.answerRefusal(() => this.inner.restoreFromTrash(meta.path))
   }
 
-  duplicateNote = async (rel: string): Promise<NoteMeta> =>
-    await this.inner.duplicateNote((await this.noteFor(rel, 'write')).path)
+  /** An allow entry can name one note, and its copy would land outside it. */
+  duplicateNote = async (rel: string): Promise<NoteMeta> => {
+    const meta = await this.noteFor(rel, 'write')
+    const v = await this.load()
+    const ext = path.posix.extname(meta.path)
+    const stem = ext ? meta.path.slice(0, -ext.length) : meta.path
+    if (!v.visible(`${stem} copy${ext}`)) throw new Error(NO_COPY_NAME)
+    const copy = await this.inner.duplicateNote(meta.path)
+    // A numbered name can land where the first name would not.
+    if (!v.visible(copy.path)) {
+      await this.inner.deleteNote(copy.path).catch(() => undefined)
+      throw new Error(NO_COPY_NAME)
+    }
+    return copy
+  }
 
   deleteNote = async (rel: string): Promise<void> =>
     await this.inner.deleteNote((await this.noteFor(rel, 'write')).path)

@@ -1760,31 +1760,49 @@ export async function goesThroughLink(root: string, rel: string): Promise<boolea
   return false
 }
 
+/** How many taken names the search for a free one goes through. */
+const MAX_UNIQUE_ATTEMPTS = 10000
+
+/** Leaves room in a file name for a copy number and an extension. */
+const MAX_TITLE_BYTES = 200
+
 async function uniqueTitle(dir: string, base: string): Promise<string> {
   let candidate = base
-  let n = 1
-  while (true) {
+  for (let n = 2; n <= MAX_UNIQUE_ATTEMPTS; n += 1) {
     try {
       // Not access(), which follows a link: a link to nothing would read as a
       // free name, and the write would land where it points.
       await fs.lstat(path.join(dir, `${candidate}.md`))
-      n += 1
       candidate = `${base} ${n}`
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') return candidate
       throw err
     }
   }
+  throw new Error(`no free name for "${base}" after ${MAX_UNIQUE_ATTEMPTS} tries`)
+}
+
+/** Whole characters only, so a cut never leaves half of one behind. */
+function cutToBytes(text: string, limit: number): string {
+  let out = ''
+  let bytes = 0
+  for (const ch of text) {
+    bytes += Buffer.byteLength(ch, 'utf8')
+    if (bytes > limit) break
+    out += ch
+  }
+  return out
 }
 
 export function sanitizeTitle(raw: string): string {
   // Filenames must be safe on all 3 OSes. Strip path separators, null,
   // and common reserved characters.
-  return raw
+  const clean = raw
     .replace(/[\\/:\u0000-\u001f*?"<>|]/g, '-')
+    .replace(/\p{Cs}/gu, '\ufffd')
     .replace(/\s+/g, ' ')
     .trim()
-    .slice(0, 200) || 'Untitled'
+  return cutToBytes(clean, MAX_TITLE_BYTES).trim() || 'Untitled'
 }
 
 export async function createNote(
