@@ -44,6 +44,7 @@ import type { DatabaseOps } from '@shared/database-ops'
 import type { VaultAssetMeta, VaultBackend, VaultDescription, VaultLayout } from '../cli/backend.js'
 import { RemoteRequestError } from '../main/remote/connection.js'
 import {
+  AssetDestinationRefused,
   ATTACHMENTS_DIRS,
   goesThroughLink,
   sanitizeTitle,
@@ -669,6 +670,15 @@ export class ScopedBackend implements VaultBackend {
     return spelled
   }
 
+  /** Whether this client sees a path at all, for a tool about to name one it did
+   *  not get from a listing. If that cannot be told, it does not. */
+  async sharesPath(rel: string): Promise<boolean> {
+    return await this.load().then(
+      (v) => v.visible(rel),
+      () => false
+    )
+  }
+
   /** The refusal for handing a file's contents to a client that sees only part
    *  of a server's vault. It holds until a server can say enough about a file
    *  for this check to be made here. */
@@ -722,10 +732,11 @@ export class ScopedBackend implements VaultBackend {
     const meta = await this.assetFor(rel, 'write')
     const v = await this.load()
     const dir = await this.assetDestination(v, targetDir)
-    if (!v.visible(path.posix.join(dir, meta.name))) throw v.assetRefusal()
     if (!isMcpScopeRestricted(this.scope)) return await this.inner.moveAsset(meta.path, dir)
     if (this.inner.kind === 'remote') throw new Error(REMOTE_ASSET_LINKS)
-    return await this.inner.moveAsset(meta.path, dir, v.visible)
+    return await this.inner.moveAsset(meta.path, dir, v.visible).catch((err: unknown) => {
+      throw err instanceof AssetDestinationRefused ? v.assetRefusal() : err
+    })
   }
 
   duplicateAsset = async (rel: string): Promise<VaultAssetMeta> => {

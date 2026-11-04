@@ -1211,8 +1211,8 @@ async function rewriteAssetLinks(
 ): Promise<string[]> {
   const failed: string[] = []
   const notes = notesBefore.filter((note) => note.folder !== 'trash')
-  for (const note of notesBefore) {
-    if (note.folder === 'trash' || (rewriteIn && !rewriteIn(note.path))) continue
+  for (const note of notes) {
+    if (rewriteIn && !rewriteIn(note.path)) continue
     try {
       const content = await readNote(root, note.path)
       const { body, changed } = rewriteAssetReferences(
@@ -1221,7 +1221,7 @@ async function rewriteAssetLinks(
         note.path,
         oldRel,
         newRel,
-        { notes }
+        { notes, fullPath: rewriteIn != null }
       )
       if (changed > 0) await writeNote(root, note.path, body)
     } catch {
@@ -1370,6 +1370,9 @@ async function realPathOfNew(abs: string): Promise<string> {
   }
 }
 
+/** A move whose final path the caller turned down, numbered name included. */
+export class AssetDestinationRefused extends Error {}
+
 /** Whether a folder lands in the trash or the internal folder, whatever links it
  *  goes through. The trash's contents are destroyed by empty_trash and the app. */
 async function landsInProtectedFolder(root: string, destDir: string): Promise<boolean> {
@@ -1409,9 +1412,13 @@ export async function moveAsset(
       fs.stat(path.dirname(source.abs), { bigint: true })
     ])
     if (isSameFile(destIdentity, sourceDirIdentity)) return await assetMetaForPath(root, source.abs)
-    const destAbs = await placeAtFreeName(destDir, path.basename(source.abs), (candidate) =>
-      renameNoClobber(source.abs, candidate)
-    )
+    // A filter also has to accept where the file lands, which only this knows.
+    const destAbs = await placeAtFreeName(destDir, path.basename(source.abs), async (candidate) => {
+      if (rewriteIn && !rewriteIn(toPosix(path.relative(root, candidate)))) {
+        throw new AssetDestinationRefused()
+      }
+      await renameNoClobber(source.abs, candidate)
+    })
     const meta = await assetMetaForPath(root, destAbs)
     if (meta.path === source.rel) return meta
     return await withLinkRewrite(meta, () =>

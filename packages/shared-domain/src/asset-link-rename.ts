@@ -48,6 +48,9 @@ export interface AssetLinkRewriteOptions {
   /** The notes a wikilink can name. A note wins over a file of the same name,
    *  as it does when the link is followed, so that link is left alone. */
   notes?: RenameNoteRef[]
+  /** Write the whole path where a bare name would do, for a caller that may not
+   *  see all of `assets`: whether a bare name stays unique depends on them. */
+  fullPath?: boolean
 }
 
 function basenameOf(path: string): string {
@@ -138,7 +141,7 @@ export function rewriteAssetReferences(
     const bare = !path.includes('/')
     let next: string
     if (resolution.reading === 'basename' || (kind === 'wikilink' && bare)) {
-      next = bareStillUnique ? newBase : newPath
+      next = bareStillUnique && !options.fullPath ? newBase : newPath
     } else if (resolution.reading === 'note-relative' && kind === 'href') {
       next = relativeTo(noteDir, newPath)
     } else {

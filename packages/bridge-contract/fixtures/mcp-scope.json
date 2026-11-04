@@ -1199,7 +1199,7 @@
           ".zennotes/deleted-assets/11111111-1111-4111-8111-111111111111"
         ],
         "equals": {
-          "Projects/Plan.md": "# Plan\n\nIntro\n\n## Actions\n\n- [ ] ship it\n- [ ] write it due:2026-01-05 !low\n\n### Detail\n\nfine print\n\n## Later\n\n![[photo.png]]\n",
+          "Projects/Plan.md": "# Plan\n\nIntro\n\n## Actions\n\n- [ ] ship it\n- [ ] write it due:2026-01-05 !low\n\n### Detail\n\nfine print\n\n## Later\n\n![[assets/photo.png]]\n",
           "Journal/Diary.md": "# Diary\n\n![[assets/pic.png]]\n\n- [ ] call mum\n",
           ".zennotes/deleted-assets/22222222-2222-4222-8222-222222222222/old.png": "old"
         }
@@ -1420,10 +1420,12 @@
               "exists": false,
               "createWith": {
                 "folder": "inbox",
-                "subpath": "Daily Notes",
                 "title": "2026-01-02"
               }
-            }
+            },
+            "excludes": [
+              "Daily Notes"
+            ]
           }
         },
         {

@@ -5,12 +5,20 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { newMcpScope, type McpScopeFlags } from '@shared/mcp-scope'
-import { createBackend } from '../cli/backend'
+import { createBackend, type VaultBackend } from '../cli/backend'
 import { readAgentEditRecord } from '../main/agent-edit-files'
 import { decodeAssetBase64 } from './asset-tools'
 import { findSection, noteSections, sectionBody } from './note-sections'
+import { ScopedBackend } from './scoped-backend'
 import { runMcpServer } from './server'
-import { importAsset, listAssets, listDeletedAssets, renameAsset, writeNote } from './vault-ops'
+import {
+  AssetDestinationRefused,
+  importAsset,
+  listAssets,
+  listDeletedAssets,
+  renameAsset,
+  writeNote
+} from './vault-ops'
 
 // Files and notes keep their bytes and their links when calls race, a write
 // fails, or a name would not survive a link.
@@ -293,10 +301,12 @@ describe('update_task keeps the rest of a note', () => {
 describe('update_task and a stale id', () => {
   const NOTE = 'Projects/Plan.md'
 
-  it('answers null and changes nothing when expectedText names another task', async () => {
+  it('refuses and changes nothing when expectedText names another task', async () => {
     await seed({ [NOTE]: '- [ ] first\n- [ ] second\n' })
     const client = await connect()
-    expect(await ok(client, 'update_task', { id: `${NOTE}#0`, expectedText: 'second', state: 'done' })).toBe('null')
+    expect(await refused(client, 'update_task', { id: `${NOTE}#0`, expectedText: 'second', state: 'done' })).toContain(
+      `Task ${NOTE}#0 now reads "first", not "second": the note changed. Run list_tasks again for its id.`
+    )
     expect(await file(NOTE)).toBe('- [ ] first\n- [ ] second\n')
     expect(
       JSON.parse(await ok(client, 'update_task', { id: `${NOTE}#1`, expectedText: 'second', state: 'done' }))
@@ -336,7 +346,7 @@ describe('update_task on a task note', () => {
     await seed({ [NOTE]: body })
     const client = await connect()
     expect(await refused(client, 'update_task', { id: `${NOTE}#task`, ...fields })).toContain(
-      'A task note has one status'
+      'A task note keeps state, status and waiting in its one frontmatter status'
     )
     expect(await file(NOTE)).toBe(body)
   })
@@ -477,13 +487,99 @@ describe('writeNote', () => {
 })
 
 describe('a path scope and a rename or move', () => {
-  it('refuses a move whose final name a deny entry covers', async () => {
-    await seed({ 'Projects/x.png': 'mine', 'Shared/x.png': 'theirs', 'Other/keep.md': '# k\n' })
+  it('takes a number when the name it wants is hidden and taken', async () => {
+    await seed({ 'Projects/x.png': 'mine', 'Shared/x.png': 'theirs' })
     const client = await connect({ access: 'write', deny: ['Shared/x.png'] })
-    expect(await refused(client, 'move_asset', { path: 'Projects/x.png', targetDir: 'Shared' })).toContain(
+    expect(JSON.parse(await ok(client, 'move_asset', { path: 'Projects/x.png', targetDir: 'Shared' }))).toMatchObject({
+      path: 'Shared/x 2.png'
+    })
+    expect(await file('Shared/x.png')).toBe('theirs')
+  })
+
+  it('lets the filter turn down where a file lands, and moves nothing', async () => {
+    await seed({ 'Projects/x.png': 'mine', 'Shared/keep.png': 'k' })
+    const backend = createBackend({ kind: 'local', root })
+    await expect(
+      backend.moveAsset('Projects/x.png', 'Shared', (rel) => rel !== 'Shared/x.png')
+    ).rejects.toBeInstanceOf(AssetDestinationRefused)
+    expect(await file('Projects/x.png')).toBe('mine')
+    expect(await exists('Shared/x.png')).toBe(false)
+  })
+
+  it('answers such a move like any folder it may not use', async () => {
+    await seed({ 'Projects/x.png': 'mine', 'Shared/keep.png': 'k' })
+    const local = createBackend({ kind: 'local', root })
+    const turnsDown = {
+      ...local,
+      moveAsset: async () => {
+        throw new AssetDestinationRefused()
+      }
+    } as VaultBackend
+    const scoped = new ScopedBackend(turnsDown, newMcpScope({ access: 'write', deny: ['Shared/keep.png'] }))
+    await expect(scoped.moveAsset('Projects/x.png', 'Shared')).rejects.toThrow(
       'This assistant cannot put files there.'
     )
-    expect(await file('Projects/x.png')).toBe('mine')
+  })
+
+  it('writes the same link whether or not a hidden file shares the name', async () => {
+    const run = async (extra: Record<string, string>): Promise<string> => {
+      await fsp.rm(root, { recursive: true, force: true })
+      await fsp.mkdir(root, { recursive: true })
+      await seed({ 'Projects/a.png': 'a', 'Projects/N.md': '![[a.png]]\n', 'Journal/J.md': '# J\n', ...extra })
+      const client = await connect({ access: 'write', allow: ['Projects'] })
+      await ok(client, 'rename_asset', { path: 'Projects/a.png', name: 'b.png' })
+      return await file('Projects/N.md')
+    }
+    const alone = await run({})
+    const beside = await run({ 'Journal/b.png': 'hidden' })
+    expect(beside).toBe(alone)
+    expect(alone).toBe('![[Projects/b.png]]\n')
+  })
+
+  it('keeps a bare name for a client with no paths in its scope', async () => {
+    await seed({ 'Projects/a.png': 'a', 'Projects/N.md': '![[a.png]]\n' })
+    const client = await connect()
+    await ok(client, 'rename_asset', { path: 'Projects/a.png', name: 'b.png' })
+    expect(await file('Projects/N.md')).toBe('![[b.png]]\n')
+  })
+})
+
+describe('daily_note under a path scope', () => {
+  const SETTINGS = '{"primaryNotesLocation":"root","dailyNotes":{"enabled":true,"directory":"Days"}}'
+
+  it('leaves out a folder the client cannot see', async () => {
+    await seed({ '.zennotes/vault.json': SETTINGS, 'Projects/P.md': '# P\n' })
+    const client = await connect({ access: 'write', allow: ['Projects'] })
+    const answer = await ok(client, 'daily_note', { date: '2026-01-02' })
+    expect(answer).not.toContain('Days')
+    expect(JSON.parse(answer).createWith).toMatchObject({ folder: 'inbox', title: '2026-01-02' })
+  })
+
+  it('names one it can see', async () => {
+    await seed({ '.zennotes/vault.json': SETTINGS, 'Days/old.md': '# old\n' })
+    const client = await connect({ access: 'write', allow: ['Days'] })
+    expect(JSON.parse(await ok(client, 'daily_note', { date: '2026-01-02' })).createWith.subpath).toBe('Days')
+  })
+})
+
+describe('a destination whose name other systems read differently', () => {
+  it.each(['Target.', 'Target ./Sub', 'Tar:get', 'Target. /x', 'Sub/Target.'])('refuses %j', async (targetDir) => {
+    await seed({ 'assets/a.png': 'a' })
+    const client = await connect()
+    expect(await refused(client, 'move_asset', { path: 'assets/a.png', targetDir })).toContain(
+      'This assistant cannot put files there.'
+    )
+    expect(await file('assets/a.png')).toBe('a')
+  })
+})
+
+describe('a drawing beside the notes', () => {
+  it('is not reported as a note whose links could not be updated', async () => {
+    await seed({ 'assets/a.png': 'a', 'Sketch.excalidraw': '{}', 'N.md': '![[assets/a.png]]\n' })
+    const client = await connect()
+    expect(JSON.parse(await ok(client, 'rename_asset', { path: 'assets/a.png', name: 'b.png' }))).not.toHaveProperty(
+      'linksNotUpdated'
+    )
   })
 })
 
@@ -597,6 +693,14 @@ describe('list_assets', () => {
       return await readdir(dir, options)
     }) as never)
     expect((await listAssets(root)).map((a) => a.path)).toEqual(['Good/a.png'])
+  })
+
+  it("leaves out a database's schema file and backups, and still knows the pair", async () => {
+    await seed({ 'Data/t.csv': 'a\n', 'Data/t.csv.base.json': '{}', 'Data/t.csv.bak': 'a\n', 'Data/keep.png': 'k' })
+    const client = await connect()
+    const paths = (JSON.parse(await ok(client, 'list_assets', {})) as { path: string }[]).map((a) => a.path)
+    expect(paths.sort()).toEqual(['Data/keep.png', 'Data/t.csv'])
+    expect(await refused(client, 'delete_asset', { path: 'Data/t.csv' })).toContain('belongs to a ZenNotes database')
   })
 
   it('says it lists the whole vault', async () => {

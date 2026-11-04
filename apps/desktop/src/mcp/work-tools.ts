@@ -14,6 +14,7 @@ import {
   updateFrontmatterFields
 } from '@shared/frontmatter'
 import type { NoteMeta as AppNoteMeta, VaultSettings } from '@shared/ipc'
+import { goQuote } from '@shared/mcp-scope'
 import { BUILTIN_TEMPLATES } from '@shared/builtin-templates'
 import { findTemplate, mergeTemplates, parseCustomTemplate } from '@shared/template-files'
 import { completeRecurringTaskAtLine } from '@shared/task-recurrence'
@@ -41,6 +42,7 @@ import {
 } from '@renderer/lib/vault-layout'
 import { renderTemplate } from '@renderer/lib/template-render'
 import type { VaultBackend } from '../cli/backend.js'
+import { ScopedBackend } from './scoped-backend.js'
 import { editSectionInBody, findSection, noteSections, sectionBody } from './note-sections.js'
 import {
   optionalBoolean,
@@ -120,7 +122,7 @@ async function findTask(
  * the scan that produced the id (a server's own parser, or this engine's), and
  * the line setters count fenced code their own way. An id is a position in the
  * note, so an edit since the scan can put another task there; `expectedText`
- * catches that. Every other line keeps its bytes, line ending included.
+ * catches that first. Every other line keeps its bytes, line ending included.
  *
  * `insertedTasks` is how far the task moved: finishing a recurring one writes its
  * next occurrence above it, as toggle_task does.
@@ -187,7 +189,7 @@ function updateFileTask(start: string, task: VaultTask, input: UpdateTaskInput):
   // State, status and waiting are all its one `status:` field.
   const claims = [input.state, input.status, input.waiting].filter((value) => value !== undefined)
   if (claims.length > 1) {
-    throw new Error('A task note has one status, so pass only one of state, status and waiting.')
+    throw new Error('A task note keeps state, status and waiting in its one frontmatter status: pass only one of them.')
   }
   let body = start
   const today = toIsoDateLocal(new Date())
@@ -233,7 +235,11 @@ async function updateTask(backend: VaultBackend, input: UpdateTaskInput): Promis
   const { rel, indexStr } = splitTaskId(input.id)
   const task = await findTask(backend, rel, indexStr)
   if (!task) return null
-  if (input.expectedText !== undefined && task.content.trim() !== input.expectedText.trim()) return null
+  if (input.expectedText !== undefined && task.content.trim() !== input.expectedText.trim()) {
+    throw new Error(
+      `Task ${input.id} now reads ${goQuote(task.content)}, not ${goQuote(input.expectedText)}: the note changed. Run list_tasks again for its id.`
+    )
+  }
   const note = await backend.readNote(task.sourcePath)
   let next: string
   let index = indexStr
@@ -348,12 +354,14 @@ async function dailyNote(
     ) as unknown as NoteMeta | null
   }
   if (found) return { ...result, exists: true, path: found.path, note: found }
+  // A folder this client cannot see stays unnamed, here as anywhere.
+  const named = !(backend instanceof ScopedBackend) || (await backend.sharesPath(rel))
   return {
     ...result,
     exists: false,
     createWith: {
       folder: 'inbox',
-      subpath: location.subpath,
+      ...(named ? { subpath: location.subpath } : {}),
       title: location.title,
       body: await periodicBody(backend, plan.periodic.templateId, location.title, date)
     }
@@ -367,16 +375,11 @@ export const WORK_TOOLS: ToolDef[] = [
     schema: {
       name: 'update_task',
       description:
-        'Change a task by its id from list_tasks: due date, priority, @waiting, state, status (Kanban column) or text. Only what you pass changes; pass "" to clear due, priority or status. The task stays where it is, and the rest of the note keeps its bytes. Returns the updated task, or null if the id no longer matches one.',
+        'Change a task by its id from list_tasks: due date, priority, @waiting, state, status (Kanban column) or text. Only what you pass changes; pass "" to clear due, priority or status. The task stays where it is, and the rest of the note keeps its bytes, except that state done on a task with `@repeat:` writes its next occurrence above it, as toggle_task does, and returns the finished one. An id counts the task\'s position in its note, so pass expectedText to be told when an edit moved it. On a task note, state, status and waiting are one field: pass only one. Returns the updated task, or null if the id no longer matches one.',
       inputSchema: {
         type: 'object',
         properties: {
           id: { type: 'string', description: 'Task id from list_tasks: sourcePath#taskIndex.' },
-          expectedText: {
-            type: 'string',
-            description:
-              "The task's `content` from list_tasks. An id is its position in the note, so pass this if the note may have changed: a different task there answers null and changes nothing."
-          },
           due: { type: 'string', description: 'YYYY-MM-DD, or "" to clear.' },
           priority: {
             type: 'string',
@@ -393,6 +396,11 @@ export const WORK_TOOLS: ToolDef[] = [
             type: 'string',
             description:
               'Replaces everything after the checkbox, one line, due and priority tokens included. Not for a task note: use rename_note.'
+          },
+          expectedText: {
+            type: 'string',
+            description:
+              "The task's content from list_tasks. If it no longer reads this, nothing changes and the call fails."
           }
         },
         required: ['id']

@@ -213,4 +213,13 @@ describe('a Markdown link whose file gains a space or a parenthesis', () => {
     )
     expect(rewriteAssetReferences(body, assets, 'N.md', 'Docs/Plan', 'Docs/Other').changed).toBe(3)
   })
+
+  it('writes the whole path when asked, however unique the bare name is', () => {
+    const assets = [{ path: 'assets/a.png' }]
+    const body = '![[a.png]]\n'
+    expect(rewriteAssetReferences(body, assets, 'N.md', 'assets/a.png', 'assets/b.png').body).toBe('![[b.png]]\n')
+    expect(
+      rewriteAssetReferences(body, assets, 'N.md', 'assets/a.png', 'assets/b.png', { fullPath: true }).body
+    ).toBe('![[assets/b.png]]\n')
+  })
 })

@@ -55,6 +55,18 @@ async function refuseDatabaseFile(meta: VaultAssetMeta, backend: VaultBackend): 
   if (all.some((asset) => asset.path === meta.path + DATABASE_SIDECAR_SUFFIX)) throw refusal
 }
 
+/** What a loose CSV keeps beside it that is not the user's: its schema file and
+ *  the backups of either. The app's Assets view leaves these out. Other tools can
+ *  still tell a database by them. */
+function isLooseCsvInternal(rel: string): boolean {
+  const lower = rel.toLowerCase()
+  return (
+    isDatabaseSidecarPath(lower) ||
+    lower.endsWith('.csv.bak') ||
+    lower.endsWith(`.csv${DATABASE_SIDECAR_SUFFIX}.bak`)
+  )
+}
+
 /** Device names Windows keeps, with or without an extension. */
 const WINDOWS_RESERVED_NAME = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i
 
@@ -99,6 +111,8 @@ async function checkAssetTargetDir(backend: VaultBackend, raw: string): Promise<
   const refused = new Error('This assistant cannot put files there.')
   const clean = cleanRequest(raw)
   if (!clean) throw refused
+  // A name other systems cannot hold or read the same way.
+  if (clean.split('/').some((seg) => /[. ]$|:/.test(seg))) throw refused
   if (clean.split('/').some((seg) => seg.toLowerCase().endsWith(FORM_DIR_SUFFIX))) throw refused
   const { systemFolderPaths } = await backend.vaultLayout()
   if (isInsideMcpScopeEntryFolded(clean, resolveFolderPath('trash', systemFolderPaths))) {
@@ -277,7 +291,7 @@ export const ASSET_TOOLS: ToolDef[] = [
     schema: {
       name: 'rename_asset',
       description:
-        'Rename an attachment in place. Notes that embed or link it are updated to the new name, and `linksNotUpdated` lists any that could not be.',
+        'Rename an attachment in place. Notes that embed or link it are updated to the new name; `linksNotUpdated` lists any it could not change, so fix those by hand. Names holding # ? | [ ] ^ or % are refused, since links could not reach the file.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -300,7 +314,7 @@ export const ASSET_TOOLS: ToolDef[] = [
     schema: {
       name: 'move_asset',
       description:
-        'Move an attachment to another folder, creating it if needed. Notes that embed or link it are updated, and `linksNotUpdated` lists any that could not be. A taken name gets a number, so use the returned `path`.',
+        'Move an attachment to another folder, creating it if needed. Notes that embed or link it are updated; `linksNotUpdated` lists any it could not change. A taken name gets a number, so use the returned `path`.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -367,7 +381,7 @@ export const LIST_ASSETS_TOOL: ToolDef = {
   schema: {
     name: 'list_assets',
     description:
-      "List every file in the vault that is not a note (images, PDFs, audio, video, other binaries), wherever it is. Useful when a note references an asset you need to inspect. With deleted: true, lists the attachments in the app's Trash instead, with the undoToken restore_asset takes.",
+      "List the vault’s attachments: every file that is not a note, wherever it is (images, PDFs, audio, video, other binaries). Useful when a note references an asset you need to inspect. With deleted: true, lists the attachments in the app's Trash instead, with the undoToken restore_asset takes.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -375,6 +389,8 @@ export const LIST_ASSETS_TOOL: ToolDef = {
       }
     }
   },
-  handler: async (args, backend) =>
-    optionalBoolean(args, 'deleted') ? await backend.listDeletedAssets() : await backend.listAssets()
+  handler: async (args, backend) => {
+    if (optionalBoolean(args, 'deleted')) return await backend.listDeletedAssets()
+    return (await backend.listAssets()).filter((asset) => !isLooseCsvInternal(asset.path))
+  }
 }
