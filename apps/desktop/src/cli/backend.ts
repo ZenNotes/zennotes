@@ -390,7 +390,7 @@ class RemoteBackend implements VaultBackend {
     resolveTemplateFolder(await this.client.getVaultSettings())
   marksLinks = async (): Promise<boolean> => {
     try {
-      return (await this.client.getCapabilities()).supportsSymlinkMarks === true
+      return (await this.client.getCapabilities())?.supportsSymlinkMarks === true
     } catch (err) {
       if (err instanceof RemoteRequestError && err.status === 404) return false
       throw err

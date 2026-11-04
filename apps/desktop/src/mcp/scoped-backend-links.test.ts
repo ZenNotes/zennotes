@@ -120,7 +120,7 @@ describe('a scoped client on a server that answers like znserver', () => {
   let reads: Record<string, number>
   let posts: string[]
   /** What `/api/capabilities` answers, or the status it fails with. */
-  let capabilities: Record<string, unknown> | number
+  let capabilities: Record<string, unknown> | number | null
 
   beforeEach(async () => {
     reads = {
@@ -283,8 +283,9 @@ describe('a scoped client on a server that answers like znserver', () => {
   })
 
   describe('that does not say it marks links', () => {
-    it.each<[string, Record<string, unknown> | number]>([
+    it.each<[string, Record<string, unknown> | number | null]>([
       ['a capabilities answer without the flag', {}],
+      ['a capabilities answer of null', null],
       ['the flag set to false', { supportsSymlinkMarks: false }],
       ['no capabilities route', 404]
     ])('shares nothing with a path scope on %s', async (_name, answer) => {

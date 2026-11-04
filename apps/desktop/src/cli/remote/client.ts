@@ -61,7 +61,7 @@ export class CliRemoteClient {
 
   /* --- reads --- */
 
-  getCapabilities(): Promise<{ supportsSymlinkMarks?: boolean }> {
+  getCapabilities(): Promise<{ supportsSymlinkMarks?: boolean } | null> {
     return this.get('/api/capabilities')
   }
 
