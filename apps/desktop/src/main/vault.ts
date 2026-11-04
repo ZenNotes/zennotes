@@ -130,6 +130,8 @@ const DELETED_ASSETS_DIR = 'deleted-assets'
 const DELETED_ASSET_META = '.zn-deleted.json'
 const VAULT_SETTINGS_FILE = 'vault.json'
 const NOTE_META_CACHE_FILE = 'note-meta-cache-v1.json'
+// The server writes this file too, as 5. Skip that number at the next bump, or
+// each would read the other's entries.
 const NOTE_META_CACHE_VERSION = 4
 const RESERVED_ROOT_NAMES = new Set<string>([...FOLDERS, ...ATTACHMENTS_DIRS, INTERNAL_VAULT_DIR])
 // The subset that stays reserved however the system folders are remapped:

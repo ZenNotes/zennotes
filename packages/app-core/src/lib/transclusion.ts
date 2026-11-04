@@ -13,6 +13,7 @@
  */
 
 import { extractBlock } from './block-anchors'
+import { isDelimiterRow } from './markdown-table'
 import { wikilinkBlockAnchor } from './wikilinks'
 
 export interface ExpandEmbedsCtx {
@@ -47,6 +48,36 @@ function codeRanges(md: string): Array<[number, number]> {
 
 function inCode(index: number, ranges: Array<[number, number]>): boolean {
   return ranges.some(([s, e]) => index >= s && index < e)
+}
+
+/** A table's delimiter line, under any blockquote markers. The pipe tells it
+ *  from a `---` rule or heading underline. */
+function isTableDelimiter(line: string): boolean {
+  const bare = line.replace(/^[ \t>]*/, '')
+  return bare.includes('|') && isDelimiterRow(bare)
+}
+
+/**
+ * True when the text at `index` sits on a table row. An embed expands to block
+ * content, which a cell cannot hold: it ended the table and spilled the rest of
+ * the rows as text.
+ */
+function inTableRow(md: string, index: number): boolean {
+  const lines = md.split('\n')
+  let offset = 0
+  let at = 0
+  while (at < lines.length - 1 && offset + lines[at].length < index) {
+    offset += lines[at].length + 1
+    at += 1
+  }
+  if (isTableDelimiter(lines[at + 1] ?? '')) return true
+  // A table runs on to the next blank line, so its delimiter is above in the
+  // same block. A fence ends the block: its contents are not a table.
+  for (let i = at - 1; i >= 0 && lines[i].trim() !== ''; i -= 1) {
+    if (/^[ \t>]*(`{3,}|~{3,})/.test(lines[i])) return false
+    if (isTableDelimiter(lines[i])) return true
+  }
+  return false
 }
 
 /** Drop a leading YAML/TOML frontmatter block so it isn't embedded as text. */
@@ -105,6 +136,10 @@ async function expand(
     const note = target ? ctx.resolve(target, fromPath) : null
     if (!note) {
       out += m[0] // not a note (image/unknown) — leave the original syntax
+      continue
+    }
+    if (inTableRow(md, m.index!)) {
+      out += m[0].slice(1) // a cell holds a link to the note, not the note
       continue
     }
     if (stack.includes(note.path)) {
