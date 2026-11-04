@@ -830,7 +830,10 @@ function extractWikilinks(body: string): string[] {
   const re = /\[\[([^\]|]+?)(?:\\?\|[^\]]+)?\]\]/g
   const seen = new Set<string>()
   let m: RegExpExecArray | null
-  while ((m = re.exec(stripped)) !== null) seen.add(m[1].trim())
+  while ((m = re.exec(stripped)) !== null) {
+    const target = m[1].trim()
+    if (target && target !== '\\') seen.add(target)
+  }
   return [...seen]
 }
 

@@ -149,3 +149,21 @@ describe('expandEmbeds: block transclusion (#601)', () => {
     expect(out).toContain('Third note')
   })
 })
+
+describe('note embeds with an escaped pipe', () => {
+  const ctx = ctxFor({ C: { title: 'C', body: 'Embedded.' }, 'Work/C': { title: 'C', body: 'Worked.' } })
+
+  it('expands the note, and reports the target without the backslash', async () => {
+    const bare = await expandEmbeds('![[C\\|x]]', 'Master.md', ctx)
+    expect(bare).toContain('data-embed-src="C"')
+    expect(bare).toContain('Embedded.')
+    const path = await expandEmbeds('![[Work/C\\|x]]', 'Master.md', ctx)
+    expect(path).toContain('data-embed-src="Work/C"')
+    expect(path).toContain('Worked.')
+  })
+
+  it('counts as a note embed', () => {
+    expect(hasNoteEmbeds('![[C\\|x]]', ctx.resolve, 'Master.md')).toBe(true)
+    expect(hasNoteEmbeds('![[Missing\\|x]]', ctx.resolve, 'Master.md')).toBe(false)
+  })
+})

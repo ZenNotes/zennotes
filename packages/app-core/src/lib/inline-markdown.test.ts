@@ -124,3 +124,10 @@ describe('parseInlineTokens', () => {
     expect(parseInlineTokens('')).toEqual([])
   })
 })
+
+describe('parseInlineTokens with an escaped pipe', () => {
+  it('reads the target without the backslash', () => {
+    expect(shape(parseInlineTokens('[[Note\\|see]]'))).toBe('wikilink:Note|see')
+    expect(shape(parseInlineTokens('[[a\\b|see]]'))).toBe('wikilink:a\\b|see')
+  })
+})

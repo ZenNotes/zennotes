@@ -42,7 +42,7 @@ export function splitNoteLinks(cell: string): string[] {
   const out: string[] = []
   for (const m of cell.matchAll(/\[\[([^\]|]+?)(?:\\?\|[^\]]*)?\]\]/g)) {
     const target = m[1].trim()
-    if (target) out.push(target)
+    if (target && target !== '\\') out.push(target)
   }
   return out
 }

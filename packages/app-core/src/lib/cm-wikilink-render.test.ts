@@ -50,6 +50,25 @@ describe('wikilinkRenderExtension', () => {
     view.destroy()
   })
 
+  it('shows the alias of a table link and hides its escaped separator', () => {
+    const doc = '| [[Note\\|see]] | x |'
+    const view = mount(doc, doc.length)
+    const links = Array.from(view.dom.querySelectorAll<HTMLElement>('.cm-wikilink'))
+    expect(links.map((e) => e.textContent)).toEqual(['see'])
+    expect(links.map((e) => e.dataset.target)).toEqual(['Note'])
+    expect(view.dom.textContent).toBe('| see | x |')
+    view.destroy()
+  })
+
+  it('reveals a table link in full, with both separator characters as markers', () => {
+    const doc = '| [[Note\\|see]] | x |'
+    const view = mount(doc, doc.indexOf('Note'))
+    expect(view.dom.textContent).toBe(doc)
+    const markers = Array.from(view.dom.querySelectorAll<HTMLElement>('.cm-wikilink-bracket'))
+    expect(markers.map((e) => e.textContent)).toEqual(['[[', '\\|', ']]'])
+    view.destroy()
+  })
+
   it('reveals the raw [[...]] on the wikilink the cursor is in', () => {
     const doc = 'see [[Foo]] end'
     const view = mount(doc, doc.indexOf('Foo'))

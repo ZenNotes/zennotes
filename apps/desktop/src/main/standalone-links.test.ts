@@ -99,6 +99,13 @@ describe('resolveStandaloneLink: relative hrefs', () => {
 })
 
 describe('resolveStandaloneLink: wikilinks', () => {
+  it('reads an escaped pipe the way it reads a plain one', async () => {
+    setup()
+    const expected = await resolve({ kind: 'wikilink', target: 't00-converter-ts|alias' })
+    expect(expected).not.toBeNull()
+    expect(await resolve({ kind: 'wikilink', target: 't00-converter-ts\\|alias' })).toEqual(expected)
+  })
+
   it('finds a page by name next to the note, ignoring alias and anchors', async () => {
     setup()
     const expected = path.join(root, 'proj/docs/wiki/t00-converter-ts.md')

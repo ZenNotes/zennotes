@@ -93,7 +93,9 @@ describe('splitNoteLinks with an escaped pipe', () => {
     ['[[C|d]]', ['C']],
     ['[[C|]]', ['C']],
     ['[[C]]', ['C']],
-    ['[[C\\]]', ['C\\']]
+    ['[[C\\]]', ['C\\']],
+    ['[[\\|d]]', []],
+    ['[[\\]]', []]
   ])('reads %s', (cell, want) => {
     expect(splitNoteLinks(cell)).toEqual(want)
   })

@@ -80,3 +80,15 @@ describe('rewriteWikilinksForRename with an escaped pipe', () => {
     expect(rewrite(body)).toEqual({ body: want, changed })
   })
 })
+
+describe('rewriteWikilinksForRename with a backslash in the path', () => {
+  it('keeps the folder, with either separator form', () => {
+    expect(rewrite('| [[demo\\Old Title.md\\|see]] |').body).toBe('| [[demo\\New Title.md\\|see]] |')
+    expect(rewrite('[[demo\\Old Title.md|see]]').body).toBe('[[demo\\New Title.md|see]]')
+  })
+
+  it('leaves a target it does not read as a path', () => {
+    // Only a `/` or a `.md` makes a target a path, as the resolver reads them.
+    expect(rewrite('[[demo\\Old Title]]')).toEqual({ body: '[[demo\\Old Title]]', changed: 0 })
+  })
+})

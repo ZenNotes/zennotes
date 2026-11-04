@@ -59,6 +59,24 @@ describe('readEmbedWidth', () => {
   })
 })
 
+describe('an embed with an escaped pipe', () => {
+  it('keeps the rewritten alt escaped, so a table cell stays whole', () => {
+    expect(rewriteWikilinkImageEmbeds('| ![[chart.png\\|320]] | x |')).toBe('| ![\\|320](chart.png) | x |')
+    expect(rewriteWikilinkImageEmbeds('| ![[chart.png\\|Quarter\\|600x400]] | x |')).toBe(
+      '| ![Quarter\\|600x400](chart.png) | x |'
+    )
+    expect(rewriteWikilinkImageEmbeds('| ![[Some note\\|x]] | y |')).toBe('| ![[Some note\\|x]] | y |')
+  })
+  it('reads a caption and size the same as the unescaped form', () => {
+    expect(splitEmbedLabel('Team\\|300', 'wikilink')).toEqual(splitEmbedLabel('Team|300', 'wikilink'))
+  })
+  it('resizes a standalone line and keeps its separator', () => {
+    expect(withEmbedWidth('![[pic.png\\|300]]', 480)).toBe('![[pic.png\\|480]]')
+    expect(withEmbedWidth('![[pic.png\\|Team\\|300]]', 480)).toBe('![[pic.png\\|Team\\|480]]')
+    expect(withEmbedWidth('![[pic.png\\|480]]', null)).toBe('![[pic.png]]')
+  })
+})
+
 describe('withEmbedWidth', () => {
   it('adds, replaces, and strips the hint on a wikilink embed', () => {
     expect(withEmbedWidth('![[pic.png]]', 480)).toBe('![[pic.png|480]]')

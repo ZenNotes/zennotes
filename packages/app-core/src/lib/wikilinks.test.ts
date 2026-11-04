@@ -333,8 +333,8 @@ describe('backlinksForNote (#880)', () => {
 })
 
 // A table cell escapes a wikilink's separator as `\|`, because GFM would end the
-// cell at a bare pipe. Note names cannot hold a backslash, so one right before
-// the pipe is always the escape and never part of the target.
+// cell at a bare pipe. The app never creates a name with a backslash, so one right
+// before the pipe is read as the escape and never as part of the target.
 describe('extractWikilinkTargets with an escaped pipe', () => {
   it.each([
     ['a table cell', '| [[C\\|d]] | x |', ['C']],
@@ -349,7 +349,11 @@ describe('extractWikilinkTargets with an escaped pipe', () => {
     ['a plain link', '[[C]]', ['C']],
     ['a backslash with no pipe', '[[C\\]]', ['C\\']],
     ['a backslash inside a target', '[[a\\b|d]]', ['a\\b']],
-    ['inline code', '`[[C\\|d]]`', []]
+    ['inline code', '`[[C\\|d]]`', []],
+    ['a separator with no target', '[[\\|d]]', []],
+    ['a space with no target', '[[ \\|d]]', []],
+    ['an unescaped alias with no target', '[[ |d]]', []],
+    ['a backslash alone', '[[\\]]', []]
   ])('reads %s', (_name, body, want) => {
     expect(extractWikilinkTargets(body)).toEqual(want)
   })

@@ -76,3 +76,9 @@ describe('renderNoteEmailHtml: a lone dash under a line (#898)', () => {
     expect(html).toContain('Some text\n-')
   })
 })
+
+describe('collectEmailImageRefs with an escaped pipe', () => {
+  it('reads the picture a table embeds', () => {
+    expect(collectEmailImageRefs('| ![[pic.png\\|300]] | x |')).toEqual(['pic.png'])
+  })
+})

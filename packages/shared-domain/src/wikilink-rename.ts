@@ -81,9 +81,9 @@ export function resolveWikilinkTarget(
 
 /**
  * Where a wikilink's alias starts, separator included, or -1. A table writes the
- * separator as `\|`, the escape GFM needs to keep the pipe in its cell. Note
- * names can't contain a backslash, so one right before the pipe is that escape,
- * and a rewrite keeps it by keeping it on the alias.
+ * separator as `\|`, the escape GFM needs to keep the pipe in its cell. The app
+ * never creates a name with a backslash, so one right before the pipe is that
+ * escape, and a rewrite keeps it by keeping it on the alias.
  */
 export function wikilinkAliasStart(content: string): number {
   const pipe = content.indexOf('|')
@@ -117,7 +117,8 @@ function splitWikilinkContent(content: string): {
 /** Replace a wikilink target's final segment (the renamed file's name) with the
  *  new title, preserving any directory prefix, leading slash, and `.md`. */
 function swapBasename(target: string, newTitle: string): string {
-  const slash = target.lastIndexOf('/')
+  // The resolver reads a backslash as a path separator too.
+  const slash = Math.max(target.lastIndexOf('/'), target.lastIndexOf('\\'))
   const dir = slash >= 0 ? target.slice(0, slash + 1) : ''
   const base = slash >= 0 ? target.slice(slash + 1) : target
   const md = base.match(/\.md$/i)

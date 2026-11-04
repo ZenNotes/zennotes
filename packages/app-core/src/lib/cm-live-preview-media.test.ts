@@ -132,6 +132,12 @@ afterEach(() => {
 })
 
 describe('live preview: audio and video embeds', () => {
+  it('reads a standalone embed with an escaped pipe the way it reads a plain one', () => {
+    const view = mountEditor('Above\n\n![[assets/clip.mp4\\|Clip]]\n\nBelow', 0)
+    const figure = view.dom.querySelector<HTMLElement>('figure.cm-local-media-embed')
+    expect(figure?.dataset.localAssetHref).toBe('assets/clip.mp4')
+  })
+
   it("draws the reading view's player for a standalone ![[clip.mp4]] and hides its source off the cursor line", () => {
     const doc = 'Above\n\n![[assets/clip.mp4]]\n\nBelow'
     const view = mountEditor(doc, 0)

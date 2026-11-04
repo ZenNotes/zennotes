@@ -268,3 +268,18 @@ describe('linkRangesInLine', () => {
     expect(linkRangesInLine('Ask [EE] or [label][missing] for details.')).toEqual([])
   })
 })
+
+describe('linkRangeAtCursor with an escaped pipe', () => {
+  it('follows the note a table link names, not its backslash', () => {
+    const doc = '| [[Note\\|see]] | x |'
+    expect(linkRangeAtCursor(doc, doc.indexOf('Note'))).toEqual({
+      kind: 'wikilink',
+      target: 'Note',
+      from: doc.indexOf('[['),
+      to: doc.indexOf(']]') + 2
+    })
+  })
+  it('leaves an unescaped alias as it was', () => {
+    expect(linkRangeAtCursor('[[Note|see]]', 3)?.target).toBe('Note')
+  })
+})

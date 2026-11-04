@@ -97,6 +97,22 @@ describe('rewriteAssetReferences on rename (#785)', () => {
   })
 })
 
+describe('rewriteAssetReferences with an escaped pipe', () => {
+  it.each([
+    ['a rename', '| ![[old.png\\|300]] |', 'assets/new.png', '| ![[new.png\\|300]] |', 1],
+    ['a rooted path', '| ![[assets/old.png\\|300]] |', 'assets/new.png', '| ![[assets/new.png\\|300]] |', 1],
+    ['a move', '| ![[assets/old.png\\|300]] |', 'media/old.png', '| ![[media/old.png\\|300]] |', 1],
+    ['a bare name that still resolves', '| ![[old.png\\|300]] |', 'media/old.png', '| ![[old.png\\|300]] |', 0],
+    ['a fragment', '| ![[old.png#page=2\\|300]] |', 'assets/new.png', '| ![[new.png#page=2\\|300]] |', 1],
+    ['a plain link', '| [[old.png\\|the shot]] |', 'assets/new.png', '| [[new.png\\|the shot]] |', 1],
+    ['an unescaped alias', '![[old.png|300]]', 'assets/new.png', '![[new.png|300]]', 1],
+    ['code', '`![[old.png\\|300]]`', 'assets/new.png', '`![[old.png\\|300]]`', 0],
+    ['another asset', '| ![[other.png\\|300]] |', 'assets/new.png', '| ![[other.png\\|300]] |', 0]
+  ])('handles %s', (_name, body, newPath, want, changed) => {
+    expect(rewrite(body, 'assets/old.png', newPath)).toEqual({ body: want, changed })
+  })
+})
+
 describe('rewriteAssetReferences on move (#785 follow-up)', () => {
   const move = (body: string, oldPath = 'assets/old.png', newPath = 'media/shots/old.png') =>
     rewriteAssetReferences(body, assets, note, oldPath, newPath)
@@ -161,21 +177,5 @@ describe('rewriteAssetReferences on move (#785 follow-up)', () => {
       body: '![](media/new%20name.png) ![](<media/new name.png>) `![[assets/old name.png]]`',
       changed: 2
     })
-  })
-})
-
-describe('rewriteAssetReferences with an escaped pipe', () => {
-  it.each([
-    ['a rename', '| ![[old.png\\|300]] |', 'assets/new.png', '| ![[new.png\\|300]] |', 1],
-    ['a rooted path', '| ![[assets/old.png\\|300]] |', 'assets/new.png', '| ![[assets/new.png\\|300]] |', 1],
-    ['a move', '| ![[assets/old.png\\|300]] |', 'media/old.png', '| ![[media/old.png\\|300]] |', 1],
-    ['a bare name that still resolves', '| ![[old.png\\|300]] |', 'media/old.png', '| ![[old.png\\|300]] |', 0],
-    ['a fragment', '| ![[old.png#page=2\\|300]] |', 'assets/new.png', '| ![[new.png#page=2\\|300]] |', 1],
-    ['a plain link', '| [[old.png\\|the shot]] |', 'assets/new.png', '| [[new.png\\|the shot]] |', 1],
-    ['an unescaped alias', '![[old.png|300]]', 'assets/new.png', '![[new.png|300]]', 1],
-    ['code', '`![[old.png\\|300]]`', 'assets/new.png', '`![[old.png\\|300]]`', 0],
-    ['another asset', '| ![[other.png\\|300]] |', 'assets/new.png', '| ![[other.png\\|300]] |', 0]
-  ])('handles %s', (_name, body, newPath, want, changed) => {
-    expect(rewrite(body, 'assets/old.png', newPath)).toEqual({ body: want, changed })
   })
 })

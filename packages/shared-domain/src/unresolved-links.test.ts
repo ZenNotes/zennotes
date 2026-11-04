@@ -204,6 +204,10 @@ describe('findWikilinkOccurrences with an escaped pipe', () => {
     expect(body.slice(found[0]!.from, found[0]!.to)).toBe('[[C\\|d]]')
   })
 
+  it('skips a link with no target', () => {
+    expect(findWikilinkOccurrences('[[\\|d]] [[ \\|d]] [[\\]]')).toEqual([])
+  })
+
   it('leaves unescaped links as they were', () => {
     expect(findWikilinkOccurrences('[[C|d]] [[E]] [[F\\]]').map((o) => o.target)).toEqual([
       'C',

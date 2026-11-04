@@ -2117,7 +2117,7 @@ function extractWikilinks(body: string): string[] {
   while ((m = re.exec(stripped)) !== null) {
     const bang = m[1] ?? ''
     const target = (m[2] ?? '').trim()
-    if (!target) continue
+    if (!target || target === '\\') continue
     if (bang === '!' && localAssetTargetKind(target)) continue
     seen.add(target)
   }

@@ -489,6 +489,13 @@ describe('mcp text search leaves the template folder out (#1024)', () => {
 })
 
 describe('a table link with an escaped pipe', () => {
+  it('names nothing when it has no target', async () => {
+    await mkdir(path.join(root, 'inbox'), { recursive: true })
+    await writeFile(path.join(root, 'inbox', 'Empty.md'), '[[\\|d]] [[ \\|d]] [[ |d]] [[\\]]\n', 'utf8')
+    const metas = await listNotes(root)
+    expect(metas.find((n) => n.path === 'inbox/Empty.md')?.wikilinks).toEqual([])
+  })
+
   it('is an outgoing link and a backlink of its target', async () => {
     await mkdir(path.join(root, 'inbox'), { recursive: true })
     await writeFile(path.join(root, 'inbox', 'C.md'), '# C\n', 'utf8')

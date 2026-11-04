@@ -27,6 +27,8 @@ export interface ExpandEmbedsCtx {
 
 const DEFAULT_MAX_DEPTH = 6
 const EMBED_RE = /!\[\[([^\]\n]+?)\]\]/g
+/** A table writes the separator as `\|`; the backslash is not the target's. */
+const WIKILINK_SEPARATOR = /\\?\|/
 
 /** Character ranges of fenced + inline code, so we never expand `![[…]]` there. */
 function codeRanges(md: string): Array<[number, number]> {
@@ -99,7 +101,7 @@ async function expand(
   for (const m of matches) {
     out += md.slice(last, m.index)
     last = m.index! + m[0].length
-    const target = (m[1].split('|', 1)[0] ?? '').trim() // strip any |label
+    const target = (m[1].split(WIKILINK_SEPARATOR, 1)[0] ?? '').trim() // strip any |label
     const note = target ? ctx.resolve(target, fromPath) : null
     if (!note) {
       out += m[0] // not a note (image/unknown) — leave the original syntax
@@ -144,7 +146,7 @@ export function hasNoteEmbeds(markdown: string, resolve: ExpandEmbedsCtx['resolv
   const ranges = codeRanges(markdown)
   return [...markdown.matchAll(EMBED_RE)].some((m) => {
     if (inCode(m.index!, ranges)) return false
-    const target = (m[1].split('|', 1)[0] ?? '').trim()
+    const target = (m[1].split(WIKILINK_SEPARATOR, 1)[0] ?? '').trim()
     return !!target && !!resolve(target, fromPath)
   })
 }

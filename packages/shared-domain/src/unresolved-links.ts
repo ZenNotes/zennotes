@@ -69,7 +69,7 @@ export function findWikilinkOccurrences(body: string): WikilinkOccurrence[] {
     const masked = maskInlineCode(line.text)
     for (const m of masked.matchAll(WIKILINK_RE)) {
       const target = (m[2] ?? '').trim()
-      if (!target) continue
+      if (!target || target === '\\') continue
       const start = m.index ?? 0
       found.push({
         target,

@@ -1939,8 +1939,8 @@ describe('Empty Trash transaction',()=>{
 })
 
 // A table cell escapes a wikilink's separator as `\|`, because GFM would end the
-// cell at a bare pipe. Note names cannot hold a backslash, so one right before
-// the pipe is always the escape and never part of the target.
+// cell at a bare pipe. The app never creates a name with a backslash, so one right
+// before the pipe is read as the escape and never as part of the target.
 describe('a table link with an escaped pipe', () => {
   const TABLE = '| Link | Shot |\n| --- | --- |\n| [[C\\|d]] | ![[pic.png\\|300]] |\n'
 
@@ -1953,6 +1953,13 @@ describe('a table link with an escaped pipe', () => {
     await writeFile(path.join(root, 'assets', 'pic.png'), 'png', 'utf8')
     return root
   }
+
+  it('indexes nothing for a link with no target', async () => {
+    const root = await vaultWithTable()
+    await writeFile(path.join(root, 'inbox', 'Empty.md'), '[[\\|d]] [[ \\|d]] [[\\]]\n', 'utf8')
+    const note = (await listNotes(root)).find((n) => n.path === 'inbox/Empty.md')
+    expect(note?.wikilinks).toEqual([])
+  })
 
   it('indexes the link and the embed without the backslash', async () => {
     const root = await vaultWithTable()

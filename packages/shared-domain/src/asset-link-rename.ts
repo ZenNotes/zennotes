@@ -23,12 +23,12 @@
  * renderer bundle) and app-core share one implementation; the Go server
  * carries a port in `internal/vault/asset_link_rename.go`.
  */
+import { wikilinkAliasStart } from './wikilink-rename'
 import {
   resolveAssetReference,
   type AssetPathRef,
   type AssetReferenceResolution
 } from './asset-path-resolution'
-import { wikilinkAliasStart } from './wikilink-rename'
 
 // Code first so references inside spans and fences are left untouched, then a
 // wikilink, then a markdown destination. The destination is matched from its
