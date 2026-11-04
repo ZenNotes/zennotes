@@ -44,8 +44,9 @@ function isInsideCode(state: EditorState, pos: number): boolean {
  * segment ends at the first of `stops` in the closed link's tail (the note
  * segment stops at `#`, `^` or `|`; a heading at `|` or a nested `#`), so the
  * old name is replaced whole even when the caret sat in the middle of it, and
- * the section and alias survive untouched. A link still being typed gets the
- * closing brackets, as before, and never eats text after the caret.
+ * the section and alias survive untouched. A table writes the separator as `\|`,
+ * and the backslash stays with it so the cell stays whole. A link still being
+ * typed gets the closing brackets, as before, and never eats text after the caret.
  */
 function linkSegmentEdit(
   state: EditorState,
@@ -64,7 +65,9 @@ function linkSegmentEdit(
     const at = tail.indexOf(stop)
     if (at >= 0 && at < end) end = at
   }
-  return { changes: { from, to: to + end, insert: text }, selection: { anchor: from + text.length } }
+  let stop = to + end
+  if (stop > from && state.sliceDoc(stop - 1, stop + 1) === '\\|') stop--
+  return { changes: { from, to: stop, insert: text }, selection: { anchor: from + text.length } }
 }
 
 const NOTE_SEGMENT_STOPS = '#^|'

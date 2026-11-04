@@ -331,3 +331,41 @@ describe('backlinksForNote (#880)', () => {
     expect(reads).toBeLessThanOrEqual(size)
   })
 })
+
+// A table cell escapes a wikilink's separator as `\|`, because GFM would end the
+// cell at a bare pipe. The app never creates a name with a backslash, so one right
+// before the pipe is read as the escape and never as part of the target.
+describe('extractWikilinkTargets with an escaped pipe', () => {
+  it.each([
+    ['a table cell', '| [[C\\|d]] | x |', ['C']],
+    ['outside a table', 'see [[C\\|d]] here', ['C']],
+    ['a heading anchor', '| [[C#Heading\\|d]] |', ['C#Heading']],
+    ['a block anchor', '| [[C^block\\|d]] |', ['C^block']],
+    ['a path', '| [[notes/C.md\\|d]] |', ['notes/C.md']],
+    ['more pipes in the alias', '[[C\\|d\\|e]]', ['C']],
+    ['both forms of one link', '[[C|d]] and | [[C\\|e]] |', ['C']],
+    ['an unescaped alias', '[[C|d]]', ['C']],
+    ['an unescaped alias holding an escape', '[[C|d\\|e]]', ['C']],
+    ['a plain link', '[[C]]', ['C']],
+    ['a backslash with no pipe', '[[C\\]]', ['C\\']],
+    ['a backslash inside a target', '[[a\\b|d]]', ['a\\b']],
+    ['inline code', '`[[C\\|d]]`', []],
+    ['a separator with no target', '[[\\|d]]', []],
+    ['a space with no target', '[[ \\|d]]', []],
+    ['an unescaped alias with no target', '[[ |d]]', []],
+    ['a backslash alone', '[[\\]]', []]
+  ])('reads %s', (_name, body, want) => {
+    expect(extractWikilinkTargets(body)).toEqual(want)
+  })
+
+  it('makes a table link a backlink of its target', () => {
+    const c = { path: 'inbox/C.md', title: 'C', folder: 'inbox' as const, wikilinks: [] }
+    const table = {
+      path: 'inbox/Table.md',
+      title: 'Table',
+      folder: 'inbox' as const,
+      wikilinks: extractWikilinkTargets('| [[C\\|d]] | x |')
+    }
+    expect(backlinksForNote([c, table], c).map((n) => n.path)).toEqual(['inbox/Table.md'])
+  })
+})

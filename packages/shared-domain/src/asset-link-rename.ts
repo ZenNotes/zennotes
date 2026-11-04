@@ -23,6 +23,7 @@
  * renderer bundle) and app-core share one implementation; the Go server
  * carries a port in `internal/vault/asset_link_rename.go`.
  */
+import { wikilinkAliasStart } from './wikilink-rename'
 import {
   resolveAssetReference,
   type AssetPathRef,
@@ -183,7 +184,7 @@ export function rewriteAssetReferences(
     ) => {
       if (code !== undefined) return full
       if (wikiContent !== undefined) {
-        const pipe = wikiContent.indexOf('|')
+        const pipe = wikilinkAliasStart(wikiContent)
         const target = pipe >= 0 ? wikiContent.slice(0, pipe) : wikiContent
         const rest = pipe >= 0 ? wikiContent.slice(pipe) : ''
         const resolution = resolveOld(target)

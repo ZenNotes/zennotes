@@ -836,10 +836,14 @@ function extractTags(body: string): string[] {
 
 function extractWikilinks(body: string): string[] {
   const stripped = stripCodeContent(body)
-  const re = /\[\[([^\]|]+?)(?:\|[^\]]+)?\]\]/g
+  // A table escapes the separator as `\|`; the backslash is not the target's.
+  const re = /\[\[([^\]|]+?)(?:\\?\|[^\]]+)?\]\]/g
   const seen = new Set<string>()
   let m: RegExpExecArray | null
-  while ((m = re.exec(stripped)) !== null) seen.add(m[1].trim())
+  while ((m = re.exec(stripped)) !== null) {
+    const target = m[1].trim()
+    if (target && target !== '\\') seen.add(target)
+  }
   return [...seen]
 }
 

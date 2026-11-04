@@ -131,7 +131,8 @@ async function resolveWikilink(
   io: StandaloneLinkIo
 ): Promise<string | null> {
   // `[[Doc|alias]]`, `[[Doc#Heading]]` and `[[Doc^block]]` all name Doc.
-  const target = rawTarget.split('|')[0].split(/[#^]/)[0].trim()
+  // A table writes the separator as `\|`; the backslash is not the target's.
+  const target = rawTarget.split(/\\?\|/)[0].split(/[#^]/)[0].trim()
   if (!target) return null
   // A path-like target is Obsidian's "relative to this note" form.
   if (target.includes('/') || /\.(md|markdown)$/i.test(target)) {

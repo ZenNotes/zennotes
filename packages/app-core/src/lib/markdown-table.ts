@@ -131,7 +131,7 @@ function parseAlign(spec: string): ColumnAlign {
 }
 
 /** Returns true when `line` looks like a GFM delimiter row (`|---|:--:|`). */
-function isDelimiterRow(line: string): boolean {
+export function isDelimiterRow(line: string): boolean {
   const cells = splitRow(line)
   if (cells.length === 0) return false
   return cells.every((c) => /^:?-+:?$/.test(c.trim()))

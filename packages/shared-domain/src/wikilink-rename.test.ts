@@ -66,3 +66,29 @@ describe('rewriteWikilinksForRename', () => {
     expect(rewriteWikilinksForRename('[[Dup]]', dup, 'inbox/A.md', 'New').body).toBe('[[New]]')
   })
 })
+
+describe('rewriteWikilinksForRename with an escaped pipe', () => {
+  it.each([
+    ['a table cell', '| [[Old Title\\|d]] | x |', '| [[New Title\\|d]] | x |', 1],
+    ['a heading anchor', '| [[Old Title#Intro\\|d]] |', '| [[New Title#Intro\\|d]] |', 1],
+    ['a path', '| [[demo/Old Title.md\\|d]] |', '| [[demo/New Title.md\\|d]] |', 1],
+    ['an embed', '| ![[Old Title\\|d]] |', '| ![[New Title\\|d]] |', 1],
+    ['an unescaped alias', '[[Old Title|d]]', '[[New Title|d]]', 1],
+    ['code', '`[[Old Title\\|d]]`', '`[[Old Title\\|d]]`', 0],
+    ['another note', '| [[Other\\|d]] |', '| [[Other\\|d]] |', 0]
+  ])('handles %s', (_name, body, want, changed) => {
+    expect(rewrite(body)).toEqual({ body: want, changed })
+  })
+})
+
+describe('rewriteWikilinksForRename with a backslash in the path', () => {
+  it('keeps the folder, with either separator form', () => {
+    expect(rewrite('| [[demo\\Old Title.md\\|see]] |').body).toBe('| [[demo\\New Title.md\\|see]] |')
+    expect(rewrite('[[demo\\Old Title.md|see]]').body).toBe('[[demo\\New Title.md|see]]')
+  })
+
+  it('leaves a target it does not read as a path', () => {
+    // Only a `/` or a `.md` makes a target a path, as the resolver reads them.
+    expect(rewrite('[[demo\\Old Title]]')).toEqual({ body: '[[demo\\Old Title]]', changed: 0 })
+  })
+})

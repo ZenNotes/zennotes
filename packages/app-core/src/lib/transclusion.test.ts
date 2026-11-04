@@ -149,3 +149,73 @@ describe('expandEmbeds: block transclusion (#601)', () => {
     expect(out).toContain('Third note')
   })
 })
+
+describe('note embeds with an escaped pipe', () => {
+  const ctx = ctxFor({ C: { title: 'C', body: 'Embedded.' }, 'Work/C': { title: 'C', body: 'Worked.' } })
+
+  it('expands the note, and reports the target without the backslash', async () => {
+    const bare = await expandEmbeds('![[C\\|x]]', 'Master.md', ctx)
+    expect(bare).toContain('data-embed-src="C"')
+    expect(bare).toContain('Embedded.')
+    const path = await expandEmbeds('![[Work/C\\|x]]', 'Master.md', ctx)
+    expect(path).toContain('data-embed-src="Work/C"')
+    expect(path).toContain('Worked.')
+  })
+
+  it('counts as a note embed', () => {
+    expect(hasNoteEmbeds('![[C\\|x]]', ctx.resolve, 'Master.md')).toBe(true)
+    expect(hasNoteEmbeds('![[Missing\\|x]]', ctx.resolve, 'Master.md')).toBe(false)
+  })
+})
+
+describe('a note embed in a table', () => {
+  const ctx = ctxFor({ C: { title: 'C', body: 'Embedded.' } })
+  const table = (cell: string): string => `| a | b |\n| --- | --- |\n| ${cell} | y |\n\nAfter`
+
+  it.each([
+    ['escaped', '![[C\\|x]]', 'x'],
+    ['plain', '![[C]]', 'C']
+  ])('keeps the row whole and links the note (%s)', async (_name, cell, label) => {
+    const out = await expandEmbeds(table(cell), 'Master.md', ctx)
+    expect(out).toBe(table(cell.slice(1)))
+    const html = renderMarkdown(out)
+    expect(html.match(/<td/g)).toHaveLength(2)
+    expect(html).not.toContain('| y |')
+    expect(html).toMatch(new RegExp(`class="wikilink"[^>]*>${label}</a>`))
+    expect(html).not.toContain('<img')
+  })
+
+  it.each([
+    ['a header row', '| ![[C]] | b |\n| --- | --- |\n| x | y |'],
+    ['a row without outer pipes', 'a | b\n--- | ---\n![[C]] | y'],
+    ['a table in a blockquote', '> | a |\n> | --- |\n> | ![[C]] |'],
+    ['a one-column row', '| a |\n| --- |\n| ![[C]] |']
+  ])('links the note from %s', async (_name, md) => {
+    expect(await expandEmbeds(md, 'Master.md', ctx)).toBe(md.replace('![[C]]', '[[C]]'))
+  })
+
+  it('leaves a picture in a cell alone', async () => {
+    const md = table('![[pic.png\\|300]]')
+    expect(await expandEmbeds(md, 'Master.md', ctx)).toBe(md)
+  })
+
+  it('keeps a table row whole in a note that is itself embedded', async () => {
+    const nested = ctxFor({
+      A: { title: 'A', body: table('![[C]]') },
+      C: { title: 'C', body: 'Embedded.' }
+    })
+    const out = await expandEmbeds('![[A]]', 'Master.md', nested)
+    expect(out).toContain('| [[C]] | y |')
+    expect(out).not.toContain('Embedded.')
+  })
+
+  it.each([
+    ['a paragraph holding a pipe', 'x | ![[C]]'],
+    ['a line after a rule', '---\n![[C]]'],
+    ['a line above a rule', '![[C]]\n---'],
+    ['a line after a blank under a table', '| a |\n| --- |\n| b |\n\n![[C]]'],
+    ['a line after a fenced delimiter', '```\n| --- |\n```\n![[C]]']
+  ])('still expands %s', async (_name, md) => {
+    expect(await expandEmbeds(md, 'Master.md', ctx)).toContain('Embedded.')
+  })
+})

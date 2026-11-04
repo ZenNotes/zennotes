@@ -29,8 +29,9 @@ import { listDatabaseLinkTargets } from './database-links'
 import { wikilinkReaches } from './unresolved-links'
 import { setHoveredLink } from './hovered-link'
 
-// Same shape as the Preview pipeline (remarkWikilinks).
-const WIKILINK_RE = /(!?)\[\[([^\]|]+?)(?:\|([^\]]+))?\]\]/g
+// Same shape as the Preview pipeline (remarkWikilinks), which reads a table
+// cell after GFM has unescaped it. This one reads the raw line, so it takes `\|`.
+const WIKILINK_RE = /(!?)\[\[([^\]|]+?)(?:\\?\|([^\]]+))?\]\]/g
 const hide = Decoration.replace({})
 // Quiet edit markers for the revealed `[[ ]]` / `|` when the cursor is in the
 // wikilink (overrides the orange link highlight so brackets read as markers).
@@ -165,7 +166,7 @@ function buildDecorations(view: EditorView): DecorationSet {
         if (isInsideCode(state, matchStart + 2)) continue
         const hasAlias = m[3] != null
         const labelStart = hasAlias
-          ? matchStart + 2 + m[2].length + 1 // after `[[target|`
+          ? matchEnd - 2 - m[3].length // after `[[target|` or `[[target\|`
           : matchStart + 2 // after `[[`
         const labelEnd = matchEnd - 2 // before `]]`
         if (labelEnd <= labelStart) continue
@@ -174,7 +175,7 @@ function buildDecorations(view: EditorView): DecorationSet {
         if (selectionTouches(state, matchStart, matchEnd)) {
           pending.push({ from: matchStart, to: matchStart + 2, deco: bracketMark })
           if (hasAlias) {
-            pending.push({ from: labelStart - 1, to: labelStart, deco: bracketMark })
+            pending.push({ from: matchStart + 2 + m[2].length, to: labelStart, deco: bracketMark })
           }
           pending.push({ from: matchEnd - 2, to: matchEnd, deco: bracketMark })
           continue

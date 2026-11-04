@@ -351,13 +351,22 @@ export function blockAnchorsTargeting<T extends NoteRef>(
   return [...seen]
 }
 
+/**
+ * Unique wikilink targets in a body, outside code. A table writes the separator
+ * as `\|`, the escape GFM needs to keep the pipe in its cell. The app never creates
+ * a name with a backslash, so `[[C\|d]]` links to `C`, not to a file named `C\.md`
+ * made elsewhere. Same shape as the scanners in
+ * apps/desktop/src/main/vault.ts, apps/desktop/src/mcp/vault-ops.ts,
+ * @shared/unresolved-links, and internal/vault/parse.go in ZenNotes/znserver.
+ */
 export function extractWikilinkTargets(body: string): string[] {
   const stripped = stripCodeContent(body)
-  const re = /\[\[([^\]|]+?)(?:\|[^\]]+)?\]\]/g
+  const re = /\[\[([^\]|]+?)(?:\\?\|[^\]]+)?\]\]/g
   const seen = new Set<string>()
   let m: RegExpExecArray | null
   while ((m = re.exec(stripped)) !== null) {
-    seen.add(m[1].trim())
+    const target = m[1].trim()
+    if (target && target !== '\\') seen.add(target)
   }
   return [...seen]
 }

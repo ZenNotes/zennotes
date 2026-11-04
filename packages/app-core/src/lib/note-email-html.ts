@@ -105,7 +105,7 @@ export interface EmailHtmlOptions {
 }
 
 const IMAGE_REF_RE = /!\[[^\]]*\]\((?:<([^>]+)>|([^)\s]+))(?:\s+(?:"[^"]*"|'[^']*'))?\s*\)/g
-const WIKILINK_REF_RE = /!\[\[([^\]|]+?)(?:\|[^\]]*)?\]\]/g
+const WIKILINK_REF_RE = /!\[\[([^\]|]+?)(?:\\?\|[^\]]*)?\]\]/g
 
 /** Every local image the note refers to, in the form `styleTree` will see as
  *  `src`: markdown destinations as written (title dropped) and wikilink

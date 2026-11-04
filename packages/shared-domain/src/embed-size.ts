@@ -36,7 +36,9 @@ export function splitEmbedLabel(
   label: string | null | undefined,
   source: 'wikilink' | 'markdown'
 ): { alt: string; size: EmbedSize | null } {
-  const raw = (label ?? '').trim()
+  // A table writes a wikilink's separators as `\|`, here as anywhere.
+  const trimmed = (label ?? '').trim()
+  const raw = source === 'wikilink' ? trimmed.replaceAll('\\|', '|') : trimmed
   if (!raw) return { alt: '', size: null }
   if (source === 'wikilink') {
     const wholeSize = parseEmbedSizeHint(raw)
@@ -49,7 +51,7 @@ export function splitEmbedLabel(
   return { alt: raw.slice(0, pipeAt).trim(), size }
 }
 
-const STANDALONE_WIKILINK_EMBED_LINE_RE = /^(\s*)!\[\[([^\]|]+?)(?:\|([^\]]*))?\]\](\s*)$/
+const STANDALONE_WIKILINK_EMBED_LINE_RE = /^(\s*)!\[\[([^\]|]+?)(?:\\?\|([^\]]*))?\]\](\s*)$/
 const STANDALONE_MARKDOWN_IMAGE_LINE_RE = /^(\s*)!\[([^\]]*)\](\(.*\))(\s*)$/
 
 /**
@@ -73,7 +75,8 @@ export function withEmbedWidth(lineText: string, width: number | null): string |
     if (!isImageEmbedTarget(target)) return null
     const { alt } = splitEmbedLabel(label, 'wikilink')
     const parts = [alt, width === null ? '' : String(width)].filter(Boolean)
-    const suffix = parts.length ? `|${parts.join('|')}` : ''
+    const separator = lineText.includes('\\|') ? '\\|' : '|'
+    const suffix = parts.length ? `${separator}${parts.join(separator)}` : ''
     return `${lead}![[${target}${suffix}]]${trail}`
   }
   const md = lineText.match(STANDALONE_MARKDOWN_IMAGE_LINE_RE)
@@ -119,7 +122,7 @@ export function isImageEmbedTarget(target: string): boolean {
   return IMAGE_EMBED_EXTENSIONS.has(clean.slice(dot + 1).toLowerCase())
 }
 
-const WIKILINK_IMAGE_RE = /!\[\[([^\]|]+?)(?:\|([^\]]*))?\]\]/g
+const WIKILINK_IMAGE_RE = /!\[\[([^\]|]+?)(?:\\?\|([^\]]*))?\]\]/g
 const FENCE_RE = /^\s{0,3}(`{3,}|~{3,})/
 
 /**
@@ -127,7 +130,8 @@ const FENCE_RE = /^\s{0,3}(`{3,}|~{3,})/
  * remark pipelines understand: `![caption|600](chart.png)`. The label keeps
  * its size hint, so a consumer reads it back with `splitEmbedLabel(alt,
  * 'markdown')`. Note embeds (`![[Some note]]`) and anything inside a fenced
- * code block are left alone.
+ * code block are left alone. An embed a table escapes as `![[chart.png\|600]]`
+ * keeps the escape in its alt, or the pipe would end the cell.
  */
 export function rewriteWikilinkImageEmbeds(markdown: string): string {
   const lines = markdown.split('\n')
@@ -149,9 +153,10 @@ export function rewriteWikilinkImageEmbeds(markdown: string): string {
       // A bare size keeps its leading pipe (`![|320](x)`): in markdown alt
       // text a lone number is a caption, not a size (#570).
       const altText = sizeText ? `${alt}|${sizeText}` : alt
+      const cellSafeAlt = whole.includes('\\|') ? altText.replaceAll('|', '\\|') : altText
       const href = target.trim()
       const safeHref = /[\s()]/.test(href) ? `<${href}>` : href
-      return `![${altText}](${safeHref})`
+      return `![${cellSafeAlt}](${safeHref})`
     })
   }
   return lines.join('\n')

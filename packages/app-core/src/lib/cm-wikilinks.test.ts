@@ -320,6 +320,29 @@ describe('editing an existing link keeps its section and alias (#686)', () => {
     block.done()
   })
 
+  it('keeps the escaped separator of a table link, so the cell stays whole', async () => {
+    const note = editor('| [[Zen G\\|see]] | x |')
+    await pickNote(note.view, '| [[Zen G'.length, 'Zen Garden')
+    expect(note.view.state.doc.toString()).toBe('| [[Zen Garden\\|see]] | x |')
+    note.done()
+
+    const section = editor('| [[Zen Garden#Us\\|see]] | x |')
+    const caret = '| [[Zen Garden#Us'.length
+    const result = await wikilinkHeadingSource(new CompletionContext(section.view.state, caret, true))
+    const option = result?.options.find((o) => o.label === 'Usage Notes')
+    if (!option || typeof option.apply !== 'function') throw new Error('no heading option')
+    option.apply(section.view, option, result!.from, caret)
+    expect(section.view.state.doc.toString()).toBe('| [[Zen Garden#Usage Notes\\|see]] | x |')
+    section.done()
+  })
+
+  it('keeps it when the caret sits between the backslash and the pipe', async () => {
+    const { view, done } = editor('| [[Zen G\\|see]] | x |')
+    await pickNote(view, '| [[Zen G\\'.length, 'Zen Garden')
+    expect(view.state.doc.toString()).toBe('| [[Zen Garden\\|see]] | x |')
+    done()
+  })
+
   it('changing the section keeps the alias', async () => {
     const { view, done } = editor('[[Zen Garden#Us|yesterday]]')
     const caret = '[[Zen Garden#Us'.length

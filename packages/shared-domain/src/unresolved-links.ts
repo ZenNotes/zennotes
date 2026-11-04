@@ -39,8 +39,8 @@ export interface WikilinkOccurrence {
 
 // Same shape as the vault index's scanner (`extractWikilinks` in the desktop
 // main process): an optional embed bang, the target up to `|` or `]`, and an
-// optional alias.
-const WIKILINK_RE = /(!?)\[\[([^\]|]+?)(?:\|[^\]]+)?\]\]/g
+// optional alias, whose separator a table escapes as `\|`.
+const WIKILINK_RE = /(!?)\[\[([^\]|]+?)(?:\\?\|[^\]]+)?\]\]/g
 
 // Inline code spans as the vault index masks them (`[^`\n]*` between single
 // backticks), blanked to spaces of the same length so the columns of every
@@ -69,7 +69,7 @@ export function findWikilinkOccurrences(body: string): WikilinkOccurrence[] {
     const masked = maskInlineCode(line.text)
     for (const m of masked.matchAll(WIKILINK_RE)) {
       const target = (m[2] ?? '').trim()
-      if (!target) continue
+      if (!target || target === '\\') continue
       const start = m.index ?? 0
       found.push({
         target,

@@ -195,3 +195,24 @@ describe('Unresolved Links tab path', () => {
     expect(isUnresolvedLinksTabPath(null)).toBe(false)
   })
 })
+
+describe('findWikilinkOccurrences with an escaped pipe', () => {
+  it('reads the target of a table link without the backslash', () => {
+    const body = '| [[C\\|d]] | ![[pic.png\\|300]] |'
+    const found = findWikilinkOccurrences(body)
+    expect(found.map((o) => o.target)).toEqual(['C', 'pic.png'])
+    expect(body.slice(found[0]!.from, found[0]!.to)).toBe('[[C\\|d]]')
+  })
+
+  it('skips a link with no target', () => {
+    expect(findWikilinkOccurrences('[[\\|d]] [[ \\|d]] [[\\]]')).toEqual([])
+  })
+
+  it('leaves unescaped links as they were', () => {
+    expect(findWikilinkOccurrences('[[C|d]] [[E]] [[F\\]]').map((o) => o.target)).toEqual([
+      'C',
+      'E',
+      'F\\'
+    ])
+  })
+})

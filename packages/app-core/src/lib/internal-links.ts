@@ -178,7 +178,7 @@ const LINK_SHAPES: ReadonlyArray<{
   re: RegExp
   target: (m: RegExpMatchArray) => string
 }> = [
-  { kind: 'wikilink', re: /\[\[([^\]|]+?)(?:\|[^\]]+)?\]\]/g, target: (m) => m[1] },
+  { kind: 'wikilink', re: /\[\[([^\]|]+?)(?:\\?\|[^\]]+)?\]\]/g, target: (m) => m[1] },
   { kind: 'markdown', re: /\[([^\]]*)\]\(<([^>]+)>\)/g, target: (m) => m[2] },
   { kind: 'markdown', re: /\[([^\]]*)\]\(([^)]+)\)/g, target: (m) => unwrapMdUrl(m[2]) },
   { kind: 'url', re: /https?:\/\/[^\s)>\]]+/g, target: (m) => m[0] }

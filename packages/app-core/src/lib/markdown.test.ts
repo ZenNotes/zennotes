@@ -723,3 +723,13 @@ describe('code block language detection in the reading view (#1014)', () => {
     expect(html).not.toContain('hljs-')
   })
 })
+
+describe('a sized image embed in a table cell', () => {
+  it('stays one cell and draws the picture', () => {
+    const html = renderMarkdown('| a | b |\n| --- | --- |\n| ![[pic.png\\|300]] | x |')
+    expect(html.match(/<td/g)).toHaveLength(2)
+    expect(html).toContain('<img')
+    expect(html).toContain('pic.png')
+    expect(html).not.toContain('pic.png\\')
+  })
+})

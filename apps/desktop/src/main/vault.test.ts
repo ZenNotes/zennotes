@@ -1266,7 +1266,7 @@ describe('listNotes metadata cache', () => {
     await writeFile(
       path.join(root, '.zennotes', 'note-meta-cache-v1.json'),
       `${JSON.stringify({
-        version: 3,
+        version: 4,
         // The folder the snapshot was built under (#562). A snapshot without
         // it predates the preamble exclusion, so its tags cannot be trusted.
         preambleFolder: 'typst',
@@ -1322,7 +1322,7 @@ describe('listNotes metadata cache', () => {
     await writeFile(
       path.join(root, '.zennotes', 'note-meta-cache-v1.json'),
       `${JSON.stringify({
-        version: 3,
+        version: 4,
         preambleFolder: 'SomethingElse',
         entries: [
           {
@@ -1948,5 +1948,94 @@ describe('Empty Trash transaction',()=>{
     finally{spy.mockRestore()}
     expect(await readFile(path.join(root,'trash/One.md'),'utf8')).toBe('Keep me')
     expect(await readNoteComments(root,'trash/One.md')).toHaveLength(1)
+  })
+})
+
+// A table cell escapes a wikilink's separator as `\|`, because GFM would end the
+// cell at a bare pipe. The app never creates a name with a backslash, so one right
+// before the pipe is read as the escape and never as part of the target.
+describe('a table link with an escaped pipe', () => {
+  const TABLE = '| Link | Shot |\n| --- | --- |\n| [[C\\|d]] | ![[pic.png\\|300]] |\n'
+
+  async function vaultWithTable(): Promise<string> {
+    const root = await makeTempDir('zennotes-escaped-pipe-')
+    await ensureVaultLayout(root)
+    await writeFile(path.join(root, 'inbox', 'C.md'), '# C\n', 'utf8')
+    await writeFile(path.join(root, 'inbox', 'Table.md'), TABLE, 'utf8')
+    await mkdir(path.join(root, 'assets'), { recursive: true })
+    await writeFile(path.join(root, 'assets', 'pic.png'), 'png', 'utf8')
+    return root
+  }
+
+  it('indexes nothing for a link with no target', async () => {
+    const root = await vaultWithTable()
+    await writeFile(path.join(root, 'inbox', 'Empty.md'), '[[\\|d]] [[ \\|d]] [[\\]]\n', 'utf8')
+    const note = (await listNotes(root)).find((n) => n.path === 'inbox/Empty.md')
+    expect(note?.wikilinks).toEqual([])
+  })
+
+  it('indexes the link and the embed without the backslash', async () => {
+    const root = await vaultWithTable()
+    const note = (await listNotes(root)).find((n) => n.path === 'inbox/Table.md')
+    expect(note?.wikilinks).toEqual(['C'])
+    expect(note?.assetEmbeds).toEqual(['pic.png'])
+    expect(note?.hasAttachments).toBe(true)
+  })
+
+  it('follows a renamed note and keeps the cell escaped', async () => {
+    const root = await vaultWithTable()
+    await renameNote(root, 'inbox/C.md', 'Renamed')
+    expect(await readFile(path.join(root, 'inbox', 'Table.md'), 'utf8')).toBe(
+      TABLE.replace('[[C\\|d]]', '[[Renamed\\|d]]')
+    )
+  })
+
+  it('follows a renamed asset and keeps the cell escaped', async () => {
+    const root = await vaultWithTable()
+    await renameAsset(root, 'assets/pic.png', 'new.png')
+    expect(await readFile(path.join(root, 'inbox', 'Table.md'), 'utf8')).toBe(
+      TABLE.replace('![[pic.png\\|300]]', '![[new.png\\|300]]')
+    )
+  })
+
+  // A vault indexed before the fix holds `C\` in its persisted cache, under the
+  // file's old mtime and size, so only a new cache version reads the note again.
+  it('rebuilds metadata cached with the backslash in the target', async () => {
+    const root = await vaultWithTable()
+    const rel = 'inbox/Table.md'
+    const info = await stat(path.join(root, rel))
+    await mkdir(path.join(root, '.zennotes'), { recursive: true })
+    await writeFile(
+      path.join(root, '.zennotes', 'note-meta-cache-v1.json'),
+      `${JSON.stringify({
+        version: 3,
+        preambleFolder: 'typst',
+        entries: [
+          {
+            path: rel,
+            mtimeMs: info.mtimeMs,
+            size: info.size,
+            meta: {
+              path: rel,
+              title: 'Table',
+              folder: 'inbox',
+              siblingOrder: 0,
+              createdAt: info.birthtimeMs || info.ctimeMs,
+              updatedAt: info.mtimeMs,
+              size: info.size,
+              tags: [],
+              wikilinks: ['C\\', 'pic.png\\'],
+              assetEmbeds: [],
+              hasAttachments: false,
+              excerpt: ''
+            }
+          }
+        ]
+      })}\n`,
+      'utf8'
+    )
+    invalidateNoteMetaCache(root)
+    const note = (await listNotes(root)).find((n) => n.path === rel)
+    expect(note?.wikilinks).toEqual(['C'])
   })
 })

@@ -58,7 +58,8 @@ const MATCHERS: Matcher[] = [
   {
     re: /\[\[([^[\]]+?)\]\]/g,
     build: (m) => {
-      const [rawTarget, rawLabel] = m[1].split('|', 2)
+      // A table writes the separator as `\|`; the backslash is not the target's.
+      const [rawTarget, rawLabel] = m[1].split(/\\?\|/, 2)
       const target = (rawTarget ?? '').trim()
       const label = (rawLabel ?? rawTarget ?? '').trim()
       return { type: 'wikilink', target, label }

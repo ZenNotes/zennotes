@@ -94,7 +94,7 @@ const MD_LINK_TITLE = String.raw`(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?`
 const STANDALONE_IMAGE_RE = new RegExp(
   String.raw`^\s*!\[([^\]]*)\]\((?:<([^>]+)>|([^)]+?))` + MD_LINK_TITLE + String.raw`\s*\)\s*$`
 )
-const STANDALONE_OBSIDIAN_EMBED_RE = /^\s*!\[\[([^\]|]+?)(?:\|([^\]]+))?\]\]\s*$/
+const STANDALONE_OBSIDIAN_EMBED_RE = /^\s*!\[\[([^\]|]+?)(?:\\?\|([^\]]+))?\]\]\s*$/
 // Anchor-style standalone PDF link: `[Label](file.pdf)` or `[Label](<file with spaces.pdf>)`.
 // Same shape as the image regex but without the leading `!`.
 const STANDALONE_PDF_RE = new RegExp(

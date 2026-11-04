@@ -130,7 +130,9 @@ const DELETED_ASSETS_DIR = 'deleted-assets'
 const DELETED_ASSET_META = '.zn-deleted.json'
 const VAULT_SETTINGS_FILE = 'vault.json'
 const NOTE_META_CACHE_FILE = 'note-meta-cache-v1.json'
-const NOTE_META_CACHE_VERSION = 3
+// The server writes this file too, as 5. Skip that number at the next bump, or
+// each would read the other's entries.
+const NOTE_META_CACHE_VERSION = 4
 const RESERVED_ROOT_NAMES = new Set<string>([...FOLDERS, ...ATTACHMENTS_DIRS, INTERNAL_VAULT_DIR])
 // The subset that stays reserved however the system folders are remapped:
 // asset dirs and our own internal dir are never user note folders, while
@@ -2021,7 +2023,7 @@ function bodyHasLocalAsset(body: string): boolean {
   if (!body.includes('](') && !body.includes('![[')) return false
   const stripped = stripCodeContent(body)
   const linkRe = /(!?)\[[^\]]*\]\((<[^>]+>|[^)\s]+)(?:\s+"[^"]*")?\)/g
-  const embedRe = /!\[\[([^\]|]+?)(?:\|[^\]]+)?\]\]/g
+  const embedRe = /!\[\[([^\]|]+?)(?:\\?\|[^\]]+)?\]\]/g
   let m: RegExpExecArray | null
   while ((m = linkRe.exec(stripped)) !== null) {
     let href = (m[2] ?? '').trim()
@@ -2038,17 +2040,18 @@ function bodyHasLocalAsset(body: string): boolean {
 }
 
 /** Pull unique `[[wikilink]]` targets out of markdown text. Supports
- *  `[[target|label]]` by discarding the label. Ignores fenced/inline code. */
+ *  `[[target|label]]` by discarding the label, and the `[[target\|label]]` a
+ *  table writes to keep the pipe in its cell. Ignores fenced/inline code. */
 function extractWikilinks(body: string): string[] {
   if (!body.includes('[[')) return []
   const stripped = stripCodeContent(body)
-  const re = /(!?)\[\[([^\]|]+?)(?:\|[^\]]+)?\]\]/g
+  const re = /(!?)\[\[([^\]|]+?)(?:\\?\|[^\]]+)?\]\]/g
   const seen = new Set<string>()
   let m: RegExpExecArray | null
   while ((m = re.exec(stripped)) !== null) {
     const bang = m[1] ?? ''
     const target = (m[2] ?? '').trim()
-    if (!target) continue
+    if (!target || target === '\\') continue
     if (bang === '!' && localAssetTargetKind(target)) continue
     seen.add(target)
   }
@@ -2063,7 +2066,7 @@ function extractAssetEmbeds(body: string): string[] {
   const stripped = stripCodeContent(body)
   const seen = new Set<string>()
   if (stripped.includes('![[')) {
-    const re = /!\[\[([^\]|]+?)(?:\|[^\]]+)?\]\]/g
+    const re = /!\[\[([^\]|]+?)(?:\\?\|[^\]]+)?\]\]/g
     let m: RegExpExecArray | null
     while ((m = re.exec(stripped)) !== null) {
       const t = (m[1] ?? '').trim()
