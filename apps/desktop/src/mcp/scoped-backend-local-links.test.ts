@@ -1,6 +1,8 @@
 // Links a local vault's listings do not show, under a path scope: a link to
 // nothing in a shared folder, and a system folder that is a link.
 import { spawn, type ChildProcess } from 'node:child_process'
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { promises as fsp } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import net from 'node:net'
@@ -9,7 +11,7 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { newMcpScope } from '@shared/mcp-scope'
 import { createBackend, type VaultBackend } from '../cli/backend'
-import { callTool } from './server'
+import { callTool, runMcpServer } from './server'
 import { goesThroughLink } from './vault-ops'
 
 const DIARY = '# Diary\n\nprivate needle\n'
@@ -107,6 +109,118 @@ describe('a link to nothing in a shared folder', () => {
   })
 })
 
+describe('what a scoped client is told about where the vault is', () => {
+  const scope = newMcpScope({ access: 'write', allow: ['Projects'] })
+  let client: Client
+
+  const connect = async (
+    resolveTarget: () => Promise<{ kind: 'local'; root: string }>,
+    used: ReturnType<typeof newMcpScope> | null = scope
+  ): Promise<void> => {
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
+    await runMcpServer({ resolveTarget, scope: used, transport: serverTransport })
+    client = new Client({ name: 'where', version: '0' })
+    await client.connect(clientTransport)
+  }
+
+  const call = async (name: string): Promise<{ text: string; isError: boolean }> => {
+    const result = await client.callTool({ name, arguments: {} })
+    return {
+      text: (result.content as { text: string }[])[0]?.text ?? '',
+      isError: !!result.isError
+    }
+  }
+
+  afterEach(async () => {
+    await client.close()
+  })
+
+  it('does not get absolute paths when the vault changes', async () => {
+    const other = path.join(base, 'other')
+    await fsp.mkdir(path.join(other, 'Projects'), { recursive: true })
+    await fsp.mkdir(path.join(other, '.zennotes'), { recursive: true })
+    await fsp.writeFile(path.join(other, '.zennotes/vault.json'), '{"primaryNotesLocation":"root"}')
+    let current = root
+    await connect(async () => ({ kind: 'local', root: current }))
+    await call('list_notes')
+    current = other
+
+    const refused = await call('list_notes')
+    expect(refused.isError).toBe(true)
+    expect(refused.text).toContain('it was the local vault "vault" and is now the local vault "other".')
+    expect(refused.text).not.toContain(base)
+
+    const info = await call('vault_info')
+    expect(info.text).toContain('the session worked in the local vault \\"vault\\"')
+    expect(info.text).not.toContain(base)
+  })
+
+  it('tells two vaults of one name apart without their paths', async () => {
+    const other = path.join(base, 'elsewhere', 'vault')
+    await fsp.mkdir(other, { recursive: true })
+    let current = root
+    await connect(async () => ({ kind: 'local', root: current }))
+    await call('list_notes')
+    current = other
+    const refused = await call('list_notes')
+    expect(refused.text).toContain('it was the local vault "vault" and is now a different vault with the same name.')
+    expect(refused.text).not.toContain(base)
+  })
+
+  it('does not get the path when the vault cannot be opened', async () => {
+    await connect(async () => {
+      throw new Error(`Vault not found: ${path.join(base, 'gone')}`)
+    })
+    expect(await call('list_notes')).toEqual({ text: 'Error: The vault cannot be opened.', isError: true })
+  })
+
+  it('leaves a client with no scope the whole message', async () => {
+    await connect(async () => {
+      throw new Error('Vault not found: /some/where')
+    }, null)
+    expect((await call('list_notes')).text).toBe('Error: Vault not found: /some/where')
+  })
+})
+
+describe('a path entry naming an attachment folder or asset', () => {
+  beforeEach(async () => {
+    await fsp.mkdir(inVault('assets/Sub'), { recursive: true })
+    await fsp.writeFile(inVault('assets/Sub/a.png'), 'png')
+    await fsp.writeFile(inVault('assets/b.png'), 'png')
+  })
+
+  const listed = async (scope: ReturnType<typeof newMcpScope>): Promise<string[]> =>
+    ((await callTool('list_assets', {}, backend, scope)) as { path: string }[]).map((a) => a.path).sort()
+
+  it.each([
+    ['assets', []],
+    ['assets/Sub', ['assets/b.png']],
+    ['assets/Sub/a.png', ['assets/b.png']]
+  ])('hides what --deny-path %s names, and shares the rest', async (deny, shown) => {
+    expect(await listed(newMcpScope({ access: 'write', deny: [deny] }))).toEqual(shown)
+    const notes = (await callTool('list_notes', {}, backend, newMcpScope({ access: 'write', deny: [deny] }))) as unknown[]
+    expect(notes.length).toBeGreaterThan(0)
+  })
+
+  it('counts a deny entry naming an attachment folder that is not there as found', async () => {
+    const deny = newMcpScope({ access: 'write', deny: ['_assets'] })
+    await expect(callTool('list_notes', {}, backend, deny)).resolves.toBeTruthy()
+  })
+
+  it('still treats a deny entry naming nothing as stale', async () => {
+    const deny = newMcpScope({ access: 'write', deny: ['assets/Gone'] })
+    await expect(callTool('list_notes', {}, backend, deny)).rejects.toThrow('nothing is shared')
+  })
+
+  it('takes the vault spelling of an allow entry naming one', async () => {
+    const info = (await callTool('vault_info', {}, backend, newMcpScope({ access: 'read', allow: ['ASSETS/sub'] }))) as {
+      access: { allow: string[]; missingAllow?: string[] }
+    }
+    expect(info.access.allow).toEqual(['assets/Sub'])
+    expect(info.access.missingAllow ?? []).toEqual([])
+  })
+})
+
 describe('a restore', () => {
   const planted = async (rel: string): Promise<void> => {
     await fsp.mkdir(path.dirname(inVault(rel)), { recursive: true })
@@ -153,6 +267,14 @@ describe('a restore', () => {
     )
     expect(await fsp.readdir(inVault('Journal'))).toEqual(['Diary.md'])
     expect(await exists(inVault(rel))).toBe(true)
+  })
+
+  it('compares the spelling exactly, not folded', async () => {
+    await planted('archive/projects/Back.md')
+    const scope = newMcpScope({ access: 'write', allow: ['Projects', 'archive'] })
+    await expect(callTool('unarchive_note', { path: 'archive/projects/Back.md' }, backend, scope)).rejects.toThrow(
+      new Error('This assistant can create and move notes only inside: Projects, archive.')
+    )
   })
 
   it('still lands in a folder spelled as the note keeps it', async () => {
@@ -502,6 +624,18 @@ describe('a system folder a server names as a link', () => {
     expect(posts).toHaveLength(1)
   })
 
+  it.each([
+    ['archive_note', 500],
+    ['archive_note', 403],
+    ['move_to_trash', 409]
+  ])('keeps the server\'s own answer when %s fails with %i', async (tool, status) => {
+    linked = []
+    postStatus = status
+    const failure = (await callTool(tool, { path: 'Open/Free.md' }, remote(), deny).catch((err: Error) => err)) as Error
+    expect(failure.message).toContain(String(status))
+    expect(failure.message).not.toBe('This assistant cannot put notes there.')
+  })
+
   it('treats an empty list as no linked folders', async () => {
     linked = []
     await callTool('create_note', { folder: 'quick', title: 'Via', body: 'X' }, remote(), deny)
@@ -528,6 +662,11 @@ describe('a system folder a server names as a link', () => {
     [['quick ']],
     [['a /b']],
     [['a/ b']],
+    [['quick\u0085']],
+    [['\u0085quick']],
+    [['a\u0085/b']],
+    [['\ufeffquick']],
+    [['quick\u00a0']],
     [['']],
     [['quick', '']]
   ])(

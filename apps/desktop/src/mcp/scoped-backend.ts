@@ -416,10 +416,29 @@ export class ScopedBackend implements VaultBackend {
     }
     known.push(...v.dirs)
 
+    // An entry can name an attachment folder or an asset, which the listings
+    // above do not show, so those are read only for an entry they did not find.
+    let assetNames: string[] | null = null
+    const knownAssets = async (): Promise<string[]> => {
+      if (assetNames) return assetNames
+      assetNames = [...ATTACHMENTS_DIRS]
+      for (const asset of await this.inner.listAssets()) {
+        assetNames.push(asset.path)
+        for (
+          let dir = path.posix.dirname(asset.path);
+          dir !== '.' && dir !== '/';
+          dir = path.posix.dirname(dir)
+        ) {
+          assetNames.push(dir)
+        }
+      }
+      return assetNames
+    }
+
     // Entries take the vault's own spelling, so `--allow-path /projects`
     // finds `Projects/`.
     for (const entry of this.scope.allow) {
-      let canonical = spell(entry, known)
+      let canonical = spell(entry, known) ?? spell(entry, await knownAssets())
       if (canonical == null) {
         v.missingAllow.push(entry)
         canonical = entry
@@ -437,7 +456,8 @@ export class ScopedBackend implements VaultBackend {
     const nameable = [...known, ...listed.filter((note) => note.symlink).map((note) => note.path)]
     for (const entry of this.scope.deny) {
       const folded = foldMcpScopePath(entry)
-      if (!nameable.some((p) => foldMcpScopePath(p) === folded)) {
+      const named = (p: string): boolean => foldMcpScopePath(p) === folded
+      if (!nameable.some(named) && !(await knownAssets()).some(named)) {
         if (!staleDenyLogged.has(entry)) {
           staleDenyLogged.add(entry)
           process.stderr.write(

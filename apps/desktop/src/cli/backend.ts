@@ -574,7 +574,9 @@ function isCleanVaultDir(dir: unknown): dir is string {
   return (
     typeof dir === 'string' &&
     !dir.includes('\\') &&
-    dir.split('/').every((seg) => seg !== '' && seg !== '.' && seg !== '..' && seg === seg.trim())
+    dir
+      .split('/')
+      .every((seg) => seg !== '' && seg !== '.' && seg !== '..' && !/^[\s\u0085]|[\s\u0085]$/.test(seg))
   )
 }
 

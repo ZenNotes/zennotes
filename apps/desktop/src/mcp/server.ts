@@ -9,6 +9,7 @@
  * already-installed clients) and the new `zn mcp` CLI subcommand.
  */
 
+import path from 'node:path'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
@@ -160,7 +161,7 @@ const TOOLS: ToolDef[] = [
       const primaryNotesLocation = description.primaryNotesLocation
       const isRootMode = primaryNotesLocation === 'root'
       const switchNote = context?.previous
-        ? `The vault changed: until this call the session worked in ${describeTarget(context.previous)}. Every tool runs here now, and paths or content you got from the previous vault do not apply to this one. `
+        ? `The vault changed: until this call the session worked in ${describeTarget(context.previous, !!scoped)}. Every tool runs here now, and paths or content you got from the previous vault do not apply to this one. `
         : ''
       const pathNotes =
         'IMPORTANT: Always use the `path` returned by other tools verbatim. Never prepend `inbox/` to a path you got back from list_notes / create_note / read_note. ' +
@@ -1076,8 +1077,11 @@ function tokenHint(serverUrl: string): string {
 /** A vault named in a sentence. The app often names a saved server after its
  *  host already ("Server Vault (10.0.0.5:7878)"), so the name is quoted and
  *  the URL follows "at" rather than a second parenthesis. */
-function describeTarget(target: VaultTarget): string {
-  if (target.kind === 'local') return `the local vault ${target.root}`
+/** A client with scoped access is not told where a vault is on this machine. */
+function describeTarget(target: VaultTarget, scoped = false): string {
+  if (target.kind === 'local') {
+    return scoped ? `the local vault "${path.basename(target.root)}"` : `the local vault ${target.root}`
+  }
   return target.name
     ? `the server "${target.name}" at ${target.baseUrl}`
     : `the server at ${target.baseUrl}`
@@ -1094,11 +1098,14 @@ function sameTarget(a: VaultTarget, b: VaultTarget): boolean {
 export class VaultSwitchedError extends Error {
   constructor(
     readonly from: VaultTarget,
-    readonly to: VaultTarget
+    readonly to: VaultTarget,
+    scoped = false
   ) {
+    const was = describeTarget(from, scoped)
+    const now = describeTarget(to, scoped)
     super(
-      `The ZenNotes vault changed since this session's last call: it was ${describeTarget(from)} ` +
-        `and is now ${describeTarget(to)}. Nothing ran. Call vault_info to confirm the new vault and ` +
+      `The ZenNotes vault changed since this session's last call: it was ${was} ` +
+        `and is now ${was === now ? 'a different vault with the same name' : now}. Nothing ran. Call vault_info to confirm the new vault and ` +
         'tell the user, then re-read anything you meant to change before you retry.'
     )
   }
@@ -1125,7 +1132,9 @@ export class VaultSession {
 
   constructor(
     private readonly resolve: () => Promise<VaultTarget>,
-    private readonly open: (target: VaultTarget) => VaultBackend = createBackend
+    private readonly open: (target: VaultTarget) => VaultBackend = createBackend,
+    /** Keeps absolute paths out of what a switch reports. */
+    private readonly scoped = false
   ) {}
 
   /** The backend for one call and the vault it reaches. `confirm` marks
@@ -1149,7 +1158,7 @@ export class VaultSession {
     const target = await this.resolve()
     let previous: VaultTarget | null = null
     if (this.target && this.backend && !(await sameVault(this.target, target))) {
-      if (!confirm) throw new VaultSwitchedError(this.target, target)
+      if (!confirm) throw new VaultSwitchedError(this.target, target, this.scoped)
       previous = this.target
     }
     // A new token or profile name for the same vault reopens quietly.
@@ -1187,7 +1196,7 @@ export async function runMcpServer(options: McpServerOptions = {}): Promise<void
   // When nothing resolves yet we still boot so the client surface stays
   // consistent; every tool call then reports the error, and the next call
   // tries again rather than repeating a stale failure.
-  const vaults = new VaultSession(resolveTarget)
+  const vaults = new VaultSession(resolveTarget, createBackend, isMcpScopeActive(options.scope))
 
   // Try at startup and say so on stderr when it fails: a terminal shows it at
   // once and MCP clients keep it in their server logs, whereas waiting for the
@@ -1252,10 +1261,11 @@ export async function runMcpServer(options: McpServerOptions = {}): Promise<void
         typeof result === 'string' ? result : JSON.stringify(result, null, 2)
       return { content: [{ type: 'text', text: payload }] }
     } catch (err) {
-      return {
-        content: [{ type: 'text', text: `Error: ${describeToolError(err, target, backend)}` }],
-        isError: true
-      }
+      // No vault resolved: what failed names its location, which a scoped client
+      // is not told. The same message went to stderr when the server started.
+      const unopened = scope && !target && !(err instanceof VaultSwitchedError)
+      const text = unopened ? 'The vault cannot be opened.' : describeToolError(err, target, backend)
+      return { content: [{ type: 'text', text: `Error: ${text}` }], isError: true }
     }
   })
 
