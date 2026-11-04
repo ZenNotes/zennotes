@@ -20,11 +20,12 @@ import {
 } from '@modelcontextprotocol/sdk/types.js'
 
 import { resolveInstructions } from './instructions-store.js'
-import { createBackend, type VaultBackend } from '../cli/backend.js'
+import { createBackend, servedTarget, type VaultBackend } from '../cli/backend.js'
 import { runRecordingAgentEdit } from './agent-edit-recorder.js'
 import {
   REMOTE_TOKEN_ENV,
   resolveDefaultTarget,
+  sameServer,
   sameVault,
   type VaultTarget
 } from '../cli/vault-target.js'
@@ -1082,16 +1083,24 @@ function describeTarget(target: VaultTarget, scoped = false): string {
   if (target.kind === 'local') {
     return scoped ? `the local vault "${path.basename(target.root)}"` : `the local vault ${target.root}`
   }
-  return target.name
+  const server = target.name
     ? `the server "${target.name}" at ${target.baseUrl}`
     : `the server at ${target.baseUrl}`
+  // A server's vault goes by its name, never its path.
+  return target.vaultName ? `the vault "${target.vaultName}" on ${server}` : server
 }
 
 function sameTarget(a: VaultTarget, b: VaultTarget): boolean {
   if (a.kind === 'local' || b.kind === 'local') {
     return a.kind === 'local' && b.kind === 'local' && a.root === b.root
   }
-  return a.baseUrl === b.baseUrl && a.name === b.name && a.authToken === b.authToken
+  return (
+    a.baseUrl === b.baseUrl &&
+    a.name === b.name &&
+    a.authToken === b.authToken &&
+    a.vaultPath === b.vaultPath &&
+    a.vaultName === b.vaultName
+  )
 }
 
 /** The vault changed after the session last served a call. */
@@ -1111,6 +1120,21 @@ export class VaultSwitchedError extends Error {
   }
 }
 
+/** A switch vault_info is confirming: the vault it is leaving and the one it
+ *  runs on. The session stays where it is until finishMove. */
+export interface VaultMove {
+  from: VaultTarget
+  to: VaultTarget
+  opened: VaultBackend
+}
+
+export interface VaultStep {
+  backend: VaultBackend
+  target: VaultTarget
+  move: VaultMove | null
+  failure?: unknown
+}
+
 /**
  * The vault the tools run against, resolved again before every call so the
  * server follows the desktop app the way a fresh `zn` does. Pinning the first
@@ -1124,6 +1148,19 @@ export class VaultSwitchedError extends Error {
  * vault_info fails with VaultSwitchedError until vault_info confirms the new
  * vault. That holds for a whole batch of parallel calls, not only the first.
  * The Go `zn mcp` (ZenNotes/tui, internal/mcp/session.go) behaves the same.
+ *
+ * The session moves only once vault_info has its answer ready, so a vault_info
+ * that fails leaves the stop in place, and any call that began before the move
+ * stops too. The one call that can pass is one that begins after the move but
+ * was sent before the client had the answer.
+ *
+ * A self-hosted server can change its own vault with the URL staying the same,
+ * so each call on a server first asks which vault it is serving: one request.
+ * The answer can go stale before the call's own requests reach the server. A
+ * switch landing there sends those requests to the other vault, and a tool that
+ * reads a note and writes it back then overwrites the other vault's note with
+ * this one's body. Closing that would take the server refusing a request meant
+ * for another vault.
  */
 export class VaultSession {
   private target: VaultTarget | null = null
@@ -1134,39 +1171,75 @@ export class VaultSession {
     private readonly resolve: () => Promise<VaultTarget>,
     private readonly open: (target: VaultTarget) => VaultBackend = createBackend,
     /** Keeps absolute paths out of what a switch reports. */
-    private readonly scoped = false
+    private readonly scoped = false,
+    private readonly served: (target: VaultTarget) => Promise<VaultTarget> = servedTarget
   ) {}
 
-  /** The backend for one call and the vault it reaches. `confirm` marks
-   *  vault_info, the only call that moves the session to a new vault;
-   *  `previous` is the vault it moved away from, null when the vault did not
-   *  change. Calls resolve one at a time so a batch sees one consistent
-   *  session. */
-  backendFor(confirm: boolean): Promise<{
-    backend: VaultBackend
-    target: VaultTarget
-    previous: VaultTarget | null
-  }> {
-    const next = this.queue.then(() => this.step(confirm))
+  /** The decisions run one at a time, so a batch sees one consistent session.
+   *  Asking a server does not: one slow answer should not hold up the batch. */
+  private oneAtATime<T>(step: () => Promise<T>): Promise<T> {
+    const next = this.queue.then(step)
     this.queue = next.catch(() => undefined)
     return next
   }
 
-  private async step(
+  /**
+   * The backend for one call and the vault it reaches. `confirm` marks
+   * vault_info, the only call that can move the session to a new vault; `move`
+   * is set when it would, for the caller to finish once the call has succeeded.
+   * When a server cannot say which vault it is serving, `failure` is why the
+   * call stops, and the backend comes back too so the error can name the server.
+   */
+  async backendFor(confirm: boolean): Promise<VaultStep> {
+    let target = await this.resolve()
+    const entered = this.target
+    const pinned = this.backend != null
+    // A call that will stop anyway because the session is on another server or
+    // a local vault stops without contacting the new one.
+    if (confirm || !pinned || sameServer(entered, target)) {
+      try {
+        target = await this.served(target)
+      } catch (failure) {
+        try {
+          return { backend: this.open(target), target, move: null, failure }
+        } catch {
+          throw failure
+        }
+      }
+    }
+    const asked = target
+    return await this.oneAtATime(() => this.decide(asked, entered, pinned, confirm))
+  }
+
+  private async decide(
+    target: VaultTarget,
+    entered: VaultTarget | null,
+    pinned: boolean,
     confirm: boolean
-  ): Promise<{ backend: VaultBackend; target: VaultTarget; previous: VaultTarget | null }> {
-    const target = await this.resolve()
-    let previous: VaultTarget | null = null
-    if (this.target && this.backend && !(await sameVault(this.target, target))) {
-      if (!confirm) throw new VaultSwitchedError(this.target, target, this.scoped)
-      previous = this.target
+  ): Promise<VaultStep> {
+    // A vault_info may have finished while this call waited for its answer. The
+    // call began on the old vault, so it stops even though the session has moved.
+    let from = this.target
+    if (pinned && entered && !(await sameVault(entered, target))) from = entered
+    if (this.backend && from && !(await sameVault(from, target))) {
+      if (!confirm) throw new VaultSwitchedError(from, target, this.scoped)
+      const opened = this.open(target)
+      return { backend: opened, target, move: { from, to: target, opened } }
     }
     // A new token or profile name for the same vault reopens quietly.
     if (!this.target || !this.backend || !sameTarget(this.target, target)) {
       this.backend = this.open(target)
       this.target = target
     }
-    return { backend: this.backend, target: this.target, previous }
+    return { backend: this.backend, target: this.target, move: null }
+  }
+
+  /** Moves the session once vault_info has its answer ready. */
+  finishMove(move: VaultMove): Promise<void> {
+    return this.oneAtATime(async () => {
+      this.target = move.to
+      this.backend = move.opened
+    })
   }
 }
 
@@ -1248,17 +1321,20 @@ export async function runMcpServer(options: McpServerOptions = {}): Promise<void
     let backend: VaultBackend | null = null
     try {
       const resolved = await vaults.backendFor(name === 'vault_info')
-      const { previous } = resolved
+      const { move } = resolved
       target = resolved.target
       backend = scopeBackend(resolved.backend, scope)
+      if (resolved.failure !== undefined) throw resolved.failure
       const toolArgs = (args ?? {}) as Record<string, unknown>
       const seen = backend
       // An edit to a note is recorded so the user can review it in the app.
       const result = await runRecordingAgentEdit(name, toolArgs, seen, defaultCommentAuthor(), () =>
-        tool.handler(toolArgs, seen, { previous })
+        tool.handler(toolArgs, seen, { previous: move?.from ?? null })
       )
       const payload =
         typeof result === 'string' ? result : JSON.stringify(result, null, 2)
+      // Only now can the assistant be told, so only now does the session move.
+      if (move) await vaults.finishMove(move)
       return { content: [{ type: 'text', text: payload }] }
     } catch (err) {
       // No vault resolved: what failed names its location, which a scoped client

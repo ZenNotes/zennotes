@@ -698,7 +698,7 @@ describe('runMcpServer follows the target it is given (#831)', () => {
 
       const { info } = await s.vaultInfo()
       expect(info).toMatchObject({ server: `${origin}/work` })
-      expect(String(info?.notes)).toContain(`until this call the session worked in the server at ${origin}/Work`)
+      expect(String(info?.notes)).toContain(`until this call the session worked in the vault "Work" on the server at ${origin}/Work`)
       expect((await s.call('write_note', { path: 'inbox/Plan.md', body: 'planned for work' })).isError).toBe(false)
       expect(writes).toEqual(['/work/api/notes/write'])
     } finally {

@@ -33,19 +33,36 @@ import { getString, type ParsedArgs } from './args.js'
 
 export type VaultTarget =
   | { kind: 'local'; root: string }
-  | { kind: 'remote'; name: string; baseUrl: string; authToken: string | null }
+  | {
+      kind: 'remote'
+      name: string
+      baseUrl: string
+      authToken: string | null
+      /** The vault the server said it is serving, once asked (see servedTarget
+       *  in backend.ts). */
+      vaultPath?: string
+      vaultName?: string
+    }
 
-/** Two targets reach the same vault: the same server URL, or the same
- *  directory however its path is spelled. Tokens and profile names do not
- *  matter. */
+/** The same server, whichever vault it is serving. */
+export function sameServer(a: VaultTarget | null, b: VaultTarget | null): boolean {
+  if (a?.kind !== 'remote' || b?.kind !== 'remote') return false
+  // URL normalizes the origin while preserving case-sensitive paths and
+  // query values: a reverse proxy may serve different vaults at /Work and /work.
+  return new URL(normalizeBaseUrl(a.baseUrl)).href === new URL(normalizeBaseUrl(b.baseUrl)).href
+}
+
+/** Two targets reach the same vault: the same server serving the same path as
+ *  far as it has been asked, or the same directory however its path is spelled.
+ *  Tokens and display names do not matter: a vault's name can change in its
+ *  settings, and it stays that vault. */
 export async function sameVault(a: VaultTarget, b: VaultTarget): Promise<boolean> {
   if (a.kind === 'remote' || b.kind === 'remote') {
-    // URL normalizes the origin while preserving case-sensitive paths and
-    // query values: a reverse proxy may serve different vaults at /Work and /work.
     return (
       a.kind === 'remote' &&
       b.kind === 'remote' &&
-      new URL(normalizeBaseUrl(a.baseUrl)).href === new URL(normalizeBaseUrl(b.baseUrl)).href
+      sameServer(a, b) &&
+      (a.vaultPath ?? '') === (b.vaultPath ?? '')
     )
   }
   if (path.resolve(a.root) === path.resolve(b.root)) return true

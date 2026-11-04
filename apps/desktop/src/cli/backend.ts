@@ -191,6 +191,15 @@ export interface VaultBackend {
   databaseOps(): DatabaseOps
 }
 
+/** A server's target with the vault it says it is serving filled in. A server
+ *  can change its vault with its URL staying the same, so this is what tells a
+ *  switch from the same vault. A local target comes back as it is. */
+export async function servedTarget(target: VaultTarget): Promise<VaultTarget> {
+  if (target.kind !== 'remote') return target
+  const info = await new CliRemoteClient(target.baseUrl, target.authToken).getCurrentVault()
+  return info ? { ...target, vaultPath: info.root, vaultName: info.name } : target
+}
+
 export function createBackend(target: VaultTarget): VaultBackend {
   return target.kind === 'remote' ? new RemoteBackend(target) : new LocalBackend(target.root)
 }
