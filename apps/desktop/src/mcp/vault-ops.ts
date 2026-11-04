@@ -1000,7 +1000,8 @@ export interface VaultAssetMeta {
   /** Listed from a link rather than a file. Only a server's listing holds
    *  these, and marks them; see NoteMeta.symlink. */
   symlink?: boolean
-  /** After a rename or move: the notes whose links could not be updated. */
+  /** After a rename or move: the notes it could not read or write, whose links
+   *  may still use the old name. */
   linksNotUpdated?: string[]
 }
 
@@ -1211,9 +1212,8 @@ async function placeAtFreeName(
  *  change, so references still resolve to the asset under its old path. This
  *  walk's note listing carries no attachment flag, so it reads each note and
  *  writes only the ones whose text changes, one note's turn at a time, since a
- *  tool may be editing it. Returns the notes it changed the text of but could not
- *  write, which still point at the old name. A note it cannot read is passed
- *  over, since nothing says it links to the file. */
+ *  tool may be editing it. Returns the notes it could not read or write, whose
+ *  links may still use the old name. */
 async function rewriteAssetLinks(
   root: string,
   notesBefore: NoteMeta[],
@@ -1228,7 +1228,10 @@ async function rewriteAssetLinks(
     if (rewriteIn && !rewriteIn(note.path)) continue
     await noteTurn(root, note.path, async () => {
       const content = await readNote(root, note.path).catch(() => null)
-      if (!content) return
+      if (!content) {
+        failed.push(note.path)
+        return
+      }
       const { body, changed } = rewriteAssetReferences(
         content.body,
         assetsBefore,
@@ -1245,7 +1248,7 @@ async function rewriteAssetLinks(
   return failed
 }
 
-/** A moved or renamed asset, saying which notes still point at the old name. */
+/** A moved or renamed asset, saying which notes may still use the old name. */
 async function withLinkRewrite(
   meta: VaultAssetMeta,
   rewrite: () => Promise<string[]>

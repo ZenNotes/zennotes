@@ -296,7 +296,7 @@ export const ASSET_TOOLS: ToolDef[] = [
     schema: {
       name: 'rename_asset',
       description:
-        'Rename an attachment in place. Notes that embed or link it are updated to the new name; `linksNotUpdated` lists any it could not change, so fix those by hand. Names holding # ? | [ ] ^ or % are refused, since links could not reach the file.',
+        'Rename an attachment in place. Notes that embed or link it are updated to the new name; `linksNotUpdated` lists any it could not read or write, which may still use the old name, so fix those by hand. Names holding # ? | [ ] ^ or % are refused, since links could not reach the file.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -319,7 +319,7 @@ export const ASSET_TOOLS: ToolDef[] = [
     schema: {
       name: 'move_asset',
       description:
-        'Move an attachment to another folder, creating it if needed. Notes that embed or link it are updated; `linksNotUpdated` lists any it could not change. A taken name gets a number, so use the returned `path`.',
+        'Move an attachment to another folder, creating it if needed. Notes that embed or link it are updated; `linksNotUpdated` lists any it could not read or write, which may still use the old name. A taken name gets a number, so use the returned `path`.',
       inputSchema: {
         type: 'object',
         properties: {

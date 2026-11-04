@@ -892,17 +892,32 @@ describe('update_task on a Windows task note', () => {
 })
 
 describe('linksNotUpdated', () => {
-  it('does not name a note it could not read', async () => {
-    await seed({ 'assets/a.png': 'a', 'Other.md': 'nothing here\n', 'Good.md': '![[assets/a.png]]\n' })
+  it('names a note it could not read, which may still use the old name', async () => {
+    await seed({ 'assets/a.png': 'a', 'Locked.md': '![[assets/a.png]]\n', 'Good.md': '![[assets/a.png]]\n' })
     const client = await connect()
     const readFile = fsp.readFile.bind(fsp)
     vi.spyOn(fsp, 'readFile').mockImplementation((async (p: string, options: never) => {
-      if (p === inVault('Other.md')) throw Object.assign(new Error('denied'), { code: 'EACCES' })
+      if (p === inVault('Locked.md')) throw Object.assign(new Error('denied'), { code: 'EACCES' })
       return await readFile(p, options)
     }) as never)
-    const moved = JSON.parse(await ok(client, 'rename_asset', { path: 'assets/a.png', name: 'b.png' }))
-    expect(moved).not.toHaveProperty('linksNotUpdated')
+    const moved = JSON.parse(await ok(client, 'rename_asset', { path: 'assets/a.png', name: 'b.png' })) as {
+      linksNotUpdated?: string[]
+    }
+    expect(moved.linksNotUpdated).toEqual(['Locked.md'])
     expect(await file('Good.md')).toBe('![[assets/b.png]]\n')
+  })
+
+  it('leaves out a note a path scope hides, read or not', async () => {
+    await seed({ 'Projects/a.png': 'a', 'Projects/N.md': '![[a.png]]\n', 'Journal/J.md': '![[Projects/a.png]]\n' })
+    const client = await connect({ access: 'write', allow: ['Projects'] })
+    const readFile = fsp.readFile.bind(fsp)
+    vi.spyOn(fsp, 'readFile').mockImplementation((async (p: string, options: never) => {
+      if (p === inVault('Journal/J.md')) throw Object.assign(new Error('denied'), { code: 'EACCES' })
+      return await readFile(p, options)
+    }) as never)
+    const moved = await ok(client, 'rename_asset', { path: 'Projects/a.png', name: 'b.png' })
+    expect(moved).not.toContain('linksNotUpdated')
+    expect(moved).not.toContain('Journal')
   })
 })
 
