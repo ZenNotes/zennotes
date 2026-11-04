@@ -1087,16 +1087,34 @@ export async function readDatabaseVaultLayout(root: string): Promise<{
   }
 }
 
+/** Whether a vault-relative directory is, or sits under, a link. Anything but
+ *  plain absence counts as one. */
+export async function goesThroughLink(root: string, rel: string): Promise<boolean> {
+  let walked = root
+  for (const seg of rel.split('/').filter(Boolean)) {
+    walked = path.join(walked, seg)
+    try {
+      if ((await fs.lstat(walked)).isSymbolicLink()) return true
+    } catch (err) {
+      return (err as NodeJS.ErrnoException).code !== 'ENOENT'
+    }
+  }
+  return false
+}
+
 async function uniqueTitle(dir: string, base: string): Promise<string> {
   let candidate = base
   let n = 1
   while (true) {
     try {
-      await fs.access(path.join(dir, `${candidate}.md`))
+      // Not access(), which follows a link: a link to nothing would read as a
+      // free name, and the write would land where it points.
+      await fs.lstat(path.join(dir, `${candidate}.md`))
       n += 1
       candidate = `${base} ${n}`
-    } catch {
-      return candidate
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return candidate
+      throw err
     }
   }
 }
@@ -1128,7 +1146,7 @@ export async function createNote(
   await removeNoteCreation(root, toPosix(path.relative(root, abs)))
   // A record left by an earlier note of this name would offer a bogus review.
   await removeAgentEditRecord(root, toPosix(path.relative(root, abs)))
-  await fs.writeFile(abs, content, 'utf8')
+  await fs.writeFile(abs, content, { encoding: 'utf8', flag: 'wx' })
   return await readMeta(root, abs, folder)
 }
 
@@ -1247,7 +1265,7 @@ export async function duplicateNote(root: string, rel: string): Promise<NoteMeta
   const destAbs = path.join(dir, `${copyTitle}${ext}`)
   const body = await fs.readFile(abs, 'utf8')
   await removeNoteCreation(root, toPosix(path.relative(root, destAbs)))
-  await fs.writeFile(destAbs, body, 'utf8')
+  await fs.writeFile(destAbs, body, { encoding: 'utf8', flag: 'wx' })
   return await readMeta(root, destAbs, folder)
 }
 

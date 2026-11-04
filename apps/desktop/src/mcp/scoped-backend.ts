@@ -44,6 +44,7 @@ import type { DatabaseOps } from '@shared/database-ops'
 import type { VaultAssetMeta, VaultBackend, VaultDescription, VaultLayout } from '../cli/backend.js'
 import { RemoteRequestError } from '../main/remote/connection.js'
 import {
+  goesThroughLink,
   sanitizeTitle,
   type NoteComment,
   type NoteCommentInput,
@@ -182,6 +183,8 @@ class ScopeView {
   readonly deny: string[] = []
   readonly missingAllow: string[] = []
   readonly ancestors = new Set<string>()
+  /** The system folders that are links. */
+  readonly linkedFolders: string[] = []
 
   constructor(
     readonly paths: SystemFolderPaths,
@@ -282,6 +285,11 @@ class ScopeView {
     return spelled.slice(bucket.length).replace(/^\//, '')
   }
 
+  /** Whether a system folder is one of those, however it is spelled. */
+  isLinkedFolder(dir: string): boolean {
+    return this.linkedFolders.some((entry) => isInsideMcpScopeEntryFolded(dir, entry))
+  }
+
   /** The one answer for every destination a client may not use, hidden or
    *  not, so it confirms nothing about hidden folders. */
   createRefusal(): Error {
@@ -338,8 +346,8 @@ export class ScopedBackend implements VaultBackend {
    * missing path is a 404, while a link to a folder is a 400 for being a
    * directory and a link out of the vault a 400 for escaping. A server from
    * before 2.20 answers 500 for a missing file, so a scoped client cannot make
-   * new folders on one. A dangling link also reads as missing; a server that
-   * refuses writes through links then refuses that one itself.
+   * new folders on one. A link to nothing also reads as missing; a server that
+   * refuses writes through links then refuses a folder under it itself.
    */
   private occupiedCheck(): (rel: string) => Promise<boolean> {
     if (this.inner.kind === 'local') {
@@ -422,6 +430,16 @@ export class ScopedBackend implements VaultBackend {
       }
       v.deny.push(entry)
     }
+    // A path scope cannot say what is behind a linked system folder, so nothing
+    // is, whatever the allow entries say. A local walk goes through one and
+    // writes land behind one anywhere. A deny entry here, since no client named
+    // it, and the server's read cannot tell a linked folder from a real one.
+    if (restricted) {
+      for (const dir of await this.inner.linkedSystemFolders()) {
+        v.linkedFolders.push(dir)
+        v.deny.push(dir)
+      }
+    }
     for (const note of notes) {
       if (v.visible(note.path)) v.notes.push(note)
     }
@@ -448,6 +466,7 @@ export class ScopedBackend implements VaultBackend {
   vaultLayout = (): Promise<VaultLayout> => this.inner.vaultLayout()
   templateFolder = (): Promise<string | null> => this.inner.templateFolder()
   marksLinks = (): Promise<boolean> => this.inner.marksLinks()
+  linkedSystemFolders = (): Promise<string[]> => this.inner.linkedSystemFolders()
 
   listNotes = async (): Promise<NoteMeta[]> => [...(await this.load()).notes]
 
@@ -519,11 +538,29 @@ export class ScopedBackend implements VaultBackend {
 
   // Archiving and trashing are lifecycle exits: the note may leave what the
   // client sees, and the user can undo either in the app.
-  archiveNote = async (rel: string): Promise<NoteMeta> =>
-    await this.inner.archiveNote((await this.noteFor(rel, 'write')).path)
+  /** A lifecycle move lands under the system folder at the note's own subpath,
+   *  so a link on that way takes it elsewhere. A server refuses one below the
+   *  system folder itself; this machine has no server to. */
+  private async refuseLinkedExit(meta: NoteMeta, target: NoteFolder): Promise<void> {
+    const v = await this.load()
+    const bucket = v.bucketDir(target)
+    if (v.isLinkedFolder(bucket)) throw v.createRefusal()
+    if (this.inner.kind !== 'local') return
+    const sub = folderSubpathOf(meta.path, meta.folder, v.primaryAtRoot, v.paths)
+    if (await goesThroughLink(this.inner.root, joinRel(bucket, sub))) throw v.createRefusal()
+  }
 
-  moveToTrash = async (rel: string): Promise<NoteMeta> =>
-    await this.inner.moveToTrash((await this.noteFor(rel, 'write')).path)
+  archiveNote = async (rel: string): Promise<NoteMeta> => {
+    const meta = await this.noteFor(rel, 'write')
+    await this.refuseLinkedExit(meta, 'archive')
+    return await this.inner.archiveNote(meta.path)
+  }
+
+  moveToTrash = async (rel: string): Promise<NoteMeta> => {
+    const meta = await this.noteFor(rel, 'write')
+    await this.refuseLinkedExit(meta, 'trash')
+    return await this.inner.moveToTrash(meta.path)
+  }
 
   /** A note brought back to the inbox must land where the client can see it:
    *  the same subpath under the inbox bucket. */

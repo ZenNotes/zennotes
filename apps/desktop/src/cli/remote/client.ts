@@ -28,6 +28,8 @@ import type {
 export interface RemoteVaultInfo {
   root: string
   name: string
+  /** The system folders that are, or sit under, a link. Left out when none. */
+  linkedSystemFolders?: unknown
 }
 
 export interface RemoteAssetMeta {

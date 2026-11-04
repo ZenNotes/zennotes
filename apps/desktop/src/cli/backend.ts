@@ -21,6 +21,7 @@ import {
   archiveNote,
   backlinks,
   backlinksIn,
+  goesThroughLink,
   createFolder,
   createNote,
   deleteFolder,
@@ -74,7 +75,11 @@ import {
   type DatabaseVaultLayout
 } from '@shared/database-ops'
 import { createAbsenceAwareReader } from '@shared/remote-absence'
-import { normalizeSystemFolderPaths, type SystemFolderPaths } from '@shared/system-folder-paths'
+import {
+  normalizeSystemFolderPaths,
+  resolveFolderPath,
+  type SystemFolderPaths
+} from '@shared/system-folder-paths'
 import { resolveTemplateFolder } from '@shared/template-folder'
 import { setCell } from '@shared/database-records'
 import {
@@ -129,6 +134,9 @@ export interface VaultBackend {
    *  scope can leave them out. A vault on this machine lists none; a server
    *  says so in its capabilities. A request that fails rejects. */
   marksLinks(): Promise<boolean>
+  /** The system folders that are, or sit under, a link, as vault paths. A path
+   *  scope cannot say what is behind one. An answer it cannot read rejects. */
+  linkedSystemFolders(): Promise<string[]>
 
   describe(): Promise<VaultDescription>
   /** Where the system folders live and whether the inbox is the vault root:
@@ -259,6 +267,16 @@ class LocalBackend implements VaultBackend {
   templateFolder = (): Promise<string | null> => readTemplateFolder(this.root)
   listNotes = (): Promise<NoteMeta[]> => listNotes(this.root)
   marksLinks = async (): Promise<boolean> => true
+  linkedSystemFolders = async (): Promise<string[]> => {
+    const { primaryNotesLocation, systemFolderPaths } = await this.vaultLayout()
+    const linked: string[] = []
+    for (const folder of ['inbox', 'quick', 'archive', 'trash'] as NoteFolder[]) {
+      if (folder === 'inbox' && primaryNotesLocation === 'root') continue
+      const dir = resolveFolderPath(folder, systemFolderPaths)
+      if (await goesThroughLink(this.root, dir)) linked.push(dir)
+    }
+    return linked
+  }
   listAssets = (): Promise<VaultAssetMeta[]> => listAssets(this.root)
   listFolders = (): Promise<{ folder: NoteFolder; subpath: string }[]> => listFolders(this.root)
   readNote = (rel: string): Promise<NoteContent> => readNote(this.root, rel)
@@ -377,6 +395,15 @@ class RemoteBackend implements VaultBackend {
       if (err instanceof RemoteRequestError && err.status === 404) return false
       throw err
     }
+  }
+  linkedSystemFolders = async (): Promise<string[]> => {
+    const vault = await this.client.getCurrentVault()
+    const linked = vault ? vault.linkedSystemFolders : undefined
+    if (linked === undefined) return []
+    if (!Array.isArray(linked) || linked.some((dir) => typeof dir !== 'string')) {
+      throw new Error('This ZenNotes server sent linked system folders this client cannot read, so nothing is shared.')
+    }
+    return linked as string[]
   }
   listNotes = (): Promise<NoteMeta[]> => this.client.listNotes()
   listAssets = async (): Promise<VaultAssetMeta[]> =>
