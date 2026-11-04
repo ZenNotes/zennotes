@@ -22,6 +22,7 @@ import { CALLOUT_HEAD_RE, CalloutFoldChevron } from './cm-callout-fold'
 import { foldedExactly } from './cm-list-fold'
 
 const quoteLine = Decoration.line({ class: 'cm-wq-quote' })
+const quoteInListBody = Decoration.mark({ class: 'cm-wq-quote-body' })
 
 /** A round bullet that replaces a `-` / `*` / `+` list marker. */
 class BulletWidget extends WidgetType {
@@ -181,12 +182,29 @@ function buildDecorations(view: EditorView): DecorationSet {
             }
             return
           }
-          // Plain blockquote: a left bar on every line it spans.
+          // Plain blockquote: a left bar on every line it spans. A quote inside
+          // a list item (`- > text`) has its bar after the bullet, where Preview
+          // draws it: on the line's edge it read as a list inside a quote.
+          const insideListItem = node.node.parent?.name === 'ListItem'
           for (let n = first; n <= last; n++) {
             if (quotedLines.has(n)) continue
             quotedLines.add(n)
             const line = state.doc.line(n)
-            pending.push({ from: line.from, to: line.from, deco: quoteLine, line: true })
+            const column = insideListItem ? line.text.indexOf('>') : -1
+            if (column < 0) {
+              pending.push({ from: line.from, to: line.from, deco: quoteLine, line: true })
+              continue
+            }
+            pending.push({
+              from: line.from,
+              to: line.from,
+              deco: Decoration.line({
+                class: 'cm-wq-quote-in-list',
+                attributes: { style: `--z-quote-column: ${column}ch` }
+              }),
+              line: true
+            })
+            pending.push({ from: line.from + column, to: line.to, deco: quoteInListBody, line: false })
           }
           return
         }

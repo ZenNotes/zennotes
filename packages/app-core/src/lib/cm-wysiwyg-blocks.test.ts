@@ -40,6 +40,22 @@ function mount(doc: string): EditorView {
 }
 
 describe('wysiwygBlocksPlugin', () => {
+  it('puts the bar after the bullet for a quote inside a list item, as Preview does', () => {
+    const view = mount('- >TEST\n\nlast line')
+    const line = view.dom.querySelector('.cm-wq-quote-in-list') as HTMLElement
+    expect(line).toBeTruthy()
+    expect(line.style.getPropertyValue('--z-quote-column')).toBe('2ch')
+    expect(view.dom.querySelector('.cm-wq-quote')).toBeNull()
+    view.destroy()
+  })
+
+  it('keeps the bar on the edge for a list inside a quote', () => {
+    const view = mount('> - item\n\nlast line')
+    expect(view.dom.querySelector('.cm-wq-quote')).toBeTruthy()
+    expect(view.dom.querySelector('.cm-wq-quote-in-list')).toBeNull()
+    view.destroy()
+  })
+
   it('renders bullets, an hr, and a blockquote bar without throwing', () => {
     const view = mount(DOC)
     expect(view.dom.querySelectorAll('.cm-wq-bullet').length).toBe(2)
