@@ -92,6 +92,9 @@ export interface VaultAssetMeta {
   name: string
   size: number
   updatedAt: number
+  /** Listed from a link rather than a file. Only a server's listing holds
+   *  these, and marks them; see NoteMeta.symlink. */
+  symlink?: boolean
 }
 
 /** Where a vault lives and how it is laid out: what `vault_info` reports. */
@@ -368,7 +371,8 @@ class RemoteBackend implements VaultBackend {
       path: asset.path,
       name: asset.name,
       size: asset.size,
-      updatedAt: asset.updatedAt
+      updatedAt: asset.updatedAt,
+      ...(asset.symlink ? { symlink: true } : {})
     }))
   listFolders = (): Promise<{ folder: NoteFolder; subpath: string }[]> =>
     this.client.listFolders()

@@ -13,7 +13,9 @@
  * match. Whatever the client is never shown does not exist for it, and the
  * error for a hidden path is the same bytes as for a missing one. The same
  * rule covers a vault on a ZenNotes server, whose listings come from the
- * server.
+ * server. A server lists a linked note or asset and marks it `symlink`, and
+ * its writes follow links to folders, so the view drops what is marked, and a
+ * destination the listings do not know is checked for what is really there.
  *
  * One is made per tool call; the listings it reads are cached for that call.
  */
@@ -40,6 +42,7 @@ import {
 } from '@shared/system-folder-paths'
 import type { DatabaseOps } from '@shared/database-ops'
 import type { VaultAssetMeta, VaultBackend, VaultDescription, VaultLayout } from '../cli/backend.js'
+import { RemoteRequestError } from '../main/remote/connection.js'
 import {
   sanitizeTitle,
   type NoteComment,
@@ -181,9 +184,9 @@ class ScopeView {
     readonly paths: SystemFolderPaths,
     readonly primaryAtRoot: boolean,
     readonly allFolders: FolderEntry[],
-    /** Whether anything at all sits at a vault-relative path, for a vault on
-     *  this machine; null for a server's, whose walker is its own. */
-    private readonly onDisk: ((rel: string) => Promise<boolean>) | null
+    /** Whether anything at all sits at a vault-relative path. A listing cannot
+     *  answer that, because it leaves links out. */
+    private readonly occupied: (rel: string) => Promise<boolean>
   ) {}
 
   bucketDir(folder: NoteFolder): string {
@@ -269,7 +272,7 @@ class ScopeView {
     // A segment the listings do not know is new only when nothing is there.
     // The walks skip symbolic links, so `Projects/inner -> ../Journal` reads
     // as missing, and creating through it would write into the hidden folder.
-    if (firstNew != null && this.onDisk && (await this.onDisk(firstNew))) {
+    if (firstNew != null && (await this.occupied(firstNew))) {
       throw this.createRefusal()
     }
     if (!bucket) return spelled
@@ -324,23 +327,44 @@ export class ScopedBackend implements VaultBackend {
     return this.view
   }
 
+  /**
+   * How this backend tells a free path from a taken one. Only "not there"
+   * counts as free, so a check that fails refuses the destination.
+   *
+   * A server has no route that says what is at a path, but its read does: a
+   * missing path is a 404, while a link to a folder is a 400 for being a
+   * directory and a link out of the vault a 400 for escaping. A server from
+   * before 2.20 answers 500 for a missing file, so a scoped client cannot make
+   * new folders on one. A dangling link also reads as missing; a server that
+   * refuses writes through links then refuses that one itself.
+   */
+  private occupiedCheck(): (rel: string) => Promise<boolean> {
+    if (this.inner.kind === 'local') {
+      const root = this.inner.root
+      return (rel) =>
+        fs.lstat(path.join(root, ...rel.split('/'))).then(
+          () => true,
+          (err: NodeJS.ErrnoException) => err.code !== 'ENOENT'
+        )
+    }
+    return (rel) =>
+      this.inner.readNote(rel).then(
+        () => true,
+        (err: unknown) => !(err instanceof RemoteRequestError && err.status === 404)
+      )
+  }
+
   private async build(): Promise<ScopeView> {
     const layout = await this.inner.vaultLayout()
-    const notes = await this.inner.listNotes()
+    // A linked note's content is whatever the link names, possibly a hidden
+    // note, and a write lands there too. A local listing never holds one.
+    const notes = (await this.inner.listNotes()).filter((note) => !note.symlink)
     const folders = await this.inner.listFolders()
-    const root = this.inner.root
     const v = new ScopeView(
       layout.systemFolderPaths,
       layout.primaryNotesLocation === 'root',
       folders,
-      this.inner.kind === 'local' && root
-        ? (rel) =>
-            fs.lstat(path.join(root, ...rel.split('/'))).then(
-              () => true,
-              // Anything but plain absence counts as something being there.
-              (err: NodeJS.ErrnoException) => err.code !== 'ENOENT'
-            )
-        : null
+      this.occupiedCheck()
     )
     for (const folder of FOLDERS) {
       const dir = v.bucketDir(folder)
@@ -430,7 +454,9 @@ export class ScopedBackend implements VaultBackend {
 
   listAssets = async (): Promise<VaultAssetMeta[]> => {
     const v = await this.load()
-    return (await this.inner.listAssets()).filter((asset) => v.visible(asset.path))
+    return (await this.inner.listAssets()).filter(
+      (asset) => !asset.symlink && v.visible(asset.path)
+    )
   }
 
   readNote = async (rel: string): Promise<NoteContent> =>
@@ -587,7 +613,9 @@ export class ScopedBackend implements VaultBackend {
   backlinks = async (rel: string): Promise<NoteMeta[]> => {
     const meta = await this.noteFor(rel, 'read')
     const v = await this.load()
-    return (await this.inner.backlinks(meta.path)).filter((note) => v.visible(note.path))
+    return (await this.inner.backlinks(meta.path)).filter(
+      (note) => v.byPath.has(note.path) && v.visible(note.path)
+    )
   }
 
   scanAllTasks = async (opts?: { includeExcluded?: boolean }): Promise<VaultTask[]> => {

@@ -263,6 +263,10 @@ export interface NoteMeta {
   tags: string[]
   wikilinks: string[]
   excerpt: string
+  /** Listed from a link rather than a file. Only a server's listing holds
+   *  these, and marks them: what they read and write belongs to whatever the
+   *  link names, so a scoped client treats them as absent. */
+  symlink?: boolean
 }
 
 export interface NoteContent extends NoteMeta {

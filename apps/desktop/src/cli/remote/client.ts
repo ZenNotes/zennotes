@@ -35,6 +35,7 @@ export interface RemoteAssetMeta {
   name: string
   size: number
   updatedAt: number
+  symlink?: boolean
 }
 
 export class CliRemoteClient {
