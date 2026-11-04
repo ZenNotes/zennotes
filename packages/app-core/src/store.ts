@@ -8584,6 +8584,8 @@ export const useStore = create<Store>((set, get) => {
   refreshNotes: async () => {
     const request = ++noteIndexRequest
     const isCurrent = captureFolderActionContext(get)
+    const listedVault = get().vault
+    const listedBridge = window.zen
     try {
       // Load this vault's manual note order once per vault (drives #224).
       const orderRoot = get().vault?.root ?? ''
@@ -8597,7 +8599,15 @@ export const useStore = create<Store>((set, get) => {
         window.zen.listFolders(),
         window.zen.hasAssetsDir()
       ])
-      if (!isCurrent() || request !== noteIndexRequest) return
+      if (request !== noteIndexRequest) return
+      if (!isCurrent()) {
+        // The same vault's layout moved while it was listed, which is what a
+        // resync that fetches settings and notes side by side does when files
+        // settle it (#1023). This listing may predate the move and is dropped,
+        // but with nothing to follow it the sidebar stayed empty: list again.
+        if (get().vault === listedVault && window.zen === listedBridge) await get().refreshNotes()
+        return
+      }
       recordRendererPerf('store.refreshNotes.fetch', performance.now() - startedAt, {
         notes: notes.length,
         folders: folders.length,
@@ -8887,6 +8897,7 @@ export const useStore = create<Store>((set, get) => {
           .catch((err) => {
             console.error('resync vault settings failed', err)
           }),
+        get().refreshRootContentHidden(),
         tasksSurfaceVisible(get()) ? get().refreshTasks() : Promise.resolve(),
         // Templates ride the feed too (scope 'templates'), so a gap may have
         // swallowed a template saved on another device.
@@ -8987,6 +8998,28 @@ export const useStore = create<Store>((set, get) => {
       // Surface a newly-created (or removed) .csv in the note list.
       if (ev.kind !== 'change') await get().refreshAssets()
       return
+    }
+    // A vault whose vault.json does not state its layout has it inferred from
+    // the root's own entries, so the first folder or note to land there can
+    // move it to root mode, and only main notices (#1023). Filling an empty
+    // vault left every note under a collapsed Inbox until a reload.
+    if (!ev.path.includes('/') && (ev.scope === undefined || ev.scope === 'folder')) {
+      const root = get().vault?.root
+      void window.zen
+        .getVaultSettings()
+        .then((settings) => {
+          const next = normalizeVaultSettings(settings)
+          if (
+            get().vault?.root === root &&
+            next.primaryNotesLocation !== get().vaultSettings.primaryNotesLocation
+          ) {
+            set({ vaultSettings: next })
+          }
+          void get().refreshRootContentHidden()
+        })
+        .catch((err) => {
+          console.error('refresh vault settings failed', err)
+        })
     }
     if (ev.scope === 'folder') {
       // A folder was created/removed/renamed externally (e.g. in another
