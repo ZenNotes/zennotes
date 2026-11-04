@@ -2,7 +2,7 @@ import { readNoteCreatedAt, prepareNoteCreation, removeNoteCreation, noteMetadat
 import { noteCommentsPath, noteCommentsRoot, relocateFolderTrees, relocateNote } from '../main/note-sidecars'
 import { agentEditFolderPath, removeAgentEditRecord } from '../main/agent-edit-files'
 import { fileIdentity, isSameFile } from '../main/same-file'
-import { atomicWriteTarget, renameWithRetry } from '../main/atomic-write'
+import { atomicWriteTarget, isAtomicWriteTempPath, renameWithRetry } from '../main/atomic-write'
 import { readSavedServerToken as readZnSavedServerToken } from '../main/remote/zn-credentials'
 /**
  * Vault operations used by the MCP server. Mirrors the filesystem
@@ -14,11 +14,15 @@ import { readSavedServerToken as readZnSavedServerToken } from '../main/remote/z
  * requires the renderer's Zustand store or a live app session.
  */
 
-import { promises as fs } from 'node:fs'
+import { constants as fsConstants, promises as fs, type Dirent } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import os from 'node:os'
 import { parse as parseToml } from 'smol-toml'
 import { retitleLeadingHeading } from '@shared/note-heading-sync'
+import { rewriteAssetReferences } from '@shared/asset-link-rename'
+import { goQuote } from '@shared/mcp-scope'
+import { IMAGE_FILE_EXTENSIONS } from '@shared/pasted-image'
 import { normalizeNoteComments } from '@shared/note-comments'
 import type { NoteComment, NoteCommentInput } from '@shared/ipc'
 export type { NoteComment, NoteCommentInput }
@@ -987,45 +991,449 @@ export async function listDatabaseDirs(
   return out
 }
 
-export async function listAssets(root: string): Promise<
-  { path: string; name: string; size: number; updatedAt: number }[]
-> {
-  const out: { path: string; name: string; size: number; updatedAt: number }[] = []
+export interface VaultAssetMeta {
+  path: string
+  name: string
+  size: number
+  updatedAt: number
+  /** Listed from a link rather than a file. Only a server's listing holds
+   *  these, and marks them; see NoteMeta.symlink. */
+  symlink?: boolean
+}
+
+export interface DeletedVaultAsset {
+  path: string
+  name: string
+  undoToken: string
+  deletedAt: string
+}
+
+export type ImportedVaultAssetKind = 'image' | 'pdf' | 'audio' | 'video' | 'file'
+
+export interface ImportedVaultAsset {
+  name: string
+  path: string
+  markdown: string
+  kind: ImportedVaultAssetKind
+}
+
+/** Every loose file in the vault, as the server and the app's Assets view list
+ *  them. Notes, drawings, database folders, hidden and internal files and
+ *  symbolic links are not attachments. Mirrors ListAssets in ZenNotes/tui. */
+export async function listAssets(root: string): Promise<VaultAssetMeta[]> {
+  const out: VaultAssetMeta[] = []
   const walk = async (dirAbs: string): Promise<void> => {
-    let entries
+    let entries: Dirent[]
     try {
       entries = await fs.readdir(dirAbs, { withFileTypes: true })
-    } catch {
-      return
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code
+      if (code === 'ENOENT' || code === 'EACCES' || code === 'EPERM') return
+      throw err
     }
+    entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
     for (const entry of entries) {
-      if (entry.name.startsWith('.')) continue
+      if (entry.name.startsWith('.') || isAtomicWriteTempPath(entry.name)) continue
       const full = path.join(dirAbs, entry.name)
       if (entry.isDirectory()) {
-        await walk(full)
+        if (!isFormDirName(entry.name)) await walk(full)
         continue
       }
       if (!entry.isFile()) continue
-      const stat = await fs.stat(full)
-      out.push({
-        path: toPosix(path.relative(root, full)),
-        name: path.basename(full),
-        size: stat.size,
-        updatedAt: stat.mtimeMs
-      })
+      const lower = entry.name.toLowerCase()
+      if (lower.endsWith('.md') || lower.endsWith('.excalidraw')) continue
+      try {
+        out.push(assetMeta(root, full, await fs.lstat(full)))
+      } catch {
+        // Gone since the directory was read.
+      }
     }
   }
-  for (const dir of ATTACHMENTS_DIRS) {
-    try {
-      const st = await fs.stat(path.join(root, dir))
-      if (!st.isDirectory()) continue
-    } catch {
-      continue
-    }
-    await walk(path.join(root, dir))
-  }
+  await walk(root)
   out.sort((a, b) => b.updatedAt - a.updatedAt)
   return out
+}
+
+function assetMeta(root: string, abs: string, stat: { size: number; mtimeMs: number }): VaultAssetMeta {
+  return {
+    path: toPosix(path.relative(root, abs)),
+    name: path.basename(abs),
+    size: stat.size,
+    updatedAt: Math.trunc(stat.mtimeMs)
+  }
+}
+
+async function assetMetaForPath(root: string, abs: string): Promise<VaultAssetMeta> {
+  return assetMeta(root, abs, await fs.stat(abs))
+}
+
+function trimVaultRelative(rel: string): string {
+  return rel.trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+}
+
+async function assertAssetFile(root: string, rel: string): Promise<{ rel: string; abs: string }> {
+  const normalized = trimVaultRelative(rel)
+  if (!normalized) throw new Error('asset path is required')
+  if (normalized.split('/').includes(INTERNAL_VAULT_DIR)) {
+    throw new Error('cannot modify internal ZenNotes files')
+  }
+  if (path.extname(normalized).toLowerCase() === '.md') {
+    throw new Error('use note actions to modify markdown notes')
+  }
+  const abs = await resolveSafe(root, normalized)
+  const info = await fs.stat(abs)
+  if (info.isDirectory()) throw new Error('asset path is not a file')
+  return { rel: toPosix(path.relative(root, abs)), abs }
+}
+
+function cleanAssetFilename(name: string): string {
+  const raw = name.trim()
+  if (/[\\/]/.test(raw)) throw new Error('use only a file name')
+  const trimmed = path.basename(raw)
+  if (!trimmed || trimmed === '.' || trimmed === '..') throw new Error('asset name is required')
+  if (path.extname(trimmed).toLowerCase() === '.md') {
+    throw new Error('use note actions for markdown notes')
+  }
+  return trimmed
+}
+
+async function uniqueAssetPath(dir: string, filename: string): Promise<string> {
+  const ext = path.extname(filename)
+  const stem = path.basename(filename, ext)
+  let candidate = path.join(dir, filename)
+  for (let n = 2; ; n += 1) {
+    try {
+      await fs.lstat(candidate)
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return candidate
+      throw err
+    }
+    candidate = path.join(dir, `${stem} ${n}${ext}`)
+  }
+}
+
+/** Re-target the notes that reference a renamed or moved asset, skipping the
+ *  trash and whatever `rewriteIn` turns down. The snapshots are from before the
+ *  change, so references still resolve to the asset under its old path. This
+ *  walk's note listing carries no attachment flag, so it reads each note and
+ *  writes only the ones whose text changes. */
+async function rewriteAssetLinks(
+  root: string,
+  notesBefore: NoteMeta[],
+  assetsBefore: VaultAssetMeta[],
+  oldRel: string,
+  newRel: string,
+  rewriteIn?: (notePath: string) => boolean
+): Promise<void> {
+  for (const note of notesBefore) {
+    if (note.folder === 'trash' || (rewriteIn && !rewriteIn(note.path))) continue
+    try {
+      const content = await readNote(root, note.path)
+      const { body, changed } = rewriteAssetReferences(
+        content.body,
+        assetsBefore,
+        note.path,
+        oldRel,
+        newRel
+      )
+      if (changed > 0) await writeNote(root, note.path, body)
+    } catch {
+      // One note that cannot be read or written leaves the rest to do.
+    }
+  }
+}
+
+export async function readAsset(root: string, rel: string): Promise<Buffer> {
+  return await fs.readFile((await assertAssetFile(root, rel)).abs)
+}
+
+/** Add a file to the unified `assets/` folder, never overwriting: a taken name
+ *  gets a number. */
+export async function importAsset(
+  root: string,
+  filename: string,
+  bytes: Uint8Array
+): Promise<ImportedVaultAsset> {
+  const assetsDir = await resolveSafe(root, ASSETS_DIR)
+  await fs.mkdir(assetsDir, { recursive: true })
+  const abs = await uniqueAssetPath(assetsDir, importedAssetFilename(filename))
+  await fs.writeFile(abs, bytes, { flag: 'wx' })
+  const name = path.basename(abs)
+  const rel = toPosix(path.relative(root, abs))
+  const kind = classifyAsset(name)
+  return { name, path: rel, markdown: markdownForAsset(rel, name, kind), kind }
+}
+
+const AUDIO_EXTENSIONS = new Set(['.aac', '.flac', '.m4a', '.mp3', '.ogg', '.wav'])
+const VIDEO_EXTENSIONS = new Set(['.m4v', '.mov', '.mp4', '.ogv', '.webm'])
+
+/** Mirrors classifyImportedAsset in main/vault.ts and kindForExt on the server. */
+function classifyAsset(filename: string): ImportedVaultAssetKind {
+  const ext = path.extname(filename).toLowerCase()
+  if (IMAGE_FILE_EXTENSIONS.has(ext)) return 'image'
+  if (ext === '.pdf') return 'pdf'
+  if (AUDIO_EXTENSIONS.has(ext)) return 'audio'
+  if (VIDEO_EXTENSIONS.has(ext)) return 'video'
+  return 'file'
+}
+
+/** The one link rule of main/vault.ts and the server: an image, PDF, audio or
+ *  video file as an embed, anything else as a markdown link, by vault path. */
+function markdownForAsset(rel: string, name: string, kind: ImportedVaultAssetKind): string {
+  if (kind !== 'file') return `![[${rel}]]`
+  return `[${name}](<${rel.replace(/>/g, '%3E')}>)`
+}
+
+/** A name that cannot terminate or retarget the link written for it. */
+function importedAssetFilename(filename: string): string {
+  const safe = path
+    .basename(filename)
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\\/:%\u0000-\u001f*?"<>|[\]#^]/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return safe && safe !== '.' && safe !== '..' ? safe : 'file'
+}
+
+export async function renameAsset(
+  root: string,
+  rel: string,
+  nextName: string,
+  rewriteIn?: (notePath: string) => boolean
+): Promise<VaultAssetMeta> {
+  const [assetsBefore, notesBefore] = await Promise.all([listAssets(root), listNotes(root)])
+  const source = await assertAssetFile(root, rel)
+  const cleanName = cleanAssetFilename(nextName)
+  const destAbs = path.join(path.dirname(source.abs), cleanName)
+  if (destAbs !== source.abs) {
+    let taken = false
+    try {
+      await fs.stat(destAbs)
+      taken = true
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
+    }
+    if (taken) {
+      // Only the same file may sit at the destination: a case-only rename on
+      // a case-insensitive volume, which goes through a temporary name.
+      const [src, dst] = await Promise.all([fileIdentity(source.abs), fileIdentity(destAbs)])
+      if (!isSameFile(src, dst)) {
+        throw new Error(`an asset named ${goQuote(cleanName)} already exists in this folder`)
+      }
+      const tmp = `${source.abs}.zenrename.tmp`
+      await fs.rename(source.abs, tmp)
+      await fs.rename(tmp, destAbs)
+    } else {
+      await fs.rename(source.abs, destAbs)
+    }
+  }
+  const meta = await assetMetaForPath(root, destAbs)
+  if (meta.path !== source.rel) {
+    await rewriteAssetLinks(root, notesBefore, assetsBefore, source.rel, meta.path, rewriteIn)
+  }
+  return meta
+}
+
+/** Move an asset into `targetDir`, creating it; a taken name gets a number. */
+export async function moveAsset(
+  root: string,
+  rel: string,
+  targetDir: string,
+  rewriteIn?: (notePath: string) => boolean
+): Promise<VaultAssetMeta> {
+  const [assetsBefore, notesBefore] = await Promise.all([listAssets(root), listNotes(root)])
+  const source = await assertAssetFile(root, rel)
+  const normalized = trimVaultRelative(targetDir)
+  if (normalized.split('/').includes(INTERNAL_VAULT_DIR)) {
+    throw new Error('cannot move assets into internal ZenNotes files')
+  }
+  const destDir = await resolveSafe(root, normalized || ASSETS_DIR)
+  await fs.mkdir(destDir, { recursive: true })
+  if (path.resolve(destDir) === path.dirname(path.resolve(source.abs))) {
+    return await assetMetaForPath(root, source.abs)
+  }
+  const destAbs = await uniqueAssetPath(destDir, path.basename(source.abs))
+  await fs.rename(source.abs, destAbs)
+  const meta = await assetMetaForPath(root, destAbs)
+  if (meta.path !== source.rel) {
+    await rewriteAssetLinks(root, notesBefore, assetsBefore, source.rel, meta.path, rewriteIn)
+  }
+  return meta
+}
+
+/** Copy an asset next to itself as `<name> copy<ext>`. */
+export async function duplicateAsset(root: string, rel: string): Promise<VaultAssetMeta> {
+  const source = await assertAssetFile(root, rel)
+  const ext = path.extname(source.abs)
+  const stem = path.basename(source.abs, ext)
+  const destAbs = await uniqueAssetPath(path.dirname(source.abs), `${stem} copy${ext}`)
+  await fs.copyFile(source.abs, destAbs, fsConstants.COPYFILE_EXCL)
+  return await assetMetaForPath(root, destAbs)
+}
+
+const DELETED_ASSETS_DIR = 'deleted-assets'
+const DELETED_ASSET_META = '.zn-deleted.json'
+const DELETED_ASSET_TOKEN_RE = /^[0-9a-f-]{36}$/i
+
+function cleanDeletedAssetPath(rel: string): string {
+  const normalized = trimVaultRelative(rel)
+  if (!normalized) throw new Error('deleted asset path is required')
+  if (normalized.split('/').includes(INTERNAL_VAULT_DIR)) {
+    throw new Error('cannot restore internal ZenNotes files')
+  }
+  if (path.extname(normalized).toLowerCase() === '.md') {
+    throw new Error('use note actions to restore markdown notes')
+  }
+  return normalized
+}
+
+/** Soft delete: the file moves into `.zennotes/deleted-assets/<token>/` beside
+ *  a record of where it was, the store the app's Trash lists. The layout is a
+ *  disk contract with main/vault.ts and both Go engines. Metadata first, file
+ *  last, so a failure anywhere leaves the asset in the vault. */
+export async function deleteAsset(root: string, rel: string): Promise<DeletedVaultAsset> {
+  const source = await assertAssetFile(root, rel)
+  const undoToken = randomUUID()
+  const trashDir = await resolveSafe(
+    root,
+    `${INTERNAL_VAULT_DIR}/${DELETED_ASSETS_DIR}/${undoToken}`
+  )
+  await fs.mkdir(trashDir, { recursive: true })
+  const name = path.basename(source.abs)
+  const deletedAt = new Date().toISOString()
+  try {
+    await fs.writeFile(
+      path.join(trashDir, DELETED_ASSET_META),
+      JSON.stringify({ path: source.rel, name, deletedAt }, null, 2),
+      'utf8'
+    )
+    await fs.rename(source.abs, path.join(trashDir, name))
+  } catch (err) {
+    await fs.rm(trashDir, { recursive: true, force: true }).catch(() => {})
+    throw err
+  }
+  return { path: source.rel, name, undoToken, deletedAt }
+}
+
+/** What can be restored, newest first. An entry without a readable record or
+ *  its file is skipped. */
+export async function listDeletedAssets(root: string): Promise<DeletedVaultAsset[]> {
+  const store = await resolveSafe(root, `${INTERNAL_VAULT_DIR}/${DELETED_ASSETS_DIR}`)
+  let tokens: string[]
+  try {
+    tokens = await fs.readdir(store)
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return []
+    throw err
+  }
+  tokens.sort()
+  const out: DeletedVaultAsset[] = []
+  for (const undoToken of tokens) {
+    if (!DELETED_ASSET_TOKEN_RE.test(undoToken)) continue
+    try {
+      const raw = await fs.readFile(path.join(store, undoToken, DELETED_ASSET_META), 'utf8')
+      const meta = JSON.parse(raw) as { path?: unknown; name?: unknown; deletedAt?: unknown }
+      if (typeof meta.path !== 'string' || typeof meta.name !== 'string') continue
+      if (!meta.path || !meta.name) continue
+      const name = cleanAssetFilename(meta.name)
+      if (name === DELETED_ASSET_META) continue
+      cleanDeletedAssetPath(meta.path)
+      if (!(await fs.stat(path.join(store, undoToken, name))).isFile()) continue
+      out.push({
+        path: meta.path,
+        name: meta.name,
+        undoToken,
+        deletedAt: typeof meta.deletedAt === 'string' ? meta.deletedAt : ''
+      })
+    } catch {
+      // Not restorable, so not listed.
+    }
+  }
+  out.sort((a, b) => (a.deletedAt < b.deletedAt ? 1 : a.deletedAt > b.deletedAt ? -1 : 0))
+  return out
+}
+
+/** Bring a deleted asset back. Only the token comes from the caller; the stored
+ *  record decides what is restored and where. */
+export async function restoreDeletedAsset(root: string, undoToken: string): Promise<VaultAssetMeta> {
+  if (!DELETED_ASSET_TOKEN_RE.test(undoToken)) {
+    throw new Error('deleted asset restore token is invalid')
+  }
+  const trashDir = await resolveSafe(
+    root,
+    `${INTERNAL_VAULT_DIR}/${DELETED_ASSETS_DIR}/${undoToken}`
+  )
+  let raw: string
+  try {
+    raw = await fs.readFile(path.join(trashDir, DELETED_ASSET_META), 'utf8')
+  } catch {
+    throw new Error('deleted asset entry not found')
+  }
+  let stored: { path?: unknown; name?: unknown }
+  try {
+    stored = JSON.parse(raw) as { path?: unknown; name?: unknown }
+  } catch {
+    throw new Error('deleted asset entry is unreadable')
+  }
+  if (typeof stored.path !== 'string' || typeof stored.name !== 'string') {
+    throw new Error('deleted asset entry is unreadable')
+  }
+  const targetRel = cleanDeletedAssetPath(stored.path)
+  const name = cleanAssetFilename(stored.name)
+  if (name === DELETED_ASSET_META) throw new Error('deleted asset entry is unreadable')
+  const targetAbs = await resolveSafe(root, targetRel)
+  const targetDir = path.dirname(targetAbs)
+  await fs.mkdir(targetDir, { recursive: true })
+  const finalAbs = await uniqueAssetPath(targetDir, path.basename(targetAbs))
+  await fs.rename(path.join(trashDir, name), finalAbs)
+  await fs.rm(trashDir, { recursive: true, force: true })
+  return await assetMetaForPath(root, finalAbs)
+}
+
+export interface CustomTemplateFile {
+  sourcePath: string
+  raw: string
+}
+
+/** The vault's own templates in `.zennotes/templates`, as raw files. */
+export async function listTemplateFiles(root: string): Promise<CustomTemplateFile[]> {
+  const dir = path.join(root, INTERNAL_VAULT_DIR, 'templates')
+  let entries: Dirent[]
+  try {
+    entries = await fs.readdir(dir, { withFileTypes: true })
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return []
+    throw err
+  }
+  const out: CustomTemplateFile[] = []
+  for (const entry of entries) {
+    if (!entry.isFile() || entry.name.startsWith('.')) continue
+    if (path.extname(entry.name).toLowerCase() !== '.md') continue
+    try {
+      out.push({
+        sourcePath: `${INTERNAL_VAULT_DIR}/templates/${entry.name}`,
+        raw: await fs.readFile(path.join(dir, entry.name), 'utf8')
+      })
+    } catch {
+      // A template that cannot be read is not offered.
+    }
+  }
+  out.sort((a, b) => (a.sourcePath < b.sourcePath ? -1 : 1))
+  return out
+}
+
+/** `.zennotes/vault.json` as stored; empty when missing or unreadable. */
+export async function readVaultSettingsRaw(root: string): Promise<Record<string, unknown>> {
+  try {
+    const raw: unknown = JSON.parse(
+      await fs.readFile(path.join(root, INTERNAL_VAULT_DIR, VAULT_SETTINGS_FILE), 'utf8')
+    )
+    return raw && typeof raw === 'object' && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : {}
+  } catch {
+    return {}
+  }
 }
 
 /* ---------- Read / write / create ------------------------------------ */
@@ -1988,6 +2396,24 @@ export async function scanAllTasks(
     })
   )
   return out
+}
+
+/** One note's tasks, numbered exactly as scanAllTasks numbers them. */
+export async function scanTasksForPath(
+  root: string,
+  rel: string,
+  opts?: ParseTasksOptions
+): Promise<VaultTask[]> {
+  const { abs, folder } = await resolveNote(root, rel)
+  const body = await fs.readFile(abs, 'utf8')
+  const ctx = {
+    path: toPosix(path.relative(root, abs)),
+    title: path.basename(abs, path.extname(abs)),
+    folder
+  }
+  const fileTask = parseTaskFile(body, ctx, opts)
+  const inline = parseTasksFromBody(body, ctx, opts)
+  return fileTask ? [fileTask, ...inline] : inline
 }
 
 /** Toggle a specific task identified by "<path>#<taskIndex>". When the index

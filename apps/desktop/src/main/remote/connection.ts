@@ -79,38 +79,71 @@ export class RemoteRequestError extends Error {
   }
 }
 
-/** One JSON request against a server, with auth and both error shapes. */
-export async function remoteJsonRequest<T>(
+/** A request with auth and both error shapes: a server that cannot be reached
+ *  and a non-2xx answer. `body` goes as given. */
+async function remoteFetch(
   path: string,
-  options: RemoteRequestOptions
-): Promise<T> {
-  const headers = new Headers()
+  options: RemoteRequestOptions,
+  headers: Headers,
+  body?: RequestInit['body']
+): Promise<Response> {
   if (options.authToken && !headers.has('Authorization')) {
     headers.set('Authorization', `Bearer ${options.authToken}`)
   }
-  const hasBody = options.body !== undefined
-  if (hasBody && !headers.has('Content-Type')) {
-    headers.set('Content-Type', 'application/json')
-  }
-
   trustSystemCertificates()
   let response: Response
   try {
     response = await fetch(`${options.baseUrl}${path}`, {
       method: options.method,
       headers,
-      body: hasBody ? JSON.stringify(options.body) : undefined
+      body
     })
   } catch (error) {
     throw new Error(connectionErrorMessage(options.baseUrl, error))
   }
   if (!response.ok) {
-    const text = await response.text().catch(() => '')
+    const text = (await response.text().catch(() => '')).trim()
     throw new RemoteRequestError(
       requestErrorMessage(options.baseUrl, path, response, text),
       response.status
     )
   }
+  return response
+}
+
+/** One JSON request against a server. */
+export async function remoteJsonRequest<T>(
+  path: string,
+  options: RemoteRequestOptions
+): Promise<T> {
+  const headers = new Headers()
+  const hasBody = options.body !== undefined
+  if (hasBody) headers.set('Content-Type', 'application/json')
+  const response = await remoteFetch(
+    path,
+    options,
+    headers,
+    hasBody ? JSON.stringify(options.body) : undefined
+  )
   if (response.status === 204) return undefined as T
+  return (await response.json()) as T
+}
+
+/** A file's bytes from a server. */
+export async function remoteBytesRequest(
+  path: string,
+  options: RemoteRequestOptions
+): Promise<Uint8Array> {
+  const response = await remoteFetch(path, options, new Headers())
+  return new Uint8Array(await response.arrayBuffer())
+}
+
+/** A multipart POST, answered in JSON. fetch sets the form's Content-Type. */
+export async function remoteFormRequest<T>(
+  path: string,
+  form: FormData,
+  options: RemoteRequestOptions
+): Promise<T> {
+  const response = await remoteFetch(path, { ...options, method: 'POST' }, new Headers(), form)
   return (await response.json()) as T
 }

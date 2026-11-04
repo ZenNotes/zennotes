@@ -10,14 +10,11 @@
  */
 
 import path from 'node:path'
+import type { Readable, Writable } from 'node:stream'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-  type Tool
-} from '@modelcontextprotocol/sdk/types.js'
+import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 
 import { resolveInstructions } from './instructions-store.js'
 import { createBackend, servedTarget, type VaultBackend } from '../cli/backend.js'
@@ -43,21 +40,18 @@ import {
 } from '@shared/mcp-scope'
 import { outsideTemplateFolder } from '@shared/template-folder'
 import { ScopedBackend, scopeBackend, scrubVaultRoot } from './scoped-backend.js'
-
-interface ToolContext {
-  /** Set on the vault_info call that moved the session to a new vault: the
-   *  vault it left. */
-  previous?: VaultTarget | null
-}
-
-interface ToolDef {
-  schema: Tool
-  handler: (
-    args: Record<string, unknown>,
-    backend: VaultBackend,
-    context?: ToolContext
-  ) => Promise<unknown>
-}
+import { ASSET_TOOLS, LIST_ASSETS_TOOL } from './asset-tools.js'
+import { WORK_TOOLS } from './work-tools.js'
+import {
+  optionalBoolean,
+  optionalNumber,
+  optionalString,
+  optionalStringArray,
+  RawToolResult,
+  requireFolder,
+  requireString,
+  type ToolDef
+} from './tool-support.js'
 
 /* ---------- Comment authorship ---------------------------------------- */
 
@@ -89,56 +83,6 @@ export function commentAuthorForClient(clientName: string | null | undefined): s
 
 function defaultCommentAuthor(): string {
   return commentAuthorForClient(connectedClientName)
-}
-
-/* ---------- Argument helpers ----------------------------------------- */
-
-function requireString(args: Record<string, unknown>, key: string): string {
-  const value = args[key]
-  if (typeof value !== 'string' || !value.trim()) {
-    throw new Error(`Missing required string argument: ${key}`)
-  }
-  return value
-}
-
-function optionalString(args: Record<string, unknown>, key: string): string | undefined {
-  const value = args[key]
-  if (value == null) return undefined
-  if (typeof value !== 'string') throw new Error(`${key} must be a string`)
-  return value
-}
-
-function requireFolder(args: Record<string, unknown>, key: string): NoteFolder {
-  const value = requireString(args, key)
-  if (value !== 'inbox' && value !== 'quick' && value !== 'archive' && value !== 'trash') {
-    throw new Error(`${key} must be one of inbox, quick, archive, trash`)
-  }
-  return value
-}
-
-function optionalBoolean(args: Record<string, unknown>, key: string): boolean | undefined {
-  const value = args[key]
-  if (value == null) return undefined
-  if (typeof value !== 'boolean') throw new Error(`${key} must be a boolean`)
-  return value
-}
-
-function optionalNumber(args: Record<string, unknown>, key: string): number | undefined {
-  const value = args[key]
-  if (value == null) return undefined
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    throw new Error(`${key} must be a number`)
-  }
-  return value
-}
-
-function optionalStringArray(args: Record<string, unknown>, key: string): string[] | undefined {
-  const value = args[key]
-  if (value == null) return undefined
-  if (!Array.isArray(value) || !value.every((v) => typeof v === 'string')) {
-    throw new Error(`${key} must be an array of strings`)
-  }
-  return value as string[]
 }
 
 /* ---------- Tool definitions ----------------------------------------- */
@@ -301,15 +245,7 @@ const TOOLS: ToolDef[] = [
     },
     handler: async (_args, backend) => await backend.listFolders()
   },
-  {
-    schema: {
-      name: 'list_assets',
-      description:
-        'List files under the vault’s attachments directory (images, PDFs, audio, video, other binaries). Useful when a note references an asset you need to inspect.',
-      inputSchema: { type: 'object', properties: {} }
-    },
-    handler: async (_args, backend) => await backend.listAssets()
-  },
+  LIST_ASSETS_TOOL,
   {
     schema: {
       name: 'read_note',
@@ -997,7 +933,9 @@ const TOOLS: ToolDef[] = [
         id: requireString(args, 'id'),
         resolved: optionalBoolean(args, 'resolved') ?? true
       })
-  }
+  },
+  ...ASSET_TOOLS,
+  ...WORK_TOOLS
 ]
 
 /* ---------- Server plumbing ------------------------------------------ */
@@ -1243,6 +1181,18 @@ export class VaultSession {
   }
 }
 
+/**
+ * The SDK's stdio transport closes the whole session on a message past its
+ * limit, 10 MiB by default, which a legal upload_asset of about 7.5 MiB is. This
+ * leaves room for one well past that tool's own limit, so an oversized file gets
+ * its refusal rather than a dropped connection.
+ */
+const STDIO_MAX_MESSAGE_BYTES = 128 * 1024 * 1024
+
+export function stdioServerTransport(stdin?: Readable, stdout?: Writable): StdioServerTransport {
+  return new StdioServerTransport(stdin, stdout, { maxBufferSize: STDIO_MAX_MESSAGE_BYTES })
+}
+
 export interface McpServerOptions {
   /**
    * Which vault the tools run against, asked again before every tool call
@@ -1331,6 +1281,8 @@ export async function runMcpServer(options: McpServerOptions = {}): Promise<void
       const result = await runRecordingAgentEdit(name, toolArgs, seen, defaultCommentAuthor(), () =>
         tool.handler(toolArgs, seen, { previous: move?.from ?? null })
       )
+      // A tool that answers with more than text (read_asset) builds its own.
+      if (result instanceof RawToolResult) return { content: result.content }
       const payload =
         typeof result === 'string' ? result : JSON.stringify(result, null, 2)
       // Only now can the assistant be told, so only now does the session move.
@@ -1345,5 +1297,5 @@ export async function runMcpServer(options: McpServerOptions = {}): Promise<void
     }
   })
 
-  await server.connect(options.transport ?? new StdioServerTransport())
+  await server.connect(options.transport ?? stdioServerTransport())
 }

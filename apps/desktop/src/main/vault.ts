@@ -15,7 +15,7 @@ import { app, shell } from 'electron'
 import { recordMainPerf } from './perf'
 import { resolveCommandViaLoginShell } from './login-shell-path'
 import { isEphemeralRoot } from './ephemeral-vaults'
-import { atomicWriteTarget, renameWithRetry } from './atomic-write'
+import { atomicWriteTarget, isAtomicWriteTempPath, renameWithRetry } from './atomic-write'
 import { fileIdentity, isSameFile } from './same-file'
 
 export { renameWithRetry }
@@ -740,16 +740,7 @@ export function onConfigSaved(listener: (cfg: PersistedConfig) => void): () => v
   return () => configSavedListeners.delete(listener)
 }
 
-/** The scratch file `writeFileAtomic` renames from: `<name>.<pid>.<stamp>.tmp`.
- *  The Go server writes the same shape and both watchers filter on it, so the
- *  two must stay recognizable to each other. Requiring an epoch-length stamp is
- *  what keeps a file the user named `notes.2024.01.tmp` out of the filter:
- *  events dropped here are events no window ever hears about. */
-const ATOMIC_WRITE_TEMP_PATTERN = /\.\d+\.\d{13,}\.tmp$/
-
-export function isAtomicWriteTempPath(p: string): boolean {
-  return ATOMIC_WRITE_TEMP_PATTERN.test(path.basename(p))
-}
+export { isAtomicWriteTempPath }
 
 /** Same millisecond, same path, two writers: the stamp alone would name one
  *  temp file for both and let them interleave into it. */

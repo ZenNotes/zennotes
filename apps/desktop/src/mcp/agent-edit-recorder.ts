@@ -30,14 +30,18 @@ const RECORDED_TOOLS: Record<string, (args: Record<string, unknown>) => string |
   prepend_to_note: (args) => stringArg(args, 'path'),
   insert_at_line: (args) => stringArg(args, 'path'),
   replace_in_note: (args) => stringArg(args, 'path'),
-  toggle_task: (args) => {
-    const id = stringArg(args, 'id')
-    if (!id) return null
-    try {
-      return splitTaskId(id).rel
-    } catch {
-      return null
-    }
+  edit_section: (args) => stringArg(args, 'path'),
+  toggle_task: taskNoteArg,
+  update_task: taskNoteArg
+}
+
+function taskNoteArg(args: Record<string, unknown>): string | null {
+  const id = stringArg(args, 'id')
+  if (!id) return null
+  try {
+    return splitTaskId(id).rel
+  } catch {
+    return null
   }
 }
 

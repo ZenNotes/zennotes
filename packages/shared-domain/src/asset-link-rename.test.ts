@@ -163,3 +163,44 @@ describe('rewriteAssetReferences on move (#785 follow-up)', () => {
     })
   })
 })
+
+describe('a Markdown link whose file gains a space or a parenthesis', () => {
+  const assets = [{ path: 'assets/report.pdf' }, { path: 'assets/other.pdf' }]
+  const note = 'notes/n.md'
+  const old = 'assets/report.pdf'
+
+  it.each([
+    ['a plain link gains brackets', '[x](../assets/report.pdf)\n', 'assets/new report.pdf', '[x](<../assets/new report.pdf>)\n'],
+    ['a fragment stays inside them', '[x](../assets/report.pdf#page=3)\n', 'assets/new report.pdf', '[x](<../assets/new report.pdf#page=3>)\n'],
+    ['a title stays outside them', '[x](../assets/report.pdf "T")\n', 'assets/new report.pdf', '[x](<../assets/new report.pdf> "T")\n'],
+    ['an image too', '![x](../assets/report.pdf)\n', 'assets/new report.pdf', '![x](<../assets/new report.pdf>)\n'],
+    ['parentheses need them too', '[x](../assets/report.pdf)\n', 'assets/report(1).pdf', '[x](<../assets/report(1).pdf>)\n'],
+    ['a name without either stays plain', '[x](../assets/report.pdf)\n', 'assets/renamed.pdf', '[x](../assets/renamed.pdf)\n'],
+    ['brackets already there stay', '[x](<../assets/report.pdf>)\n', 'assets/new report.pdf', '[x](<../assets/new report.pdf>)\n'],
+    ['a bracket in a name cannot close them', '[x](<../assets/report.pdf>)\n', 'assets/a>b.pdf', '[x](<../assets/a%3Eb.pdf>)\n'],
+    ['a wikilink never takes them', '![[assets/report.pdf]]\n', 'assets/new report.pdf', '![[assets/new report.pdf]]\n']
+  ])('%s', (_name, body, next, want) => {
+    expect(rewriteAssetReferences(body, assets, note, old, next).body).toBe(want)
+  })
+
+  it('stays encoded when it was, and the next rename finds it again', () => {
+    expect(
+      rewriteAssetReferences(
+        '[x](../assets/my%20report.pdf)\n',
+        [{ path: 'assets/my report.pdf' }],
+        note,
+        'assets/my report.pdf',
+        'assets/new report.pdf'
+      ).body
+    ).toBe('[x](../assets/new%20report.pdf)\n')
+    const first = rewriteAssetReferences('[x](../assets/report.pdf#page=3)\n', assets, note, old, 'assets/new report.pdf')
+    const second = rewriteAssetReferences(
+      first.body,
+      [{ path: 'assets/new report.pdf' }],
+      note,
+      'assets/new report.pdf',
+      'assets/final.pdf'
+    )
+    expect(second).toEqual({ body: '[x](<../assets/final.pdf#page=3>)\n', changed: 1 })
+  })
+})

@@ -400,11 +400,11 @@ describe('an attachment folder that is a link', () => {
     expect(assets.map((a) => a.path)).toEqual(['assets/real.png'])
   })
 
-  it('stays as it was for a client with no path scope', async () => {
+  it('lists the file where it really is for a client with no path scope', async () => {
     await fsp.symlink('Journal', inVault('assets'))
     const read = newMcpScope({ access: 'read' })
     const assets = (await callTool('list_assets', {}, backend, read)) as { path: string }[]
-    expect(assets.map((a) => a.path)).toContain('assets/secret.png')
+    expect(assets.map((a) => a.path)).toEqual(['Journal/secret.png'])
   })
 })
 

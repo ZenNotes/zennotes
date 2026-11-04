@@ -137,7 +137,18 @@ describe('tools run through the backend', () => {
       'list_comments',
       'add_comment',
       'reply_to_comment',
-      'resolve_comment'
+      'resolve_comment',
+      'read_asset',
+      'upload_asset',
+      'rename_asset',
+      'move_asset',
+      'duplicate_asset',
+      'delete_asset',
+      'restore_asset',
+      'update_task',
+      'daily_note',
+      'note_sections',
+      'edit_section'
     ])
   })
 })

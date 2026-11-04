@@ -45,3 +45,13 @@ export async function atomicWriteTarget(absPath: string): Promise<string> {
   }
 }
 
+/** The scratch file `writeFileAtomic` renames from: `<name>.<pid>.<stamp>.tmp`.
+ *  The Go server writes the same shape and both watchers filter on it, so the
+ *  two must stay recognizable to each other. Requiring an epoch-length stamp is
+ *  what keeps a file the user named `notes.2024.01.tmp` out of the filter:
+ *  events dropped here are events no window ever hears about. */
+const ATOMIC_WRITE_TEMP_PATTERN = /\.\d+\.\d{13,}\.tmp$/
+
+export function isAtomicWriteTempPath(p: string): boolean {
+  return ATOMIC_WRITE_TEMP_PATTERN.test(path.basename(p))
+}

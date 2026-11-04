@@ -137,7 +137,12 @@ export function rewriteAssetReferences(
       next = resolution.absolute ? `/${newPath}` : newPath
     }
     const out = `${encodeLike(path, next)}${suffix}`
-    return angled ? `<${out}>` : out
+    // A Markdown destination with a space or a parenthesis only stays a link in
+    // angle brackets, and a rename or a numbered name can bring either in.
+    if (angled || (kind === 'href' && /[ \t()]/.test(out))) {
+      return `<${out.replace(/</g, '%3C').replace(/>/g, '%3E')}>`
+    }
+    return out
   }
 
   let changed = 0

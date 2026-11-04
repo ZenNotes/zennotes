@@ -79,7 +79,8 @@ happens in the app (`packages/shared-domain/src/agent-edits.ts`):
   deleted instead of shown empty.
 
 Recorded tools: `write_note`, `append_to_note`, `prepend_to_note`,
-`insert_at_line`, `replace_in_note`, `toggle_task` (the note comes from the task id).
+`insert_at_line`, `replace_in_note`, `edit_section`, `toggle_task` and `update_task` (the note
+comes from the task id).
 Not recorded in v1: `create_note` (a new note has nothing to compare against),
 moves, renames, trash and deletes (Trash keeps those), and vaults on a
 self-hosted server (their MCP writes go through the Go server, which needs its own
