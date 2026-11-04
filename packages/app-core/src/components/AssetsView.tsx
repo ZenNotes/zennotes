@@ -197,7 +197,9 @@ export function AssetsView(): JSX.Element {
   const menuItems = (asset: AssetMeta): ContextMenuItem[] => [
     { label: 'Open', onSelect: () => void openNoteInTab(assetTabPath(asset.path)) },
     { label: 'Copy embed', onSelect: () => copyEmbed(asset) },
-    { label: 'Reveal in file manager', onSelect: () => void window.zen.revealNote(asset.path) },
+    ...(window.zen.getAppInfo().runtime === 'desktop' && useStore.getState().workspaceMode !== 'remote'
+      ? [{ label: 'Reveal in file manager', onSelect: () => void window.zen.revealNote(asset.path) }]
+      : []),
     { label: 'Rename…', onSelect: () => void renameAsset(asset) },
     {
       label: 'Move to Trash',
