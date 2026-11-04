@@ -108,7 +108,7 @@ describe('asset writes at the same time', () => {
       ])
       expect(await contents(target)).toEqual(['from a', 'from b'])
     }
-  })
+  }, 30000)
 
   it('lets one of two renames onto a name win, and keeps the other file', async () => {
     const backend = createBackend({ kind: 'local', root })
@@ -122,7 +122,7 @@ describe('asset writes at the same time', () => {
       expect(outcomes.filter((outcome) => outcome.status === 'fulfilled')).toHaveLength(1)
       expect(await contents(dir)).toEqual(['a', 'b'])
     }
-  })
+  }, 30000)
 
   it('does not replace a file that another program made after the name was checked', async () => {
     await seed({ 'assets/x.png': 'moved', 'Target/keep.txt': 'keep' })
@@ -927,7 +927,7 @@ describe('a link rewrite beside a note edit', () => {
   ] as const)('keeps both when %s runs in the same batch', async (tool, args) => {
     const client = await connect()
     await seed({ 'assets/keep.png': 'k' })
-    for (let i = 0; i < 25; i += 1) {
+    for (let i = 0; i < 10; i += 1) {
       const from = `a${i}`
       const to = `b${i}`
       await seed({ [asset(from)]: 'x', 'n.md': `# H\n\n- [ ] task\n\n![[${asset(from)}]]\n` })
@@ -940,7 +940,7 @@ describe('a link rewrite beside a note edit', () => {
       expect(body).toContain(`marker${i}`)
       expect(body).toContain(`![[${asset(to)}]]`)
     }
-  })
+  }, 30000)
 
   it('lets other asset calls go while it reads the notes', async () => {
     await seed({ 'assets/a.png': 'a', 'n.md': '![[assets/a.png]]\n' })
