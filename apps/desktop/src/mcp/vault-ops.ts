@@ -59,7 +59,7 @@ const isFormDirName = (name: string): boolean => name.toLowerCase().endsWith('.b
 const ASSETS_DIR = 'assets'
 const PRIMARY_ATTACHMENTS_DIR = 'attachements'
 const LEGACY_ATTACHMENTS_DIRS = [PRIMARY_ATTACHMENTS_DIR, '_assets']
-const ATTACHMENTS_DIRS = [ASSETS_DIR, ...LEGACY_ATTACHMENTS_DIRS]
+export const ATTACHMENTS_DIRS = [ASSETS_DIR, ...LEGACY_ATTACHMENTS_DIRS]
 const INTERNAL_VAULT_DIR = '.zennotes'
 const VAULT_SETTINGS_FILE = 'vault.json'
 

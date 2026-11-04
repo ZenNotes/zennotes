@@ -158,7 +158,7 @@ describe('a scoped client on a server that answers like znserver', () => {
           }
           return json(200, capabilities)
         case '/api/vault':
-          return json(200, { root: '/srv/notes', name: 'notes' })
+          return json(200, { root: '/srv/notes', name: 'notes', linkedSystemFolders: [] })
         case '/api/vault/settings':
           return json(200, { primaryNotesLocation: 'root' })
         case '/api/notes':
@@ -385,7 +385,10 @@ describe.skipIf(!binary)('a scoped client on a real server', () => {
     const capabilities = (await fetch(`${baseUrl}/api/capabilities`, {
       headers: { Authorization: `Bearer ${TOKEN}` }
     }).then((res) => res.json())) as Record<string, unknown>
-    marks = capabilities.supportsSymlinkMarks === true
+    const vault = (await fetch(`${baseUrl}/api/vault`, {
+      headers: { Authorization: `Bearer ${TOKEN}` }
+    }).then((res) => res.json())) as Record<string, unknown>
+    marks = capabilities.supportsSymlinkMarks === true && Array.isArray(vault.linkedSystemFolders)
   })
 
   afterEach(async () => {

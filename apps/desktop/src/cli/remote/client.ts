@@ -28,7 +28,8 @@ import type {
 export interface RemoteVaultInfo {
   root: string
   name: string
-  /** The system folders that are, or sit under, a link. Left out when none. */
+  /** The system folders that are, or sit under, a link. A server too old to
+   *  know leaves it out, which does not mean there are none. */
   linkedSystemFolders?: unknown
 }
 

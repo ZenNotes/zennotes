@@ -12,6 +12,8 @@ import { createBackend, type VaultBackend } from '../cli/backend'
 import { callTool } from './server'
 
 const DIARY = '# Diary\n\nprivate needle\n'
+const UNMARKED =
+  'This ZenNotes server cannot share part of a vault: its listings do not mark links, so nothing is shared until the server is updated.'
 
 let base: string
 let root: string
@@ -104,6 +106,52 @@ describe('a link to nothing in a shared folder', () => {
   })
 })
 
+describe('an attachment folder that is a link', () => {
+  const deny = newMcpScope({ access: 'write', deny: ['Journal'] })
+
+  beforeEach(async () => {
+    await fsp.writeFile(inVault('Journal/secret.png'), 'png')
+  })
+
+  // First in this block: the hint fires once per folder name per process.
+  it('hints once on stderr', async () => {
+    const lines: string[] = []
+    vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      lines.push(String(chunk))
+      return true
+    })
+    await fsp.symlink('Journal', inVault('attachements'))
+    await callTool('list_assets', {}, backend, deny)
+    await callTool('list_assets', {}, backend, deny)
+    expect(lines.filter((line) => line.includes('attachements'))).toHaveLength(1)
+  })
+
+  it.each(['assets', 'attachements', '_assets'])('shows nothing through %s', async (dir) => {
+    await fsp.symlink('Journal', inVault(dir))
+    expect(await callTool('list_assets', {}, backend, deny)).toEqual([])
+  })
+
+  it('shows nothing through it even when an allow entry names it', async () => {
+    await fsp.symlink('Journal', inVault('assets'))
+    const allow = newMcpScope({ access: 'write', allow: ['assets'] })
+    expect(await callTool('list_assets', {}, backend, allow)).toEqual([])
+  })
+
+  it('still lists a real attachment folder', async () => {
+    await fsp.mkdir(inVault('assets'))
+    await fsp.writeFile(inVault('assets/real.png'), 'png')
+    const assets = (await callTool('list_assets', {}, backend, deny)) as { path: string }[]
+    expect(assets.map((a) => a.path)).toEqual(['assets/real.png'])
+  })
+
+  it('stays as it was for a client with no path scope', async () => {
+    await fsp.symlink('Journal', inVault('assets'))
+    const read = newMcpScope({ access: 'read' })
+    const assets = (await callTool('list_assets', {}, backend, read)) as { path: string }[]
+    expect(assets.map((a) => a.path)).toContain('assets/secret.png')
+  })
+})
+
 describe('a link inside a system folder', () => {
   it.each([
     ['archive_note', 'archive'],
@@ -190,10 +238,12 @@ describe('a system folder a server names as a link', () => {
   /** What `linkedSystemFolders` holds in `/api/vault`; left out when undefined. */
   let linked: unknown
   let posts: string[]
+  let postStatus: number
 
   beforeEach(async () => {
     linked = ['quick', 'archive']
     posts = []
+    postStatus = 200
     server = createServer((req, res) => {
       const at = new URL(req.url ?? '/', 'http://x')
       const json = (value: unknown): void => {
@@ -202,6 +252,10 @@ describe('a system folder a server names as a link', () => {
       }
       if (req.method === 'POST') {
         posts.push(at.pathname)
+        if (postStatus !== 200) {
+          res.writeHead(postStatus)
+          return res.end('path goes through a symbolic link')
+        }
         return json({ path: 'Open/Free.md', title: 'Free', folder: 'inbox' })
       }
       const meta = { path: 'Open/Free.md', title: 'Free', folder: 'inbox', tags: [], wikilinks: [], excerpt: '' }
@@ -265,19 +319,53 @@ describe('a system folder a server names as a link', () => {
     expect(info).not.toContain('"deny"')
   })
 
-  it.each([undefined, []])('treats %j as no linked folders', async (none) => {
-    linked = none
+  it('treats an empty list as no linked folders', async () => {
+    linked = []
     await callTool('create_note', { folder: 'quick', title: 'Via', body: 'X' }, remote(), deny)
     expect(posts).toContain('/api/notes/create')
   })
 
-  it.each(['quick', 7, null, [7], ['quick', null]])('shares nothing when the field is %j', async (bad) => {
-    linked = bad
-    await expect(callTool('list_notes', {}, remote(), deny)).rejects.toThrow('linked system folders')
-    await expect(
-      callTool('create_note', { folder: 'quick', title: 'Via', body: 'X' }, remote(), deny)
-    ).rejects.toThrow('linked system folders')
-    expect(posts).toEqual([])
+  // A server too old to send the field says nothing about its folders, which
+  // is not the same as having none linked.
+  it.each([[undefined], ['quick'], [7], [null], [[7]], [['quick', null]]])(
+    'shares nothing when the field is %j',
+    async (bad) => {
+      linked = bad
+      const stopped = new Error(UNMARKED)
+      await expect(callTool('list_notes', {}, remote(), deny)).rejects.toThrow(stopped)
+      await expect(
+        callTool('create_note', { folder: 'quick', title: 'Via', body: 'X' }, remote(), deny)
+      ).rejects.toThrow(stopped)
+      expect(posts).toEqual([])
+    }
+  )
+
+  it('hints once on stderr, and never to the model', async () => {
+    const lines: string[] = []
+    vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      lines.push(String(chunk))
+      return true
+    })
+    linked = ['HintedOnce']
+    for (let i = 0; i < 2; i++) {
+      const notes = JSON.stringify(await callTool('list_notes', {}, remote(), deny))
+      expect(notes).not.toContain('HintedOnce')
+    }
+    expect(lines.filter((line) => line.includes('HintedOnce'))).toEqual([
+      '[zennotes-mcp] the system folder HintedOnce is a symbolic link, so it is hidden from a client with --allow-path or --deny-path\n'
+    ])
+  })
+
+  it.each([
+    ['archive_note', '/api/notes/archive'],
+    ['move_to_trash', '/api/notes/trash']
+  ])('answers %s the server turns away with the usual refusal', async (tool, route) => {
+    linked = []
+    postStatus = 400
+    const failure = await callTool(tool, { path: 'Open/Free.md' }, remote(), deny).catch((err: Error) => err)
+    expect(failure).toEqual(new Error('This assistant cannot put notes there.'))
+    expect((failure as Error).message).not.toContain('symbolic')
+    expect(posts).toEqual([route])
   })
 
   it('does not ask for a scope that only limits access', async () => {
@@ -334,7 +422,10 @@ describe.skipIf(!binary)('links on a real server', () => {
     const capabilities = (await fetch(`${url}/api/capabilities`, {
       headers: { Authorization: `Bearer ${TOKEN}` }
     }).then((res) => res.json())) as Record<string, unknown>
-    marks = capabilities.supportsSymlinkMarks === true
+    const vault = (await fetch(`${url}/api/vault`, {
+      headers: { Authorization: `Bearer ${TOKEN}` }
+    }).then((res) => res.json())) as Record<string, unknown>
+    marks = capabilities.supportsSymlinkMarks === true && Array.isArray(vault.linkedSystemFolders)
     remote = createBackend({ kind: 'remote', name: '', baseUrl: url, authToken: TOKEN })
   }
 
@@ -398,6 +489,20 @@ describe.skipIf(!binary)('links on a real server', () => {
       new Error('This assistant can create and move notes only inside: Projects.')
     )
     expect(await journal()).toEqual(['Diary.md'])
+    expect(await exists(inVault('Projects/Plan.md'))).toBe(true)
+  })
+
+  it('gives the usual refusal for a link on the subpath a move keeps', async (ctx) => {
+    await fsp.mkdir(inVault('archive/Hidden'), { recursive: true })
+    await fsp.writeFile(inVault('archive/Hidden/Kept.md'), '# Kept\n')
+    await fsp.symlink('Hidden', inVault('archive/Projects'))
+    await start()
+    if (!marks) ctx.skip()
+    const hide = newMcpScope({ access: 'write', deny: ['archive/Hidden'] })
+    await expect(callTool('archive_note', { path: 'Projects/Plan.md' }, remote, hide)).rejects.toThrow(
+      new Error('This assistant cannot put notes there.')
+    )
+    expect(await exists(inVault('archive/Hidden/Plan.md'))).toBe(false)
     expect(await exists(inVault('Projects/Plan.md'))).toBe(true)
   })
 

@@ -134,9 +134,9 @@ export interface VaultBackend {
    *  scope can leave them out. A vault on this machine lists none; a server
    *  says so in its capabilities. A request that fails rejects. */
   marksLinks(): Promise<boolean>
-  /** The system folders that are, or sit under, a link, as vault paths. A path
-   *  scope cannot say what is behind one. An answer it cannot read rejects. */
-  linkedSystemFolders(): Promise<string[]>
+  /** The system folders that are, or sit under, a link, as vault paths, or null
+   *  when this vault cannot say. A path scope cannot say what is behind one. */
+  linkedSystemFolders(): Promise<string[] | null>
 
   describe(): Promise<VaultDescription>
   /** Where the system folders live and whether the inbox is the vault root:
@@ -267,7 +267,7 @@ class LocalBackend implements VaultBackend {
   templateFolder = (): Promise<string | null> => readTemplateFolder(this.root)
   listNotes = (): Promise<NoteMeta[]> => listNotes(this.root)
   marksLinks = async (): Promise<boolean> => true
-  linkedSystemFolders = async (): Promise<string[]> => {
+  linkedSystemFolders = async (): Promise<string[] | null> => {
     const { primaryNotesLocation, systemFolderPaths } = await this.vaultLayout()
     const linked: string[] = []
     for (const folder of ['inbox', 'quick', 'archive', 'trash'] as NoteFolder[]) {
@@ -396,14 +396,9 @@ class RemoteBackend implements VaultBackend {
       throw err
     }
   }
-  linkedSystemFolders = async (): Promise<string[]> => {
-    const vault = await this.client.getCurrentVault()
-    const linked = vault ? vault.linkedSystemFolders : undefined
-    if (linked === undefined) return []
-    if (!Array.isArray(linked) || linked.some((dir) => typeof dir !== 'string')) {
-      throw new Error('This ZenNotes server sent linked system folders this client cannot read, so nothing is shared.')
-    }
-    return linked as string[]
+  linkedSystemFolders = async (): Promise<string[] | null> => {
+    const linked = (await this.client.getCurrentVault())?.linkedSystemFolders
+    return Array.isArray(linked) && linked.every((dir) => typeof dir === 'string') ? linked : null
   }
   listNotes = (): Promise<NoteMeta[]> => this.client.listNotes()
   listAssets = async (): Promise<VaultAssetMeta[]> =>
