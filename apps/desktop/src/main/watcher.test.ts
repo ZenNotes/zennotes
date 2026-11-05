@@ -294,7 +294,11 @@ describe('VaultWatcher large vaults', () => {
     it('reads again for a request that arrives during a read', async () => {
       const { root, watcher, resyncs } = await refused()
       const first = watcher.rescanNow(true)
-      await writeFile(path.join(root, 'During.md'), '# During\n')
+      // Arrives whole: a read that met it half written and a read that met it
+      // finished would be two real changes, and two refreshes.
+      const scratch = path.join(root, '.During.md.tmp')
+      await writeFile(scratch, '# During\n')
+      await rename(scratch, path.join(root, 'During.md'))
       await watcher.rescanNow(true)
       await first
       expect(resyncs()).toBe(2)
