@@ -1688,8 +1688,9 @@ async function removeSeedOnlyInbox(
   systemFolderPaths: SystemFolderPaths | null | undefined,
   { explicit }: { explicit: boolean }
 ): Promise<boolean> {
-  if (resolveFolderPath('inbox', systemFolderPaths) !== 'inbox') return false
-  const inbox = path.join(root, 'inbox')
+  const inboxDir = resolveFolderPath('inbox', systemFolderPaths)
+  if (inboxDir !== 'inbox') return false
+  const inbox = path.join(root, inboxDir)
   try {
     const top = await fs.readdir(root, { withFileTypes: true })
     if (!top.some((entry) => entry.name === 'inbox' && entry.isDirectory())) return false
