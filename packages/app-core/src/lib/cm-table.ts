@@ -45,6 +45,10 @@ const MIN_COL_WIDTH = 48
 import { openTableContextMenu } from './cm-table-menu'
 import { convertTableToDatabase } from './table-to-database'
 import { renderMarkdown } from './markdown'
+import { classifyLocalAssetHref, localAssetLabel, resolveLocalAssetUrl } from './local-assets'
+import { isExcalidrawPath, isObsidianExcalidrawPath } from '@shared/excalidraw'
+import { linkNoteEmbedsInCell } from './transclusion'
+import { resolveWikilinkTarget } from './wikilinks'
 import { getCM, Vim } from '@replit/codemirror-vim'
 import { undo, redo } from '@codemirror/commands'
 import { useStore } from '../store'
@@ -151,28 +155,61 @@ const INSERT_ESCAPE_TIMEOUT_MS = 1000
  *
  * `linkResolves`, when given, decides each `[[wikilink]]` the way the editor
  * does: a link that reaches nothing gets the reading view's `broken` class.
+ *
+ * `embeds`, when given, gives the cell what the reading view does with `![[…]]`:
+ * a note becomes a link, a picture loads from the vault, and any other file is a
+ * link rather than a broken picture.
  */
 export function renderInlineCell(
   text: string,
-  linkResolves?: (target: string) => boolean
+  linkResolves?: (target: string) => boolean,
+  embeds?: CellEmbeds
 ): string {
   const trimmed = text.trim()
   if (!trimmed) return ''
   // A newline would close the synthetic row; cells are single-line by
   // construction, but contenteditable can hand one back after a paste.
-  const source = escapeCell(trimmed.replace(/\s*\n\s*/g, ' '))
+  const flat = trimmed.replace(/\s*\n\s*/g, ' ')
+  const source = escapeCell(embeds ? linkNoteEmbedsInCell(flat, embeds.isNote) : flat)
   const parsed = document.createElement('template')
   parsed.innerHTML = renderMarkdown(`| ${source} |\n| --- |`)
   const cell = parsed.content.querySelector('th, td')
   // Never swallow the text: if the pipeline returns something unexpected (its
   // error fallback, say), show the source rather than an empty cell.
   if (cell) {
+    if (embeds) resolveCellImages(cell, embeds)
     if (linkResolves) markUnresolvedCellLinks(cell, linkResolves)
     return cell.innerHTML
   }
   const plain = document.createElement('span')
   plain.textContent = trimmed
   return plain.innerHTML
+}
+
+export interface CellEmbeds {
+  /** Whether a `![[target]]` names a note. */
+  isNote: (target: string) => boolean
+  /** Where a picture's href loads from, or null when that is not known yet. */
+  assetUrl: (href: string) => string | null
+}
+
+/** A rendered `<img>` only says what the source said, which loads nothing from a
+ *  vault. A file that is not a picture was never going to draw. */
+function resolveCellImages(root: ParentNode, embeds: CellEmbeds): void {
+  root.querySelectorAll<HTMLImageElement>('img[src]').forEach((img) => {
+    const href = img.getAttribute('src') ?? ''
+    const kind = classifyLocalAssetHref(href)
+    if (!kind) return
+    if (kind === 'image') {
+      const url = embeds.assetUrl(href)
+      if (url) img.setAttribute('src', url)
+      return
+    }
+    const link = img.ownerDocument.createElement('a')
+    link.setAttribute('href', href)
+    link.textContent = img.getAttribute('alt') || localAssetLabel(href, 'Attachment')
+    img.replaceWith(link)
+  })
 }
 
 /** Give every rendered `[[wikilink]]` under `root` the `broken` class when its
@@ -191,9 +228,27 @@ function markUnresolvedCellLinks(
   })
 }
 
-/** A cell's idle HTML, with its wikilinks decided against the vault. */
+/** Whether a cell's `![[target]]` is a note's: the reading view's test, plus a
+ *  name with no file extension, which can only be a note that is not there yet. */
+function cellEmbedIsNote(target: string): boolean {
+  const notes = useStore.getState().notes
+  const note = Array.isArray(notes) ? resolveWikilinkTarget(notes, target) : null
+  if (note) return !isExcalidrawPath(note.path) && !isObsidianExcalidrawPath(note.path)
+  const name = target.split(/[#^]/, 1)[0] ?? ''
+  return !/\.[^./\s]+$/.test(name) || /\.md$/i.test(name)
+}
+
+const VAULT_CELL_EMBEDS: CellEmbeds = {
+  isNote: cellEmbedIsNote,
+  assetUrl: (href) => {
+    const { vault, selectedPath } = useStore.getState()
+    return resolveLocalAssetUrl(vault?.root, selectedPath, href)
+  }
+}
+
+/** A cell's idle HTML, with its links and embeds decided against the vault. */
 function renderCellHtml(text: string): string {
-  return renderInlineCell(text, wikilinkResolves)
+  return renderInlineCell(text, wikilinkResolves, VAULT_CELL_EMBEDS)
 }
 
 /** If a `<!-- zen:cols=… -->` width marker sits on the line right after the
@@ -2553,7 +2608,17 @@ const tableCellLinkStates = ViewPlugin.fromClass(
         ) {
           view.contentDOM
             .querySelectorAll<HTMLElement>('.cm-table-widget .cm-table-cell')
-            .forEach((cell) => markUnresolvedCellLinks(cell, wikilinkResolves))
+            .forEach((cell) => {
+              // What an embed draws can change with the same lists: a note that
+              // now exists, or the asset list arriving after the first paint.
+              const raw = cell.dataset.raw ?? ''
+              if (cell.dataset.rendered === 'true' && raw.includes('![')) {
+                const html = renderCellHtml(raw)
+                if (cell.innerHTML !== html) cell.innerHTML = html
+                return
+              }
+              markUnresolvedCellLinks(cell, wikilinkResolves)
+            })
         }
       })
     }

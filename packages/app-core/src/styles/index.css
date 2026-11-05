@@ -5768,6 +5768,10 @@ html[data-completed-task-style="gray-strikethrough"] .prose-zen li.task-list-ite
 .cm-table-widget.is-col-resizing .cm-table-cell {
   user-select: none;
 }
+.cm-table-widget .cm-table-cell img {
+  max-width: 100%;
+  height: auto;
+}
 .cm-table-widget th,
 .cm-table-widget td {
   border: 1px solid rgb(var(--z-bg-3) / 0.9);

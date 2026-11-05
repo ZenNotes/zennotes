@@ -984,6 +984,113 @@ describe('unresolved wikilinks in table cells', () => {
   })
 })
 
+describe('embeds in table cells', () => {
+  const saved = {
+    notes: useStore.getState().notes,
+    vault: useStore.getState().vault,
+    selectedPath: useStore.getState().selectedPath,
+    assetFiles: useStore.getState().assetFiles,
+    assetFilesListed: useStore.getState().assetFilesListed
+  }
+  afterEach(() => {
+    useStore.setState(saved)
+    vi.restoreAllMocks()
+  })
+  const embeds = {
+    isNote: (target: string) => target.split('#')[0] === 'Note',
+    assetUrl: (href: string) => `zen-asset://local/${href}`
+  }
+  const html = (raw: string): string => renderInlineCell(raw, undefined, embeds)
+
+  it.each([
+    ['![[Note]]', 'Note', 'Note'],
+    ['![[Note|label]]', 'Note', 'label'],
+    ['![[Note#Part]]', 'Note#Part', 'Note > Part']
+  ])('draws %s as a link to the note, not a broken image', (raw, target, label) => {
+    const out = document.createElement('div')
+    out.innerHTML = html(raw)
+    expect(out.querySelector('img')).toBeNull()
+    const link = out.querySelector<HTMLAnchorElement>('a.wikilink')
+    expect(link?.dataset.wikilink).toBe(target)
+    expect(link?.textContent).toBe(label)
+  })
+
+  it('loads a real image from the vault, keeping its size hint', () => {
+    const out = document.createElement('div')
+    out.innerHTML = html('![[pic.png|300]]')
+    const img = out.querySelector('img')
+    expect(img?.getAttribute('src')).toBe('zen-asset://local/pic.png')
+    expect(img?.getAttribute('width')).toBe('300')
+    out.innerHTML = html('![alt](pic.png)')
+    expect(out.querySelector('img')?.getAttribute('src')).toBe('zen-asset://local/pic.png')
+  })
+
+  it('draws a file that is not a picture as a link', () => {
+    const out = document.createElement('div')
+    out.innerHTML = html('![[board.tldraw]]')
+    expect(out.querySelector('img')).toBeNull()
+    expect(out.querySelector('a')?.getAttribute('href')).toBe('board.tldraw')
+    expect(out.querySelector('a')?.textContent).toBe('board.tldraw')
+  })
+
+  it('leaves an embed in a code span as text', () => {
+    expect(html('`![[Note]]`')).toBe('<code>![[Note]]</code>')
+  })
+
+  it('leaves the source alone: the cell still commits what was written', () => {
+    useStore.setState({ notes: [{ path: 'Note.md', title: 'Note', folder: 'inbox' }] } as never)
+    const view = mount('| A |\n| --- |\n| ![[Note]] |')
+    const cell = [...view.dom.querySelectorAll<HTMLElement>('.cm-table-cell')].find(
+      (c) => c.dataset.row === '0'
+    )!
+    expect(cell.dataset.raw).toBe('![[Note]]')
+    expect(cell.querySelector('img')).toBeNull()
+    expect(cell.querySelector('a.wikilink')?.classList.contains('broken')).toBe(false)
+    expect(view.state.doc.toString()).toContain('| ![[Note]] |')
+    view.destroy()
+  })
+
+  it('shows an embed of a note that does not exist as a broken link, until it does', () => {
+    useStore.setState({ notes: [] } as never)
+    const view = mount('| A |\n| --- |\n| ![[Later]] |')
+    const cell = () =>
+      [...view.dom.querySelectorAll<HTMLElement>('.cm-table-cell')].find(
+        (c) => c.dataset.row === '0'
+      )!
+    expect(cell().querySelector('img')).toBeNull()
+    expect(cell().querySelector('a.wikilink')?.classList.contains('broken')).toBe(true)
+    useStore.setState({ notes: [{ path: 'Later.md', title: 'Later', folder: 'inbox' }] } as never)
+    expect(cell().querySelector('a.wikilink')?.classList.contains('broken')).toBe(false)
+    view.destroy()
+  })
+
+  it('draws the picture once the asset list arrives', () => {
+    Object.defineProperty(window, 'zen', {
+      configurable: true,
+      value: {
+        resolveVaultAssetUrl: (_root: string, path: string) => `zen-asset://local/${path}`,
+        resolveLocalAssetUrl: () => null
+      }
+    })
+    useStore.setState({
+      notes: [],
+      vault: { root: '/vault', name: 'vault' },
+      selectedPath: 'Doc.md',
+      assetFiles: [],
+      assetFilesListed: false
+    } as never)
+    const view = mount('| A |\n| --- |\n| ![[pic.png]] |')
+    const img = () => view.dom.querySelector<HTMLImageElement>('.cm-table-cell img')
+    expect(img()?.getAttribute('src')).toBe('pic.png')
+    useStore.setState({
+      assetFiles: [{ path: 'assets/pic.png', name: 'pic.png' }],
+      assetFilesListed: true
+    } as never)
+    expect(img()?.getAttribute('src')).toBe('zen-asset://local/assets/pic.png')
+    view.destroy()
+  })
+})
+
 describe('tableBlockAt — the fallback when the parse has not caught up (#485)', () => {
   const doc = (text: string) => Text.of(text.split('\n'))
 
