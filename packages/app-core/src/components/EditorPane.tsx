@@ -5578,7 +5578,7 @@ function IconBtn({
       aria-label={title}
       aria-pressed={active}
       className={[
-        'group relative flex h-7 w-7 items-center justify-center rounded-md transition-colors',
+        'group relative flex h-7 w-7 items-center justify-center rounded-md',
         disabled
           ? 'cursor-default text-ink-500/40'
           : active
