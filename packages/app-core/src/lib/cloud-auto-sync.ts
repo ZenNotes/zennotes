@@ -355,6 +355,20 @@ export async function connectCloudAccountFromStatusBar(
   }
 }
 
+/** The footer's way out of a sign-in that is waiting on the browser, which is the
+ *  same thing Settings → Cloud's Cancel sign-in does. */
+export async function cancelCloudSignInFromStatusBar(
+  bridge: Pick<ZenBridge, "logoutCloudAccount"> = getZenBridge(),
+): Promise<void> {
+  try {
+    await bridge.logoutCloudAccount();
+    markCloudSyncDisconnected();
+  } catch (error) {
+    markCloudSyncDisconnected(failureText(cloudSyncErrorCopy(error)));
+    throw error;
+  }
+}
+
 export async function syncCloudVaultWithStatus(
   bridge: Pick<CloudAutoSyncBridge, "syncCloudVault"> &
     Partial<

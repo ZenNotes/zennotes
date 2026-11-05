@@ -10,6 +10,7 @@ import {
   cloudSyncShownPhase,
   cloudVaultRemovalLabel,
   cloudVaultRemovalMessage,
+  cancelCloudSignInFromStatusBar,
   connectCloudAccountFromStatusBar,
   formatRelativeSyncTime,
   openCloudConflictReview,
@@ -212,8 +213,12 @@ function CloudSyncStatus({
   // Files waiting on a decision outrank every other action: the queue stays
   // one click away even while the next run is in flight, because those runs
   // cannot finish the waiting file anyway.
+  // The browser may never come back, and a phone has no other way out from here.
+  const cancelsSignIn = phase === "connecting" && !hasResolvableConflict;
   const actionLabel =
-    phase === "disconnected"
+    cancelsSignIn
+      ? "Cancel"
+      : phase === "disconnected"
       ? error && errorKind !== "signed-out"
         ? "Retry"
         : "Connect"
@@ -228,8 +233,8 @@ function CloudSyncStatus({
             : phase === "error"
               ? "Retry"
               : "Sync now";
-  const showAction =
-    hasResolvableConflict || (phase !== "syncing" && phase !== "connecting");
+  const showAction = hasResolvableConflict || phase !== "syncing";
+  const actionTitle = cancelsSignIn ? "Cancel sign-in" : title;
 
   const openCloudSettings = (): void => {
     requestSettingsTarget("cloud");
@@ -237,6 +242,10 @@ function CloudSyncStatus({
   };
 
   const runCloudAction = (): void => {
+    if (cancelsSignIn) {
+      void cancelCloudSignInFromStatusBar().catch(() => undefined);
+      return;
+    }
     if (phase === "disconnected") {
       void connectCloudAccountFromStatusBar().catch(() => undefined);
       return;
@@ -299,8 +308,8 @@ function CloudSyncStatus({
           <button
             type="button"
             data-cloud-sync-action
-            title={title}
-            aria-label={`${actionLabel}: ${title}`}
+            title={actionTitle}
+            aria-label={cancelsSignIn ? actionTitle : `${actionLabel}: ${title}`}
             onClick={runCloudAction}
             className="-my-1 rounded-md px-2 py-1 font-normal text-ink-500 transition-colors hover:bg-paper-200/60 hover:text-ink-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
           >
