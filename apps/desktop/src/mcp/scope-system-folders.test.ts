@@ -383,3 +383,153 @@ describe('a note title', () => {
     expect(looks).toBeLessThanOrEqual(10000)
   }, 30000)
 })
+
+describe('what the review of the scope changes found', () => {
+  it('answers create_note and move_note with a lone surrogate in a subpath', async () => {
+    await seed({ '.zennotes/vault.json': ROOT_LAYOUT, 'Note.md': 'x' })
+    const client = await connect()
+    const created = await call(client, 'create_note', {
+      folder: 'inbox',
+      title: 'Made',
+      subpath: 'dir\ud83d'
+    })
+    expect(created.isError, created.text).toBe(false)
+    expect(JSON.parse(created.text).path).toBe('dir�/Made.md')
+    const moved = await call(client, 'move_note', {
+      path: 'Note.md',
+      targetFolder: 'inbox',
+      targetSubpath: 'other\ud83d'
+    })
+    expect(moved.isError, moved.text).toBe(false)
+    expect(JSON.parse(moved.text).path).toBe('other�/Note.md')
+    expect(await exists('other�/Note.md')).toBe(true)
+  })
+
+  it('refuses a create or a move whose final path a deny entry hides', async () => {
+    await seed({
+      '.zennotes/vault.json': ROOT_LAYOUT,
+      'Pub/secret.md': 'hidden',
+      'Pub/open.md': 'x',
+      'archive/Pub/other.md': 'x',
+      'Drafts/secret.md': 'to move'
+    })
+    const client = await connect({ deny: ['Pub/secret.md'] })
+    const created = await call(client, 'create_note', {
+      folder: 'archive',
+      title: 'secret',
+      subpath: 'Pub'
+    })
+    expect(created.isError).toBe(true)
+    expect(await exists('archive/Pub/secret.md')).toBe(false)
+    const moved = await call(client, 'move_note', {
+      path: 'Drafts/secret.md',
+      targetFolder: 'archive',
+      targetSubpath: 'Pub'
+    })
+    expect(moved.isError).toBe(true)
+    expect(await exists('archive/Pub/secret.md')).toBe(false)
+    expect(await exists('Drafts/secret.md')).toBe(true)
+    // Any other name there is fine, and a taken hidden name moves on to a free one.
+    const free = await call(client, 'create_note', { folder: 'archive', title: 'open', subpath: 'Pub' })
+    expect(JSON.parse(free.text).path).toBe('archive/Pub/open.md')
+    const numbered = await call(client, 'create_note', { folder: 'inbox', title: 'secret', subpath: 'Pub' })
+    expect(JSON.parse(numbered.text).path).toBe('Pub/secret 2.md')
+  })
+
+  it('refuses a create whose numbered name a deny entry hides', async () => {
+    await seed({
+      '.zennotes/vault.json': ROOT_LAYOUT,
+      'Pub/draft.md': 'x',
+      'archive/Pub/draft.md': 'x',
+      'Pub/draft 2.md': 'hidden'
+    })
+    const client = await connect({ deny: ['Pub/draft 2.md'] })
+    const created = await call(client, 'create_note', { folder: 'archive', title: 'draft', subpath: 'Pub' })
+    expect(created.isError).toBe(true)
+    expect(await exists('archive/Pub/draft 2.md')).toBe(false)
+  })
+
+  it('keeps a move within its own folder a no-op, whatever a deny entry says of its copies', async () => {
+    await seed({ '.zennotes/vault.json': ROOT_LAYOUT, 'Pub/draft.md': 'x', 'Pub/draft 2.md': 'hidden' })
+    const client = await connect({ deny: ['Pub/draft 2.md'] })
+    const moved = await call(client, 'move_note', {
+      path: 'Pub/draft.md',
+      targetFolder: 'inbox',
+      targetSubpath: 'Pub'
+    })
+    expect(moved.isError, moved.text).toBe(false)
+    expect(JSON.parse(moved.text).path).toBe('Pub/draft.md')
+  })
+
+  it('keeps a copy of a copy of a long title writable', async () => {
+    const title = 'x'.repeat(200)
+    await seed({ '.zennotes/vault.json': ROOT_LAYOUT, [`${title}.md`]: 'body' })
+    const client = await connect()
+    const first = JSON.parse((await call(client, 'duplicate_note', { path: `${title}.md` })).text)
+    const second = JSON.parse((await call(client, 'duplicate_note', { path: first.path })).text)
+    for (const copy of [first, second]) {
+      expect(Buffer.byteLength(copy.path)).toBeLessThanOrEqual(209)
+      const written = await call(client, 'write_note', { path: copy.path, body: 'edited' })
+      expect(written.isError, written.text).toBe(false)
+    }
+    expect(first.path).toBe(`${'x'.repeat(195)} copy.md`)
+    expect(second.path).toBe(`${'x'.repeat(195)} copy 2.md`)
+  })
+
+  it('cuts a long title for a copy on whole characters', async () => {
+    const title = 'é'.repeat(100)
+    await seed({ '.zennotes/vault.json': ROOT_LAYOUT, [`${title}.md`]: 'body' })
+    const client = await connect()
+    const copy = JSON.parse((await call(client, 'duplicate_note', { path: `${title}.md` })).text)
+    expect(copy.path).toBe(`${'é'.repeat(97)} copy.md`)
+  })
+
+  it('lets a scoped client copy only when the cut name is one it can see', async () => {
+    const title = 'x'.repeat(200)
+    await seed({ '.zennotes/vault.json': ROOT_LAYOUT, [`${title}.md`]: 'body' })
+    const client = await connect({ allow: [`${title}.md`] })
+    const copy = await call(client, 'duplicate_note', { path: `${title}.md` })
+    expect(copy.isError).toBe(true)
+    expect(await exists(`${'x'.repeat(195)} copy.md`)).toBe(false)
+  })
+
+  it('finds the accented folder for an allow entry in another Unicode form', async () => {
+    const nfc = 'Café'
+    const nfd = 'Café'
+    await seed({ '.zennotes/vault.json': ROOT_LAYOUT, 'Cafe/plain.md': 'x', [`${nfc}/accent.md`]: 'y' })
+    const client = await connect({ allow: [nfd] })
+    const notes = JSON.parse((await call(client, 'list_notes', {})).text) as { path: string }[]
+    expect(notes.map((note) => note.path.normalize('NFC'))).toEqual([`${nfc}/accent.md`])
+  })
+
+  it('finds the accented folder for an allow entry in another case and form', async () => {
+    const nfc = 'Café'
+    await seed({ '.zennotes/vault.json': ROOT_LAYOUT, 'Cafe/plain.md': 'x', [`${nfc}/accent.md`]: 'y' })
+    const client = await connect({ allow: ['café'] })
+    const notes = JSON.parse((await call(client, 'list_notes', {})).text) as { path: string }[]
+    expect(notes.map((note) => note.path.normalize('NFC'))).toEqual([`${nfc}/accent.md`])
+  })
+
+  it('does not take an accented folder for the system folder it folds to', async () => {
+    await seed({
+      '.zennotes/vault.json': ROOT_LAYOUT,
+      'Journal/a.md': 'hidden',
+      'archive/Journal/b.md': 'hidden',
+      'Ärchive/Journal/c.md': 'shared'
+    })
+    const client = await connect({ deny: ['Journal'] })
+    const notes = JSON.parse((await call(client, 'list_notes', {})).text) as { path: string }[]
+    expect(notes.map((note) => note.path.normalize('NFC'))).toEqual(['Ärchive/Journal/c.md'])
+  })
+
+  it('still follows a differently cased system folder', async () => {
+    await seed({
+      '.zennotes/vault.json': ROOT_LAYOUT,
+      'Journal/a.md': 'hidden',
+      'ARCHIVE/Journal/b.md': 'hidden'
+    })
+    const client = await connect({ deny: ['Journal'] })
+    const notes = JSON.parse((await call(client, 'list_notes', {})).text) as { path: string }[]
+    expect(notes.map((note) => note.path)).toEqual([])
+  })
+})

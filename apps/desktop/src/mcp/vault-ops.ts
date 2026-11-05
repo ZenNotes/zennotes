@@ -1794,6 +1794,13 @@ function cutToBytes(text: string, limit: number): string {
   return out
 }
 
+/** A note's copy: a title at the limit gives way to the word, so a copy of a
+ *  copy stays a name every other tool can write. */
+export function copyTitle(title: string): string {
+  const word = ' copy'
+  return `${cutToBytes(title, MAX_TITLE_BYTES - word.length).trimEnd()}${word}`
+}
+
 export function sanitizeTitle(raw: string): string {
   // Filenames must be safe on all 3 OSes. Strip path separators, null,
   // and common reserved characters.
@@ -1937,8 +1944,8 @@ export async function duplicateNote(root: string, rel: string): Promise<NoteMeta
   const dir = path.dirname(abs)
   const ext = path.extname(abs)
   const baseTitle = path.basename(abs, ext)
-  const copyTitle = await uniqueTitle(dir, `${baseTitle} copy`)
-  const destAbs = path.join(dir, `${copyTitle}${ext}`)
+  const finalTitle = await uniqueTitle(dir, copyTitle(baseTitle))
+  const destAbs = path.join(dir, `${finalTitle}${ext}`)
   const body = await fs.readFile(abs, 'utf8')
   await removeNoteCreation(root, toPosix(path.relative(root, destAbs)))
   await fs.writeFile(destAbs, body, { encoding: 'utf8', flag: 'wx' })

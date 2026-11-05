@@ -50,7 +50,8 @@ import {
   RawToolResult,
   requireFolder,
   requireString,
-  type ToolDef
+  type ToolDef,
+  wellFormedArguments
 } from './tool-support.js'
 
 /* ---------- Comment authorship ---------------------------------------- */
@@ -1275,7 +1276,7 @@ export async function runMcpServer(options: McpServerOptions = {}): Promise<void
       target = resolved.target
       backend = scopeBackend(resolved.backend, scope)
       if (resolved.failure !== undefined) throw resolved.failure
-      const toolArgs = (args ?? {}) as Record<string, unknown>
+      const toolArgs = wellFormedArguments((args ?? {}) as Record<string, unknown>)
       const seen = backend
       // An edit to a note is recorded so the user can review it in the app.
       const result = await runRecordingAgentEdit(name, toolArgs, seen, defaultCommentAuthor(), () =>

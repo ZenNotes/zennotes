@@ -31,6 +31,26 @@ export class RawToolResult {
   constructor(readonly content: ToolContent[]) {}
 }
 
+/**
+ * Arguments as they will be stored. JSON can carry half a surrogate pair, which a
+ * file name turns into U+FFFD on the way to disk, while `encodeURIComponent` refuses
+ * it outright: the note was written and the answer, which links to it, was
+ * `URI malformed`. A client that retried then made a second note.
+ */
+export function wellFormedArguments<T>(value: T): T {
+  if (typeof value === 'string') return value.replace(/\p{Cs}/gu, '\ufffd') as T
+  if (Array.isArray(value)) return value.map(wellFormedArguments) as T
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [
+        wellFormedArguments(key),
+        wellFormedArguments(item)
+      ])
+    ) as T
+  }
+  return value
+}
+
 export function requireString(args: Record<string, unknown>, key: string): string {
   const value = args[key]
   if (typeof value !== 'string' || !value.trim()) {
