@@ -21,6 +21,7 @@ const bridgeMocks = vi.hoisted(() => ({
   resolveCloudConflict: vi.fn(),
   syncCloudVault: vi.fn(),
   logoutCloudAccount: vi.fn(async () => ({ state: "disconnected" })),
+  getCloudAccountStatus: vi.fn(async () => ({ state: "connecting" })),
 }));
 
 vi.mock("@zennotes/bridge-contract/bridge", () => ({
@@ -128,6 +129,29 @@ describe("cloud sync status time", () => {
     expect(
       host.querySelector<HTMLButtonElement>("[data-cloud-sync-action]")?.textContent,
     ).toBe("Connect");
+
+    act(() => root.unmount());
+    host.remove();
+  });
+
+  it("does not sign out an account that connected while Cancel was on its way", async () => {
+    useCloudSyncStatusStore.setState({
+      phase: "connecting",
+      vaultName: null,
+      lastSyncedAt: null,
+      error: null,
+    });
+    bridgeMocks.logoutCloudAccount.mockClear();
+    bridgeMocks.getCloudAccountStatus.mockResolvedValueOnce({ state: "connected" });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+
+    act(() => root.render(createElement(StatusBar, { note: null })));
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>("[data-cloud-sync-action]")?.click(),
+    );
+    expect(bridgeMocks.logoutCloudAccount).not.toHaveBeenCalled();
 
     act(() => root.unmount());
     host.remove();
