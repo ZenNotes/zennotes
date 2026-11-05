@@ -93,7 +93,7 @@ const ASSETS_DIR = 'assets'
 const NO_COPY_NAME = 'This assistant cannot give the note that name.'
 
 const RECORD_PAGE_STAYS_PUT =
-  "This assistant cannot rename, move, copy, archive or trash a database's record page."
+  "This assistant cannot rename, move, copy, archive, trash or delete a database's record page."
 
 /** How many taken names the check of a new note's path goes through. */
 const MAX_LANDING_STEPS = 10000
@@ -546,7 +546,14 @@ export class ScopedBackend implements VaultBackend {
     if (!linkedFolders) throw new Error(UNMARKED_LINKS)
     const listed = await this.inner.listNotes()
     const notes = restricted ? listed.filter((note) => !note.symlink) : listed
-    const folders = await this.inner.listFolders()
+    // A server lists a database folder as a folder, for its renderer. To a client with
+    // a path scope it is not one: it could delete the database, or rename it into a
+    // plain folder, with no sight of what else uses it. As on a local vault, a path
+    // can still name it. Mirrors build in ZenNotes/tui.
+    const allFolders = await this.inner.listFolders()
+    const folders = restricted
+      ? allFolders.filter((entry) => !formDirContaining(entry.subpath))
+      : allFolders
     const v = new ScopeView(
       layout.systemFolderPaths,
       layout.primaryNotesLocation === 'root',
@@ -571,9 +578,11 @@ export class ScopedBackend implements VaultBackend {
     known.push(...v.dirs)
     // A database folder is there to name, where a folder listing leaves it out, even
     // with no record page yet. It stays out of v.dirs: it takes no notes and no moves.
-    for (const entry of (await this.inner.listDatabaseDirs?.()) ?? []) {
-      known.push(v.folderRel(entry))
-    }
+    const databaseDirs = [
+      ...allFolders.filter((entry) => !folders.includes(entry)),
+      ...((await this.inner.listDatabaseDirs?.()) ?? [])
+    ]
+    for (const entry of databaseDirs) known.push(v.folderRel(entry))
 
     // An entry can name an attachment folder or an asset, which the listings
     // above do not show, so those are read only for an entry they did not find.
@@ -1043,8 +1052,11 @@ export class ScopedBackend implements VaultBackend {
     return copy
   }
 
-  deleteNote = async (rel: string): Promise<void> =>
-    await this.inner.deleteNote((await this.noteFor(rel, 'write')).path)
+  deleteNote = async (rel: string): Promise<void> => {
+    const meta = await this.noteFor(rel, 'write')
+    this.keepRecordPage(meta)
+    await this.inner.deleteNote(meta.path)
+  }
 
   emptyTrash = async (): Promise<void> => {
     this.need('write')

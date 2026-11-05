@@ -5,7 +5,8 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { newMcpScope, type McpScopeFlags } from '@shared/mcp-scope'
-import { spell } from './scoped-backend'
+import type { VaultBackend } from '../cli/backend'
+import { ScopedBackend, spell } from './scoped-backend'
 import { runMcpServer } from './server'
 
 // A database's record pages are notes to an assistant on this machine, as they are
@@ -121,11 +122,14 @@ describe('a record page and a path scope', () => {
 describe('what holds around a record page', () => {
   it('keeps the folder whole and the database closed', async () => {
     const client = await connect({ deny: [RECORD_PAGE] })
-    expect((await call(client, 'delete_folder', { folder: 'inbox', subpath: 'memory' })).isError).toBe(true)
-    expect(
-      (await call(client, 'rename_folder', { folder: 'inbox', subpath: 'memory', newSubpath: 'moved' }))
-        .isError
-    ).toBe(true)
+    const deleted = await call(client, 'delete_folder', { folder: 'inbox', subpath: 'memory', confirm: true })
+    expect(deleted.text).toContain('cannot delete that folder')
+    const renamed = await call(client, 'rename_folder', {
+      folder: 'inbox',
+      oldSubpath: 'memory',
+      newSubpath: 'moved'
+    })
+    expect(renamed.text).toContain('cannot rename that folder')
     expect((await call(client, 'read_asset', { path: 'memory/Books.base/data.csv' })).isError).toBe(true)
     expect(
       (await call(client, 'create_note', { folder: 'inbox', subpath: 'memory/Books.base', title: 'Nope' }))
@@ -137,8 +141,12 @@ describe('what holds around a record page', () => {
 
   it('does not let a client that sees a database delete it as a folder', async () => {
     const client = await connect({ allow: ['memory/Books.base'] })
-    const deleted = await call(client, 'delete_folder', { folder: 'inbox', subpath: 'memory/Books.base' })
-    expect(deleted.isError).toBe(true)
+    const deleted = await call(client, 'delete_folder', {
+      folder: 'inbox',
+      subpath: 'memory/Books.base',
+      confirm: true
+    })
+    expect(deleted.text).toContain('Folder not found')
     expect(await exists(RECORD_PAGE)).toBe(true)
   })
 
@@ -159,7 +167,8 @@ describe('a record page stays where it is under a path scope', () => {
     ['move_note', { path: RECORD_PAGE, targetFolder: 'inbox', targetSubpath: 'memory' }],
     ['archive_note', { path: RECORD_PAGE }],
     ['move_to_trash', { path: RECORD_PAGE }],
-    ['duplicate_note', { path: RECORD_PAGE }]
+    ['duplicate_note', { path: RECORD_PAGE }],
+    ['delete_note', { path: RECORD_PAGE, confirm: true }]
   ]
 
   describe.each(scopes)('with %s', (_name, flags) => {
@@ -204,12 +213,104 @@ describe('a record page stays where it is under a path scope', () => {
     const copied = await call(client, 'duplicate_note', { path: RECORD_PAGE })
     expect(copied.isError, copied.text).toBe(false)
     expect(await exists('memory/Books.base/Alpha copy.md')).toBe(true)
+    const deleted = await call(client, 'delete_note', { path: RECORD_PAGE, confirm: true })
+    expect(deleted.isError, deleted.text).toBe(false)
+    expect(await exists(RECORD_PAGE)).toBe(false)
   })
 
   it('stays an ordinary note to a scope that only limits access', async () => {
     const client = await connect({ access: 'write' })
     const copied = await call(client, 'duplicate_note', { path: RECORD_PAGE })
     expect(copied.isError, copied.text).toBe(false)
+  })
+})
+
+describe('a database is not a folder to a client with a path scope', () => {
+  const scopes: [string, McpScopeFlags][] = [
+    ['allow its folder', { allow: ['memory'] }],
+    ['allow it', { allow: ['memory/Books.base'] }],
+    ['deny another note', { deny: ['memory/note.md'] }],
+    ['deny another database', { deny: ['memory/Empty.base'] }]
+  ]
+  const tools: [string, Record<string, unknown>][] = [
+    ['delete_folder', { folder: 'inbox', subpath: 'memory/Books.base', confirm: true }],
+    ['rename_folder', { folder: 'inbox', oldSubpath: 'memory/Books.base', newSubpath: 'Plain' }],
+    ['rename_folder', { folder: 'inbox', oldSubpath: 'memory/Books.base', newSubpath: 'memory/Moved.base' }]
+  ]
+
+  describe.each(scopes)('on a local vault, with %s', (_name, flags) => {
+    it('lists none, and neither renames nor deletes one', async () => {
+      const client = await connect(flags)
+      expect((await call(client, 'list_folders')).text).not.toContain('.base')
+      for (const [tool, args] of tools) {
+        const answer = await call(client, tool, args)
+        expect(answer.isError, `${tool}: ${answer.text}`).toBe(true)
+        expect(answer.text).toContain('Folder not found')
+      }
+      expect(await exists(RECORD_PAGE)).toBe(true)
+      expect(await exists('memory/Books.base/data.csv')).toBe(true)
+      expect(await exists('Plain')).toBe(false)
+      expect(await exists('memory/Moved.base')).toBe(false)
+    })
+  })
+
+  // A server's listing does show them, so this is where the filter does the work.
+  function serverVault(): {
+    backend: VaultBackend
+    renameFolder: ReturnType<typeof vi.fn>
+    deleteFolder: ReturnType<typeof vi.fn>
+  } {
+    const renameFolder = vi.fn(async () => 'moved')
+    const deleteFolder = vi.fn(async () => {})
+    const backend = {
+      kind: 'remote',
+      root: '',
+      label: 'server',
+      vaultLayout: async () => ({ primaryNotesLocation: 'root', systemFolderPaths: {} }),
+      marksLinks: async () => true,
+      linkedSystemFolders: async () => [],
+      listNotes: async () => [
+        { path: RECORD_PAGE, title: 'Alpha', folder: 'inbox' },
+        { path: 'memory/note.md', title: 'note', folder: 'inbox' }
+      ],
+      listFolders: async () => [
+        { folder: 'inbox', subpath: 'memory' },
+        { folder: 'inbox', subpath: 'memory/Books.base' },
+        { folder: 'inbox', subpath: 'memory/Empty.base' }
+      ],
+      listAssets: async () => [],
+      renameFolder,
+      deleteFolder
+    } as unknown as VaultBackend
+    return { backend, renameFolder, deleteFolder }
+  }
+
+  describe.each(scopes)('on a server, with %s', (_name, flags) => {
+    it('lists none, and neither renames nor deletes one', async () => {
+      const { backend, renameFolder, deleteFolder } = serverVault()
+      const scoped = new ScopedBackend(backend, newMcpScope(flags))
+      expect(JSON.stringify(await scoped.listFolders())).not.toContain('.base')
+      await expect(scoped.deleteFolder('inbox', 'memory/Books.base')).rejects.toThrow('Folder not found')
+      await expect(scoped.renameFolder('inbox', 'memory/Books.base', 'Plain')).rejects.toThrow(
+        'Folder not found'
+      )
+      expect(deleteFolder).not.toHaveBeenCalled()
+      expect(renameFolder).not.toHaveBeenCalled()
+    })
+  })
+
+  it('leaves a server listing whole for a scope that only limits access', async () => {
+    const { backend, deleteFolder } = serverVault()
+    const scoped = new ScopedBackend(backend, newMcpScope({ access: 'write' }))
+    expect(JSON.stringify(await scoped.listFolders())).toContain('Books.base')
+    await scoped.deleteFolder('inbox', 'memory/Books.base')
+    expect(deleteFolder).toHaveBeenCalledOnce()
+  })
+
+  it('can still name a server database in a deny entry', async () => {
+    const { backend } = serverVault()
+    const scoped = new ScopedBackend(backend, newMcpScope({ deny: ['memory/Empty.base'] }))
+    expect((await scoped.listNotes()).map((note) => note.path)).toContain(RECORD_PAGE)
   })
 })
 
