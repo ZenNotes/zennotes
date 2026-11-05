@@ -148,7 +148,7 @@ export function NoteHoverPreview({
   return createPortal(
     <div
       className={[
-        'note-hover-preview fixed z-[85] overflow-hidden rounded-2xl bg-paper-100/98 shadow-float ring-1 ring-paper-300/80 backdrop-blur-md',
+        'note-hover-preview fixed z-[85] overflow-hidden rounded-2xl bg-paper-100 shadow-float ring-1 ring-paper-300/80',
         interactive ? 'pointer-events-auto' : 'pointer-events-none'
       ].join(' ')}
       style={{ left: position.left, top: position.top, width: position.width }}
