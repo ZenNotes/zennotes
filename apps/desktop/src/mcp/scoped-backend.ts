@@ -41,6 +41,7 @@ import {
   type SystemFolderPaths
 } from '@shared/system-folder-paths'
 import type { DatabaseOps } from '@shared/database-ops'
+import { formDirContaining } from '@shared/databases'
 import type { VaultAssetMeta, VaultBackend, VaultDescription, VaultLayout } from '../cli/backend.js'
 import { RemoteRequestError } from '../main/remote/connection.js'
 import {
@@ -90,6 +91,9 @@ const REMOTE_ASSET_BYTES =
 const ASSETS_DIR = 'assets'
 
 const NO_COPY_NAME = 'This assistant cannot give the note that name.'
+
+const RECORD_PAGE_STAYS_PUT =
+  "This assistant cannot rename, move, copy, archive or trash a database's record page."
 
 /** How many taken names the check of a new note's path goes through. */
 const MAX_LANDING_STEPS = 10000
@@ -376,18 +380,8 @@ class ScopeView {
   note(raw: string): NoteMeta | null {
     const clean = cleanRequest(raw)
     if (!clean) return null
-    let meta = this.byPath.get(clean) ?? null
-    if (!meta) {
-      const folded = foldMcpScopePath(clean)
-      let count = 0
-      for (const [p, m] of this.byPath) {
-        if (foldMcpScopePath(p) === folded) {
-          meta = m
-          count += 1
-        }
-      }
-      if (count !== 1) return null
-    }
+    const spelled = this.byPath.has(clean) ? clean : spell(clean, [...this.byPath.keys()])
+    const meta = spelled == null ? null : (this.byPath.get(spelled) ?? null)
     return meta && this.visible(meta.path) ? meta : null
   }
 
@@ -453,6 +447,8 @@ class ScopeView {
       }
       candidate = `${title} ${n}`
     }
+    // No name was checked, so none can be vouched for.
+    throw this.createRefusal()
   }
 
   /** Whether a system folder is one of those, however it is spelled. */
@@ -658,6 +654,15 @@ export class ScopedBackend implements VaultBackend {
 
   private need(access: McpAccess): void {
     if (!mcpAccessAtLeast(this.scope.access, access)) throw new Error(mcpAccessRefusal(this.scope))
+  }
+
+  /** A client with a path scope may not see the database a page belongs to, whose
+   *  schema names its pages and whose row titles follow them, so it reads and edits a
+   *  page and leaves it where it is. Mirrors keepsRecordPage in ZenNotes/tui. */
+  private keepRecordPage(meta: NoteMeta): void {
+    if (isMcpScopeRestricted(this.scope) && formDirContaining(meta.path)) {
+      throw new Error(RECORD_PAGE_STAYS_PUT)
+    }
   }
 
   /** Loads the view and resolves a note: the first step of every per-note
@@ -930,6 +935,7 @@ export class ScopedBackend implements VaultBackend {
    */
   renameNote = async (rel: string, nextTitle: string): Promise<NoteMeta> => {
     const meta = await this.noteFor(rel, 'write')
+    this.keepRecordPage(meta)
     const v = await this.load()
     const next = path.posix.join(path.posix.dirname(meta.path), `${sanitizeTitle(nextTitle)}.md`)
     if (!v.visible(next)) throw new Error('This assistant cannot give the note that name.')
@@ -941,6 +947,7 @@ export class ScopedBackend implements VaultBackend {
 
   moveNote = async (rel: string, folder: NoteFolder, subpath: string): Promise<NoteMeta> => {
     const meta = await this.noteFor(rel, 'write')
+    this.keepRecordPage(meta)
     const v = await this.load()
     const destination = await v.destination(folder, subpath)
     const dir = joinRel(v.bucketDir(folder), destination)
@@ -983,12 +990,14 @@ export class ScopedBackend implements VaultBackend {
 
   archiveNote = async (rel: string): Promise<NoteMeta> => {
     const meta = await this.noteFor(rel, 'write')
+    this.keepRecordPage(meta)
     await this.refuseLinkedExit(meta, 'archive')
     return await this.answerRefusal(() => this.inner.archiveNote(meta.path))
   }
 
   moveToTrash = async (rel: string): Promise<NoteMeta> => {
     const meta = await this.noteFor(rel, 'write')
+    this.keepRecordPage(meta)
     await this.refuseLinkedExit(meta, 'trash')
     return await this.answerRefusal(() => this.inner.moveToTrash(meta.path))
   }
@@ -1019,6 +1028,7 @@ export class ScopedBackend implements VaultBackend {
   /** An allow entry can name one note, and its copy would land outside it. */
   duplicateNote = async (rel: string): Promise<NoteMeta> => {
     const meta = await this.noteFor(rel, 'write')
+    this.keepRecordPage(meta)
     const v = await this.load()
     const ext = path.posix.extname(meta.path)
     const dir = path.posix.dirname(meta.path)

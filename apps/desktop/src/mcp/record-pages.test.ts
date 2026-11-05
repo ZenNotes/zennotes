@@ -148,6 +148,71 @@ describe('what holds around a record page', () => {
   })
 })
 
+describe('a record page stays where it is under a path scope', () => {
+  const SCHEMA = '{"pages":{"row-1":"Alpha.md"}}'
+  const scopes: [string, McpScopeFlags][] = [
+    ['allow', { allow: ['memory', 'archive', 'trash', 'elsewhere'] }],
+    ['deny', { deny: ['memory/note.md'] }]
+  ]
+  const tools: [string, Record<string, unknown>][] = [
+    ['rename_note', { path: RECORD_PAGE, newTitle: 'Beta' }],
+    ['move_note', { path: RECORD_PAGE, targetFolder: 'inbox', targetSubpath: 'memory' }],
+    ['archive_note', { path: RECORD_PAGE }],
+    ['move_to_trash', { path: RECORD_PAGE }],
+    ['duplicate_note', { path: RECORD_PAGE }]
+  ]
+
+  describe.each(scopes)('with %s', (_name, flags) => {
+    it.each(tools)('%s refuses', async (tool, args) => {
+      await fsp.mkdir(path.join(root, 'elsewhere'), { recursive: true })
+      await fsp.mkdir(path.join(root, 'archive'), { recursive: true })
+      await fsp.mkdir(path.join(root, 'trash'), { recursive: true })
+      await fsp.writeFile(path.join(root, 'elsewhere', 'x.md'), 'x')
+      await fsp.writeFile(path.join(root, 'memory/Books.base/schema.json'), SCHEMA)
+      const client = await connect(flags)
+      const answer = await call(client, tool, args)
+      expect(answer.isError, answer.text).toBe(true)
+      expect(answer.text).toContain('record page')
+      expect(await exists(RECORD_PAGE)).toBe(true)
+      expect(await exists('memory/Books.base/Alpha copy.md')).toBe(false)
+      expect(await exists('memory/Books.base/Beta.md')).toBe(false)
+      expect(await exists('memory/Alpha.md')).toBe(false)
+      expect(await fsp.readFile(path.join(root, 'memory/Books.base/schema.json'), 'utf8')).toBe(SCHEMA)
+      const written = await call(client, 'write_note', { path: RECORD_PAGE, body: 'edited\n' })
+      expect(written.isError, written.text).toBe(false)
+    })
+  })
+
+  it('answers a hidden page as a missing one, before what it is', async () => {
+    const client = await connect({ deny: [RECORD_PAGE] })
+    const answer = await call(client, 'duplicate_note', { path: RECORD_PAGE })
+    expect(answer.text).toContain('Note not found')
+  })
+
+  it('refuses to bring an archived page back through a scope', async () => {
+    const archived = 'archive/memory/Books.base/Beta.md'
+    await fsp.mkdir(path.join(root, 'archive/memory/Books.base'), { recursive: true })
+    await fsp.writeFile(path.join(root, archived), '# Beta\n')
+    const client = await connect({ deny: ['memory/note.md'] })
+    const answer = await call(client, 'unarchive_note', { path: archived })
+    expect(answer.isError, answer.text).toBe(true)
+    expect(await exists(archived)).toBe(true)
+  })
+
+  it('stays an ordinary note at full access', async () => {
+    const client = await connect()
+    const copied = await call(client, 'duplicate_note', { path: RECORD_PAGE })
+    expect(copied.isError, copied.text).toBe(false)
+    expect(await exists('memory/Books.base/Alpha copy.md')).toBe(true)
+  })
+
+  it('stays an ordinary note to a scope that only limits access', async () => {
+    const client = await connect({ access: 'write' })
+    const copied = await call(client, 'duplicate_note', { path: RECORD_PAGE })
+    expect(copied.isError, copied.text).toBe(false)
+  })
+})
+
 describe('spell', () => {
   const nfc = 'Caf\u00e9'
   const nfd = 'Cafe\u0301'

@@ -493,6 +493,41 @@ describe('what the review of the scope changes found', () => {
     expect(await exists(`${'x'.repeat(195)} copy.md`)).toBe(false)
   })
 
+  it('refuses a create when it runs out of names to check against a deny entry', async () => {
+    await seed({
+      '.zennotes/vault.json': ROOT_LAYOUT,
+      'Pub/secret.md': 'hidden',
+      'archive/Pub/draft.md': 'x'
+    })
+    const client = await connect({ deny: ['Pub/secret.md'] })
+    const lstat = fsp.lstat.bind(fsp)
+    vi.spyOn(fsp, 'lstat').mockImplementation((async (p: string, options: never) => {
+      if (String(p).includes(`${path.sep}draft`)) {
+        return { isSymbolicLink: () => false, isDirectory: () => false }
+      }
+      return await lstat(p, options)
+    }) as never)
+    const created = await call(client, 'create_note', {
+      folder: 'archive',
+      title: 'draft',
+      subpath: 'Pub'
+    })
+    expect(created.isError, created.text).toBe(true)
+    expect(created.text).toContain('cannot put notes there')
+  }, 30000)
+
+  it('reads a note by another Unicode form beside a folder one accent away', async () => {
+    await seed({
+      '.zennotes/vault.json': ROOT_LAYOUT,
+      'Cafe/x.md': 'plain',
+      'Caf\u00e9/x.md': 'accent'
+    })
+    const client = await connect({ allow: ['Caf\u00e9'] })
+    const read = await call(client, 'read_note', { path: 'Cafe\u0301/x.md' })
+    expect(read.isError, read.text).toBe(false)
+    expect(read.text).toContain('accent')
+  })
+
   it('finds the accented folder for an allow entry in another Unicode form', async () => {
     const nfc = 'Café'
     const nfd = 'Café'
