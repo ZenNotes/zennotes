@@ -96,7 +96,8 @@ export class VaultWatcher {
     onEvent: (ev: VaultChangeEvent) => void
     timer: ReturnType<typeof setInterval>
     fingerprint: string | null
-    running: boolean
+    running: Promise<void> | null
+    again: boolean
     lastRanAt: number
   } | null = null
 
@@ -292,9 +293,13 @@ export class VaultWatcher {
   }
 
   private startRescanning(root: string, onEvent: (ev: VaultChangeEvent) => void): void {
-    const timer = setInterval(() => void this.rescanNow(true), NETWORK_RESCAN_INTERVAL_MS)
+    // The timer skips a turn rather than queue one: a read slower than the
+    // interval on a slow share would otherwise never stop reading.
+    const timer = setInterval(() => {
+      if (!this.rescan?.running) void this.rescanNow(true)
+    }, NETWORK_RESCAN_INTERVAL_MS)
     timer.unref?.()
-    this.rescan = { root, onEvent, timer, fingerprint: null, running: false, lastRanAt: 0 }
+    this.rescan = { root, onEvent, timer, fingerprint: null, running: null, again: false, lastRanAt: 0 }
     // Nothing reported what changed between opening the vault and now.
     onEvent(RESYNC_EVENT)
     void this.rescanNow(true)
@@ -306,23 +311,35 @@ export class VaultWatcher {
    *  that native events cover. */
   async rescanNow(force = false): Promise<void> {
     const rescan = this.rescan
-    if (!rescan || rescan.running) return
+    if (!rescan) return
+    if (rescan.running) {
+      // The read under way may already have passed what this caller is asking
+      // about, so a forced request reads once more after it.
+      if (force) rescan.again = true
+      return rescan.running
+    }
     const now = Date.now()
     if (!force && now - rescan.lastRanAt < NETWORK_RESCAN_FOCUS_GAP_MS) return
-    rescan.running = true
     rescan.lastRanAt = now
-    try {
+    rescan.running = this.readRescan(rescan).finally(() => {
+      rescan.running = null
+    })
+    return rescan.running
+  }
+
+  private async readRescan(rescan: NonNullable<VaultWatcher['rescan']>): Promise<void> {
+    do {
+      rescan.again = false
       const next = await vaultFingerprint(
         rescan.root,
         (name) => name === 'node_modules' || isAtomicWriteTempPath(name)
       )
-      if (this.rescan !== rescan || next === null) return
+      if (this.rescan !== rescan) return
+      if (next === null) continue
       const before = rescan.fingerprint
       rescan.fingerprint = next
       if (before !== null && before !== next) rescan.onEvent(RESYNC_EVENT)
-    } finally {
-      rescan.running = false
-    }
+    } while (rescan.again)
   }
 
   async stop(): Promise<void> {

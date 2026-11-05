@@ -291,6 +291,15 @@ describe('VaultWatcher large vaults', () => {
       expect(resyncs()).toBe(2)
     })
 
+    it('reads again for a request that arrives during a read', async () => {
+      const { root, watcher, resyncs } = await refused()
+      const first = watcher.rescanNow(true)
+      await writeFile(path.join(root, 'During.md'), '# During\n')
+      await watcher.rescanNow(true)
+      await first
+      expect(resyncs()).toBe(2)
+    })
+
     it('spaces out focus requests and stops with the vault', async () => {
       const { root, watcher, resyncs } = await refused()
       await writeFile(path.join(root, 'Soon.md'), '# Soon\n')
