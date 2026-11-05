@@ -17,6 +17,7 @@ import { promptApp } from '../lib/prompt-requests'
 import { focusEditorNormalMode } from '../lib/editor-focus'
 import { usePanelResize } from '../lib/use-panel-resize'
 import { PanelResizeHandle } from './PanelResizeHandle'
+import { excerptBesideTitle } from '../lib/note-excerpt'
 
 interface MentionItem {
   note: NoteMeta
@@ -315,7 +316,7 @@ export function ConnectionsPanel({
               <ConnectionRow
                 key={item.path}
                 note={item}
-                summary={item.excerpt || 'No excerpt available yet.'}
+                summary={excerptBesideTitle(item.title, item.excerpt) || 'No excerpt available yet.'}
                 onOpen={() => openConnection(item.path)}
                 onHover={(rect) => {
                   cancelScheduledClose()
@@ -369,7 +370,7 @@ export function ConnectionsPanel({
                   // rather than replacing it, since a note can link the page
                   // plainly and point at a block in the same breath. (#601)
                   [
-                    item.excerpt,
+                    excerptBesideTitle(item.title, item.excerpt),
                     blocks.length
                       ? `Points at ${blocks.map((id) => `^${id}`).join(', ')}`
                       : ''

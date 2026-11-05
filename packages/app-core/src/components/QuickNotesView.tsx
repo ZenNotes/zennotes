@@ -12,6 +12,7 @@ import {
 } from '../lib/list-view-keys'
 import { getSystemFolderLabel } from '../lib/system-folder-labels'
 import { isAppOverlayOpen } from '../lib/overlay-open'
+import { excerptBesideTitle } from '../lib/note-excerpt'
 
 // Every action this view answers, so a chord bound to one reaches it.
 const QUICK_NOTES_VIEW_ACTIONS: readonly KeymapId[] = [
@@ -285,7 +286,7 @@ export function QuickNotesView(): JSX.Element {
                       </div>
                       <div className="mt-0.5 truncate text-xs text-ink-500">{note.path}</div>
                       <div className="mt-1 line-clamp-1 text-sm leading-5 text-ink-600">
-                        {note.excerpt || 'Empty note'}
+                        {excerptBesideTitle(note.title, note.excerpt) || 'Empty note'}
                       </div>
                     </div>
                     <div className="zn-hover-reveal flex shrink-0 items-center gap-1.5 self-center opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">

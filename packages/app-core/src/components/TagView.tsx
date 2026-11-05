@@ -27,6 +27,7 @@ import { noteAreaLabel } from '../lib/system-folder-labels'
 import { isPrimaryNotesAtRoot, noteFolderSubpath } from '../lib/vault-layout'
 import { isImeComposing } from '../lib/ime'
 import { isAppOverlayOpen } from '../lib/overlay-open'
+import { excerptBesideTitle } from '../lib/note-excerpt'
 
 // Every action this view answers, so a chord bound to one reaches it.
 const TAG_VIEW_ACTIONS: readonly KeymapId[] = [
@@ -744,9 +745,9 @@ export function TagView(): JSX.Element {
                   )}
                   {/* The tagged blocks listed below say more than the opening
                       of the note, so the excerpt only shows without them. */}
-                  {note.excerpt && row.blockCount === 0 && (
+                  {excerptBesideTitle(note.title, note.excerpt) && row.blockCount === 0 && (
                     <div className="mt-0.5 truncate text-xs text-current/40">
-                      {note.excerpt}
+                      {excerptBesideTitle(note.title, note.excerpt)}
                     </div>
                   )}
                 </div>
