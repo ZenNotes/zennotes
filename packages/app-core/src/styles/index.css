@@ -49,13 +49,10 @@
   /* Under a status bar the page draws beneath (a tablet's, where the title row stays;
    * a phone shell sets its own padding here). 0 on desktop. */
   padding-top: env(safe-area-inset-top, 0px);
-}
-
-/* Keep the sidebar footer's controls above the iOS home indicator once
- * viewport-fit=cover lets content extend into the safe area. 0 on desktop. */
-.zn-sidebar-footer-safe {
+  /* Above the home indicator or gesture pill, for the sidebar footer and the editor
+   * alike. The footer takes no inset of its own, or it would clear the pill twice.
+   * A phone shell's `padding` replaces both edges. 0 on desktop. */
   padding-bottom: env(safe-area-inset-bottom, 0px);
-  box-sizing: content-box;
 }
 
 /* The conflicted-note banner keeps desktop density under a mouse. On a touch

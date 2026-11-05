@@ -3971,7 +3971,7 @@ export function Sidebar(): JSX.Element {
        *  (#539): first the count folds into the Files tooltip, then the
        *  labels drop and the icons stand alone. */}
       <div
-        className="zn-sidebar-footer-safe mt-2 grid h-16 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 px-3"
+        className="mt-2 grid h-16 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 px-3"
         style={{ borderTop: "1px solid var(--glass-stroke)" }}
       >
         {hasAssetsDir && canRevealInFileManager && (

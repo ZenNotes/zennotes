@@ -68,7 +68,7 @@ import {
 } from './database-view-commands'
 import { viewHasPicks } from './database-cells'
 import { canRenameVault, renameVaultWithPrompt } from './rename-vault'
-import { canOpenCurrentVaultFolder, openVaultFolder } from './vault-folder'
+import { canOpenCurrentVaultFolder, canOpenVaultFolders, openVaultFolder } from './vault-folder'
 import { promptImageWidth } from './image-resize'
 import { copyLinkAtCursor } from './link-copy'
 import { getKeymapDisplay, getLeaderChordDisplay, type KeymapId } from './keymaps'
@@ -129,6 +129,14 @@ export interface Command {
   shortcut?: string
   /** When false, the command is filtered out of the palette. */
   when?: () => boolean
+  /**
+   * Whether this host has the command at all, whatever is open: false for the
+   * tray on a phone, true for Fold Heading with no note. `buildCommands` folds
+   * it into `when`, so the palette, keys and ex line obey it; Help reads it on
+   * its own, so its reference lists what a host has without dropping what
+   * merely needs a note open.
+   */
+  host?: () => boolean
   /** Runs when the user picks this entry. Async is fine. */
   run: () => void | Promise<void>
   /**
@@ -198,6 +206,14 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
   const openExternal = (url: string): void => {
     window.open(url, '_blank')
   }
+  // The two host lines most `host` guards draw: the desktop app itself, and
+  // anything that is not a phone or tablet shell (the web client keeps what
+  // its browser can do).
+  const onDesktop = (): boolean => window.zen.getAppInfo().runtime === 'desktop'
+  const offPhone = (): boolean => {
+    const kind = window.zen.getAppInfo().hostKind
+    return kind !== 'ios' && kind !== 'android'
+  }
   const isActiveNoteFavorite = (): boolean => {
     const state = getState()
     return !!state.activeNote && state.vaultSettings.favorites.includes(state.activeNote.path)
@@ -237,7 +253,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: 'Import Notes…',
       category: 'Vault',
       keywords: 'import migrate bring notes notion obsidian move from',
-      when: () => window.zen.getCapabilities().supportsImport === true,
+      host: () => window.zen.getCapabilities().supportsImport === true,
       run: () => getState().setImportDialog('choose')
     },
     {
@@ -245,7 +261,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: 'Import from Notion…',
       category: 'Vault',
       keywords: 'notion import migrate workspace pages databases',
-      when: () => window.zen.getCapabilities().supportsImport === true,
+      host: () => window.zen.getCapabilities().supportsImport === true,
       run: () => getState().setImportDialog('notion')
     },
     {
@@ -253,7 +269,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: 'Import from Obsidian…',
       category: 'Vault',
       keywords: 'obsidian import migrate vault folder copy',
-      when: () => window.zen.getCapabilities().supportsImport === true,
+      host: () => window.zen.getCapabilities().supportsImport === true,
       run: () => getState().setImportDialog('obsidian')
     },
     {
@@ -520,7 +536,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       category: 'Note',
       keywords: 'banner header image picture photo stock unsplash',
       shortcut: vimOnly(chord('vim.leaderPrefix', 'vim.leaderNoteActions', 'vim.leaderNoteCoverUnsplash')),
-      when: () => !!coverNotePath() && unsplashSearchAvailable(),
+      host: unsplashSearchAvailable,
+      when: () => !!coverNotePath(),
       run: () => {
         openUnsplashCoverPicker()
       }
@@ -532,7 +549,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: 'Set Unsplash Access Key…',
       category: 'Note',
       keywords: 'unsplash api key access cover banner photo settings',
-      when: () => unsplashKeySupported(),
+      host: () => unsplashKeySupported(),
       run: () => {
         openUnsplashKeySettings()
       }
@@ -691,10 +708,12 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       category: 'Note',
       shortcut: shortcut('global.exportNotePdf'),
       keywords: 'save print pdf export',
-      when: () =>
-        !!getState().activeNote &&
+      // A phone or tablet shell has no print pipeline to hand the page to.
+      host: () =>
+        offPhone() &&
         (window.zen.getCapabilities().supportsLocalFilesystemPickers ||
           window.zen.getAppInfo().runtime === 'web'),
+      when: () => !!getState().activeNote,
       run: async () => {
         await getState().exportActiveNotePdf()
       }
@@ -706,11 +725,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       keywords: 'save word docx doc export office editable',
       // Desktop-only: the serializer embeds local images from the main
       // process, which the web app has no access to.
-      when: () =>
-        !!getState().activeNote &&
-        getState().workspaceMode !== 'remote' &&
-        window.zen.getAppInfo().runtime === 'desktop' &&
-        typeof window.zen.exportNoteDocx === 'function',
+      host: () => onDesktop() && typeof window.zen.exportNoteDocx === 'function',
+      when: () => !!getState().activeNote && getState().workspaceMode !== 'remote',
       run: async () => {
         await getState().exportActiveNoteDocx()
       }
@@ -785,10 +801,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'note.reveal',
       title: 'Reveal Note in File Manager',
       category: 'Note',
-      when: () =>
-        !!getState().activeNote &&
-        getState().workspaceMode !== 'remote' &&
-        window.zen.getAppInfo().runtime === 'desktop',
+      host: onDesktop,
+      when: () => !!getState().activeNote && getState().workspaceMode !== 'remote',
       run: async () => {
         const p = getState().activeNote?.path
         if (p) await window.zen.revealNote(p)
@@ -799,6 +813,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: 'Open in Floating Window',
       category: 'Note',
       keywords: 'popout window detach',
+      // A phone or tablet shell has one window; the web client opens a tab.
+      host: offPhone,
       when: hasNote,
       run: async () => {
         const p = getState().activeNote?.path
@@ -1099,6 +1115,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       category: 'View',
       shortcut: shortcut('global.zoomIn'),
       keywords: 'bigger larger scale ui app browser',
+      // The app scales itself only on desktop; the web and phone bridges answer 1.
+      host: onDesktop,
       run: async () => {
         await window.zen.zoomInApp()
       }
@@ -1109,6 +1127,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       category: 'View',
       shortcut: shortcut('global.zoomOut'),
       keywords: 'smaller decrease scale ui app browser',
+      host: onDesktop,
       run: async () => {
         await window.zen.zoomOutApp()
       }
@@ -1119,6 +1138,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       category: 'View',
       shortcut: shortcut('global.zoomReset'),
       keywords: 'actual size normal reset scale ui app browser',
+      host: onDesktop,
       run: async () => {
         await window.zen.resetAppZoom()
       }
@@ -1128,6 +1148,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: 'Check for Updates…',
       category: 'App',
       keywords: 'update updates upgrade version release github',
+      // The phone stores own updates; the web client reloads.
+      host: offPhone,
       run: async () => {
         await window.zen.checkForAppUpdatesWithUi()
       }
@@ -1165,7 +1187,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: 'What’s New in ZenNotes',
       category: 'App',
       keywords: "whats what's new release notes changelog update announcement",
-      when: () => window.zen.getAppInfo().runtime === 'desktop',
+      host: onDesktop,
       run: () => void getState().openWhatsNew()
     },
     {
@@ -1174,8 +1196,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       category: 'App',
       keywords: 'tray menu bar background hide window close minimize keep running',
       shortcut: getState().vimMode ? leaderShortcut('vim.leaderHideToTray') : undefined,
-      when: () =>
-        window.zen.getAppInfo().runtime === 'desktop' && useTrayStore.getState().keepRunningInTray,
+      host: onDesktop,
+      when: () => useTrayStore.getState().keepRunningInTray,
       run: () => void hideWindowToTray()
     },
     {
@@ -1183,7 +1205,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: 'Quit ZenNotes',
       category: 'App',
       keywords: 'quit exit close app tray background stop',
-      when: () => window.zen.getAppInfo().runtime === 'desktop' && !!window.zen.quitApp,
+      host: () => onDesktop() && !!window.zen.quitApp,
       run: () => window.zen.quitApp?.()
     },
     {
@@ -2093,7 +2115,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
         : 'Enable Grammar and Spelling with Harper',
       category: 'Editor',
       keywords: 'harper grammar spelling spell check lint',
-      when: () => harperSupported(),
+      host: harperSupported,
       run: () => getState().setHarperEnabled(!getState().harperEnabled)
     },
     {
@@ -2102,7 +2124,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: 'Harper: Next Suggestion',
       category: 'Editor',
       keywords: 'harper grammar spelling',
-      when: () => harperSupported() && getState().harperEnabled && !!getState().editorViewRef,
+      host: harperSupported,
+      when: () => getState().harperEnabled && !!getState().editorViewRef,
       run: () => {
         const view = getState().editorViewRef
         if (view) harperNextSuggestion(view)
@@ -2114,7 +2137,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: 'Harper: Previous Suggestion',
       category: 'Editor',
       keywords: 'harper grammar spelling',
-      when: () => harperSupported() && getState().harperEnabled && !!getState().editorViewRef,
+      host: harperSupported,
+      when: () => getState().harperEnabled && !!getState().editorViewRef,
       run: () => {
         const view = getState().editorViewRef
         if (view) harperPreviousSuggestion(view)
@@ -2126,7 +2150,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: 'Harper: Show Suggestions at Cursor',
       category: 'Editor',
       keywords: 'harper grammar spelling fix',
-      when: () => harperSupported() && getState().harperEnabled && !!getState().editorViewRef,
+      host: harperSupported,
+      when: () => getState().harperEnabled && !!getState().editorViewRef,
       run: () => {
         const view = getState().editorViewRef
         if (view) harperOpenSuggestions(view)
@@ -2138,7 +2163,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: 'Harper: Apply First Suggestion',
       category: 'Editor',
       keywords: 'harper grammar spelling fix',
-      when: () => harperSupported() && getState().harperEnabled && !!getState().editorViewRef,
+      host: harperSupported,
+      when: () => getState().harperEnabled && !!getState().editorViewRef,
       run: () => {
         const view = getState().editorViewRef
         if (view) harperApplyFirstSuggestion(view)
@@ -2150,7 +2176,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: 'Harper: Add Word to Dictionary',
       category: 'Editor',
       keywords: 'harper spelling dictionary',
-      when: () => harperSupported() && getState().harperEnabled && !!getState().editorViewRef,
+      host: harperSupported,
+      when: () => getState().harperEnabled && !!getState().editorViewRef,
       run: () => {
         const view = getState().editorViewRef
         if (view) harperAddWordAtCursor(view, harperEditorConfig())
@@ -2162,7 +2189,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: 'Harper: Ignore Suggestion',
       category: 'Editor',
       keywords: 'harper grammar spelling',
-      when: () => harperSupported() && getState().harperEnabled && !!getState().editorViewRef,
+      host: harperSupported,
+      when: () => getState().harperEnabled && !!getState().editorViewRef,
       run: () => {
         const view = getState().editorViewRef
         if (view) harperIgnoreAtCursor(view, harperEditorConfig())
@@ -2193,7 +2221,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
         : 'Keep Undo History After Quitting',
       category: 'Editor',
       keywords: 'undofile undo redo history persistent restart quit vim',
-      when: () => !!window.zen?.getCapabilities?.().supportsUndoFile,
+      host: () => !!window.zen?.getCapabilities?.().supportsUndoFile,
       run: () => getState().setPersistUndoHistory(!getState().persistUndoHistory)
     },
     {
@@ -2313,7 +2341,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     title: 'New Custom Theme…',
     category: 'UI',
     keywords: 'custom theme create css appearance author new',
-    when: () => window.zen.getAppInfo().runtime === 'desktop',
+    host: onDesktop,
     run: async () => {
       const name = await promptApp({
         title: 'New theme',
@@ -2332,7 +2360,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     title: 'Overrides…',
     category: 'UI',
     keywords: 'css override tweak override theme appearance customize color',
-    when: () => window.zen.getAppInfo().runtime === 'desktop',
+    host: onDesktop,
     run: () => getState().setSettingsOpen(true)
   })
 
@@ -2471,9 +2499,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: 'Open Local Vault in New Window…',
       category: 'Vault',
       keywords: 'vault local open folder workspace window tab multiple',
-      when: () =>
-        window.zen.getAppInfo().runtime === 'desktop' &&
-        window.zen.getCapabilities().supportsLocalFilesystemPickers,
+      host: () => onDesktop() && window.zen.getCapabilities().supportsLocalFilesystemPickers,
       run: async () => {
         await window.zen.openVaultWindow()
       }
@@ -2484,9 +2510,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       category: 'Vault',
       keywords: 'open file markdown external outside vault one-off document proofread standalone',
       shortcut: shortcut('global.openFile'),
-      when: () =>
-        window.zen.getAppInfo().runtime === 'desktop' &&
-        window.zen.getCapabilities().supportsLocalFilesystemPickers,
+      host: () => onDesktop() && window.zen.getCapabilities().supportsLocalFilesystemPickers,
       run: async () => {
         await window.zen.openFileDialog()
       }
@@ -2496,10 +2520,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: 'Close Current Vault',
       category: 'Vault',
       keywords: 'vault local close remove forget workspace',
-      when: () =>
-        window.zen.getAppInfo().runtime === 'desktop' &&
-        getState().workspaceMode !== 'remote' &&
-        !!getState().vault,
+      host: onDesktop,
+      when: () => getState().workspaceMode !== 'remote' && !!getState().vault,
       run: () => getState().closeVault()
     },
     {
@@ -2552,8 +2574,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: 'Switch Vault…',
       category: 'Vault',
       keywords: 'vault local remote switch workspace recent picker server',
-      when: () =>
-        window.zen.getAppInfo().runtime === 'desktop' &&
+      host: () =>
+        onDesktop() &&
         (window.zen.getCapabilities().supportsLocalFilesystemPickers ||
           window.zen.getCapabilities().supportsRemoteWorkspace),
       // Drilled into by the palette; on its own key it opens the palette there.
@@ -2576,9 +2598,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: 'Connect to Remote Vault…',
       category: 'Vault',
       keywords: 'vault remote server workspace self-hosted',
-      when: () =>
-        window.zen.getAppInfo().runtime === 'desktop' &&
-        window.zen.getCapabilities().supportsRemoteWorkspace,
+      host: () => onDesktop() && window.zen.getCapabilities().supportsRemoteWorkspace,
       run: () => getState().connectRemoteWorkspace()
     },
     {
@@ -2586,9 +2606,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: 'Switch to Local Vault',
       category: 'Vault',
       keywords: 'vault local workspace disconnect return',
-      when: () =>
-        window.zen.getAppInfo().runtime === 'desktop' &&
-        getState().workspaceMode === 'remote',
+      host: onDesktop,
+      when: () => getState().workspaceMode === 'remote',
       run: () => getState().disconnectRemoteWorkspace()
     },
     {
@@ -2598,6 +2617,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       category: 'Vault',
       keywords: 'vault folder finder explorer file manager reveal root show location',
       shortcut: getState().vimMode ? leaderShortcut('vim.leaderOpenVaultFolder') : undefined,
+      host: canOpenVaultFolders,
       when: () => canOpenCurrentVaultFolder(getState()),
       run: () => openVaultFolder(getState().vault!.root)
     },
@@ -2606,8 +2626,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: 'Check for zn Updates…',
       category: 'CLI',
       keywords: 'cli zn terminal command line update upgrade version release',
-      when: () =>
-        window.zen.getAppInfo().runtime === 'desktop' &&
+      host: () =>
+        onDesktop() &&
         window.zen.getCapabilities().supportsCliInstall &&
         typeof window.zen.cliUpdateCheck === 'function',
       run: async () => {
@@ -2650,9 +2670,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: 'Install Command-Line Tool (zn)',
       category: 'CLI',
       keywords: 'cli zn terminal shell command line install symlink path bin',
-      when: () =>
-        window.zen.getAppInfo().runtime === 'desktop' &&
-        window.zen.getCapabilities().supportsCliInstall,
+      host: () => onDesktop() && window.zen.getCapabilities().supportsCliInstall,
       run: async () => {
         const status = await window.zen.cliGetStatus()
         if (!status.supportedPlatform) {
@@ -2738,9 +2756,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: 'Uninstall Command-Line Tool (zn)',
       category: 'CLI',
       keywords: 'cli zn terminal shell command line uninstall remove symlink',
-      when: () =>
-        window.zen.getAppInfo().runtime === 'desktop' &&
-        window.zen.getCapabilities().supportsCliInstall,
+      host: () => onDesktop() && window.zen.getCapabilities().supportsCliInstall,
       run: async () => {
         const status = await window.zen.cliGetStatus()
         if (!status.installedAt) {
@@ -2789,9 +2805,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: 'Open CLI Settings',
       category: 'CLI',
       keywords: 'cli zn terminal settings command line preferences',
-      when: () =>
-        window.zen.getAppInfo().runtime === 'desktop' &&
-        window.zen.getCapabilities().supportsCliInstall,
+      host: () => onDesktop() && window.zen.getCapabilities().supportsCliInstall,
       run: () => {
         // Without a target Settings reopens on whatever page it showed last.
         requestSettingsTarget('cli')
@@ -2897,6 +2911,21 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     } else if (cmd.when === hasSelection) {
       cmd.unavailableReason = () => `${title} needs an open note`
     }
+    // A note would not help where the host lacks the command.
+    const host = cmd.host
+    const reason = cmd.unavailableReason
+    if (host && reason) {
+      cmd.unavailableReason = () => (host() ? reason() : `${title} isn't available here`)
+    }
+  }
+
+  // `host` joins `when` after the guards above are named, so the palette,
+  // bound keys and the ex line all answer to it.
+  for (const cmd of cmds) {
+    const host = cmd.host
+    if (!host) continue
+    const when = cmd.when
+    cmd.when = when ? () => host() && when() : host
   }
 
   // A key the user gave a command shows on its row, ahead of any key it

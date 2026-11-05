@@ -270,9 +270,13 @@ export function HelpView(): JSX.Element {
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query.trim().toLowerCase())
 
-  const allCommands = buildCommands({ includeUnavailable: true })
-
   const appInfo = window.zen.getAppInfo()
+  // The reference lists commands whatever is open. The desktop app lists them
+  // all, as the manual does; elsewhere it keeps what this host has, by the
+  // `host` rule the palette applies.
+  const allCommands = buildCommands({ includeUnavailable: true }).filter(
+    (command) => appInfo.runtime === 'desktop' || !command.host || command.host()
+  )
   const supportsWorkflows = window.zen.getCapabilities().supportsWorkflows
   const manual = useMemo(
     () => helpForHost({ runtime: appInfo.runtime, hostKind: appInfo.hostKind, supportsWorkflows }),

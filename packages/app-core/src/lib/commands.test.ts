@@ -809,3 +809,60 @@ describe('Go Back and Go Forward keys', () => {
     expect(shown.get('nav.forward')).toBe(getKeymapDisplay(overrides, 'global.historyForward'))
   })
 })
+
+describe('commands a host does not have', () => {
+  const note = { path: 'inbox/One.md', title: 'One', folder: 'inbox', body: '# One', siblingOrder: 0 }
+  const HOST_ONLY = [
+    'app.check-updates',
+    'app.hideToTray',
+    'app.quit',
+    'view.zoom.in',
+    'view.zoom.out',
+    'view.zoom.reset',
+    'note.float',
+    'note.export-pdf',
+    'app.whatsNew'
+  ]
+
+  async function onHost(appInfo: { runtime: string; hostKind?: string }) {
+    vi.mocked(window.zen.getAppInfo).mockReturnValue(appInfo as never)
+    Object.assign(window.zen, { quitApp: vi.fn() })
+    const loaded = await loadCommands()
+    const { useTrayStore } = await import('./tray-runtime')
+    useTrayStore.setState({ keepRunningInTray: true })
+    loaded.useStore.setState({ vault: { root: '/v', name: 'v' }, activeNote: note, selectedPath: note.path } as never)
+    return loaded
+  }
+
+  it.each(['ios', 'android'])('stay out of the palette, keys and Help on %s, a note open or not', async (hostKind) => {
+    const { buildCommands } = await onHost({ runtime: 'web', hostKind })
+    const palette = buildCommands().map((c) => c.id)
+    const all = buildCommands({ includeUnavailable: true })
+    for (const id of HOST_ONLY) {
+      expect(palette).not.toContain(id)
+      const command = all.find((c) => c.id === id)!
+      expect(command.host?.()).toBe(false)
+      expect(command.when?.()).toBe(false)
+    }
+    // A bound key says the host lacks it, not that a note is missing.
+    expect(all.find((c) => c.id === 'note.float')!.unavailableReason?.()).toBe(
+      "Open in Floating Window isn't available here"
+    )
+    // What only wants a note keeps its host.
+    expect(all.find((c) => c.id === 'fold.heading')!.host).toBeUndefined()
+  })
+
+  it('stay where they were on the desktop app', async () => {
+    const { buildCommands } = await onHost({ runtime: 'desktop', hostKind: 'desktop' })
+    const palette = buildCommands().map((c) => c.id)
+    for (const id of HOST_ONLY) expect(palette).toContain(id)
+  })
+
+  it('leave the tray to its switch on the desktop app', async () => {
+    const { buildCommands } = await onHost({ runtime: 'desktop', hostKind: 'desktop' })
+    const { useTrayStore } = await import('./tray-runtime')
+    useTrayStore.setState({ keepRunningInTray: false })
+    expect(buildCommands().map((c) => c.id)).not.toContain('app.hideToTray')
+    expect(buildCommands({ includeUnavailable: true }).map((c) => c.id)).toContain('app.hideToTray')
+  })
+})
