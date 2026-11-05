@@ -321,7 +321,9 @@ export function HomeView({
         </div>
 
         <section className="mb-9" data-home-section="recent">
-          <SectionLabel icon={<ZapIcon width={13} height={13} />} text="Recent" />
+          {recent.length > 0 && (
+            <SectionLabel icon={<ZapIcon width={13} height={13} />} text="Recent" />
+          )}
           {recent.length > 0 ? (
             <ul className="mt-1.5 space-y-0.5">
               {recent.map((note) => (
