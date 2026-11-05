@@ -918,9 +918,7 @@ export function Sidebar(): JSX.Element {
   const prepareContextSelection = useCallback(
     (item: SidebarSelectionItem): void => {
       const key = selectionKeyForItem(item);
-      const inSelection =
-        selectedSidebarKeysRef.current.has(key) && selectedSidebarKeysRef.current.size > 1;
-      menuOnlySelectionRef.current = inSelection ? null : key;
+      menuOnlySelectionRef.current = selectedSidebarKeysRef.current.has(key) ? null : key;
       setSelectedSidebarKeys((prev) => {
         if (prev.has(key) && prev.size > 1) return prev;
         return new Set([key]);

@@ -114,6 +114,31 @@ describe('Sidebar highlights', () => {
     expect(cursorRows()).toHaveLength(0)
   })
 
+  it('draws the cursor on a touch device once a key is pressed', async () => {
+    coarse = true
+    await act(async () => root.render(createElement(Sidebar)))
+    expect(cursorRows()).toHaveLength(0)
+    await act(async () => {
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', bubbles: true }))
+    })
+    expect(cursorRows()).toHaveLength(1)
+  })
+
+  it('keeps one row selected with Cmd when a menu on it closes', async () => {
+    await act(async () => root.render(createElement(Sidebar)))
+    await act(async () => {
+      noteRow('Two').dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true, metaKey: true })
+      )
+    })
+    expect(noteRow('Two').getAttribute('class')).toContain('bg-accent/[0.09]')
+    await openMenuOn(noteRow('Two'))
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    })
+    expect(noteRow('Two').getAttribute('class')).toContain('bg-accent/[0.09]')
+  })
+
   it('takes the highlight off a row when its menu closes', async () => {
     await act(async () => root.render(createElement(Sidebar)))
     const row = noteRow('Two')
