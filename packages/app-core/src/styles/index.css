@@ -46,6 +46,9 @@
 .zn-app-shell {
   height: 100vh;
   height: 100dvh;
+  /* Under a status bar the page draws beneath (a tablet's, where the title row stays;
+   * a phone shell sets its own padding here). 0 on desktop. */
+  padding-top: env(safe-area-inset-top, 0px);
 }
 
 /* Keep the sidebar footer's controls above the iOS home indicator once

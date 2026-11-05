@@ -10,6 +10,7 @@ import {
 import type { NoteComment, NoteContent } from '@shared/ipc'
 import { useStore } from '../store'
 import { commentQuote } from '../lib/comments'
+import { formatKeyToken } from '../lib/keymaps'
 import { threadNoteComments, type NoteCommentThread } from '@shared/note-comments'
 import { renderMarkdown } from '../lib/markdown'
 import { usePanelResize } from '../lib/use-panel-resize'
@@ -48,6 +49,9 @@ const dateFormatter = new Intl.DateTimeFormat(undefined, {
   minute: '2-digit'
 })
 const EMPTY_COMMENTS: NoteComment[] = []
+
+/** The comment box's submit key, which its keydown reads as Cmd or Ctrl. */
+const SUBMIT_KEY = (): string => formatKeyToken('Mod+Enter')
 
 function cssEscape(value: string): string {
   if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') return CSS.escape(value)
@@ -322,11 +326,11 @@ export function CommentsPanel({
                 disabled={!body.trim()}
                 onClick={() => void submit()}
                 aria-keyshortcuts="Meta+Enter Control+Enter"
-                title="Comment (⌘↵)"
+                title={`Comment (${SUBMIT_KEY()})`}
                 className="flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/45 disabled:cursor-default disabled:bg-paper-300 disabled:text-ink-500"
               >
                 <span>Comment</span>
-                <InlineShortcut tone="light">⌘↵</InlineShortcut>
+                <InlineShortcut tone="light">{SUBMIT_KEY()}</InlineShortcut>
               </button>
             </div>
           </div>
@@ -595,11 +599,11 @@ function CommentCard({
                     onSave()
                   }}
                   aria-keyshortcuts="Meta+Enter Control+Enter"
-                  title="Save (⌘↵)"
+                  title={`Save (${SUBMIT_KEY()})`}
                   className="flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/45 disabled:cursor-default disabled:bg-paper-300 disabled:text-ink-500"
                 >
                   <span>Save</span>
-                  <InlineShortcut tone="light">⌘↵</InlineShortcut>
+                  <InlineShortcut tone="light">{SUBMIT_KEY()}</InlineShortcut>
                 </button>
               </div>
             </div>
@@ -672,11 +676,11 @@ function CommentCard({
                     event.stopPropagation()
                     onSubmitReply()
                   }}
-                  title="Reply (⌘↵)"
+                  title={`Reply (${SUBMIT_KEY()})`}
                   className="flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/45 disabled:cursor-default disabled:bg-paper-300 disabled:text-ink-500"
                 >
                   <span>Reply</span>
-                  <InlineShortcut tone="light">⌘↵</InlineShortcut>
+                  <InlineShortcut tone="light">{SUBMIT_KEY()}</InlineShortcut>
                 </button>
               </div>
             </div>

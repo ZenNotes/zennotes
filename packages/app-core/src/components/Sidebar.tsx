@@ -146,7 +146,7 @@ import {
 import { buildVaultSwitcherEntries } from "../lib/vault-switcher";
 import { canOpenVaultFolders, fileManagerName, openVaultFolder } from "../lib/vault-folder";
 import { useKeyboardCursor } from "../lib/keyboard-cursor";
-import { formatKeyToken } from "../lib/keymaps";
+import { formatKeyToken, getKeymapDisplay, labelWithShortcut } from "../lib/keymaps";
 import {
   registerSidebarActionHost,
   type SidebarSelectionSnapshot,
@@ -482,6 +482,8 @@ export function Sidebar(): JSX.Element {
   const hasAssetsDir = useStore((s) => s.hasAssetsDir);
   const focusedPanel = useStore((s) => s.focusedPanel);
   const vimMode = useStore((s) => s.vimMode);
+  const keymapOverrides = useStore((s) => s.keymapOverrides);
+  const searchKey = getKeymapDisplay(keymapOverrides, "global.searchNotes");
   const sidebarCursorIndex = useStore((s) => s.sidebarCursorIndex);
   const activeNote = useStore((s) => s.activeNote);
   const activeDirty = useStore((s) => s.activeDirty);
@@ -3269,7 +3271,13 @@ export function Sidebar(): JSX.Element {
           >
             <PlusIcon />
           </IconBtn>
-          <IconBtn title="Hide sidebar (⌘1)" onClick={toggleSidebar}>
+          <IconBtn
+            title={labelWithShortcut(
+              "Hide sidebar",
+              getKeymapDisplay(keymapOverrides, "global.toggleSidebar"),
+            )}
+            onClick={toggleSidebar}
+          >
             <PanelLeftIcon />
           </IconBtn>
         </div>
@@ -3282,13 +3290,15 @@ export function Sidebar(): JSX.Element {
         <button
           onClick={() => setSearchOpen(true)}
           className="group flex h-7 flex-1 min-w-0 items-center gap-2 rounded-md px-2 text-left text-sm text-ink-700 transition-colors hover:bg-paper-200/70 hover:text-ink-900"
-          title="Search (⌘P)"
+          title={labelWithShortcut("Search", searchKey)}
         >
           <SearchIcon />
           <span className="flex-1 truncate">Search</span>
-          <kbd className="rounded bg-paper-200 px-1 py-0.5 text-2xs text-ink-500">
-            ⌘P
-          </kbd>
+          {searchKey && (
+            <kbd className="rounded bg-paper-200 px-1 py-0.5 text-2xs text-ink-500">
+              {searchKey}
+            </kbd>
+          )}
         </button>
         <div className="flex shrink-0 items-center gap-0.5">
           <IconBtn
@@ -3598,7 +3608,10 @@ export function Sidebar(): JSX.Element {
             headerAction={
               <button
                 type="button"
-                title={`New note in ${folderLabels.quick} (⇧⌘N)`}
+                title={labelWithShortcut(
+                  `New note in ${folderLabels.quick}`,
+                  getKeymapDisplay(keymapOverrides, "global.newQuickNote"),
+                )}
                 aria-label={`New note in ${folderLabels.quick}`}
                 onClick={(e) => {
                   e.stopPropagation();

@@ -1,3 +1,4 @@
+import { getKeymapDisplay } from '../lib/keymaps'
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import type { NoteMeta } from '@shared/ipc'
 import { filterTasksForDisplay, inferDailyTaskDueDates, type VaultTask } from '@shared/tasks'
@@ -74,6 +75,10 @@ export function HomeView({
 }): JSX.Element {
   const notes = useStore((s) => s.notes)
   const folders = useStore((s) => s.folders)
+  const sidebarKey = getKeymapDisplay(
+    useStore((s) => s.keymapOverrides),
+    'global.toggleSidebar'
+  )
   const vaultTasks = useStore((s) => s.vaultTasks)
   const showArchivedTasks = useStore((s) => s.showArchivedTasks)
   const hideEmptyTasks = useStore((s) => s.hideEmptyTasks)
@@ -301,7 +306,7 @@ export function HomeView({
             >
               <PanelLeftIcon width={14} height={14} />
               <span>Sidebar</span>
-              <span className="font-mono text-ink-400">⌘1</span>
+              {sidebarKey && <span className="font-mono text-ink-400">{sidebarKey}</span>}
             </button>
           )}
         </header>
