@@ -1421,6 +1421,10 @@ function statesPrimaryNotesLocation(parsed: unknown): boolean {
   return (parsed as { primaryNotesLocation?: unknown }).primaryNotesLocation != null
 }
 
+function statesRootMode(parsed: unknown): boolean {
+  return (parsed as { primaryNotesLocation?: unknown } | null)?.primaryNotesLocation === 'root'
+}
+
 /** The remap stated by a parsed (or caller-supplied) settings object, for the
  *  inference (a remapped system dir is not loose root content). */
 function statedSystemFolderPaths(parsed: unknown): SystemFolderPaths {
@@ -1567,7 +1571,7 @@ export async function setVaultSettings(
     // A new root-level directory is exactly what the inference reads.
     inferredPrimaryCache.delete(root)
   } else if (previousPrimary === 'inbox') {
-    await removeSeedOnlyInbox(root, normalized.systemFolderPaths)
+    await removeSeedOnlyInbox(root, normalized.systemFolderPaths, { explicit: true })
   }
   return cloneVaultSettings(normalized)
 }
@@ -1672,10 +1676,17 @@ const WELCOME_SEED_SHA256 = new Set([
  * shows `inbox` as an ordinary folder, and nothing in it is hidden. A folder the
  * inbox was remapped to is theirs by name, and so is `Inbox/`, which a
  * case-insensitive volume would otherwise answer for.
+ *
+ * An empty folder goes only when someone asked, by switching to root mode: without
+ * a Welcome there is no sign this app made it, and it can be a capture tool's. The
+ * Welcome goes only beside something else to look at, since a vault switched to root
+ * before anything is in it (onboarding) would otherwise open on nothing, and
+ * switching back could not bring it back. A later look removes it once there is more.
  */
 async function removeSeedOnlyInbox(
   root: string,
-  systemFolderPaths?: SystemFolderPaths | null
+  systemFolderPaths: SystemFolderPaths | null | undefined,
+  { explicit }: { explicit: boolean }
 ): Promise<boolean> {
   if (resolveFolderPath('inbox', systemFolderPaths) !== 'inbox') return false
   const inbox = path.join(root, 'inbox')
@@ -1687,12 +1698,13 @@ async function removeSeedOnlyInbox(
     const inside = entries.filter((entry) => entry.name !== '.DS_Store')
     if (inside.length > 1) return false
     const [only] = inside
+    if (!only && !explicit) return false
     if (only) {
       if (only.name !== 'Welcome.md' || !only.isFile()) return false
-      const welcome = path.join(inbox, only.name)
-      const hash = createHash('sha256').update(await fs.readFile(welcome)).digest('hex')
-      if (!WELCOME_SEED_SHA256.has(hash)) return false
-      await fs.rm(welcome)
+      if ((await inferPrimaryNotesLocation(root, systemFolderPaths)) !== 'root') return false
+      if (await pathExists(noteCommentsPath(root, 'inbox/Welcome.md'))) return false
+      if (!(await takeAwayUntouchedWelcome(inbox, only.name))) return false
+      await removeNoteCreation(root, 'inbox/Welcome.md')
     }
     await fs.rm(path.join(inbox, '.DS_Store'), { force: true })
     // Not recursive: a file landing after the look stays, and so does the folder.
@@ -1701,6 +1713,35 @@ async function removeSeedOnlyInbox(
   } catch {
     return false
   }
+}
+
+const pathExists = (target: string): Promise<boolean> =>
+  fs.lstat(target).then(
+    () => true,
+    () => false
+  )
+
+const sha256 = async (file: string): Promise<string> =>
+  createHash('sha256').update(await fs.readFile(file)).digest('hex')
+
+/**
+ * Deletes the Welcome if it is still a seed. It is hashed where nothing can save to
+ * it any more: an edit landing between a hash and a delete would be lost. A save
+ * after the rename makes a new file, which keeps the folder. An edit the rename
+ * carried with it goes back, beside any newer file rather than over it.
+ */
+async function takeAwayUntouchedWelcome(inbox: string, name: string): Promise<boolean> {
+  const welcome = path.join(inbox, name)
+  if (!WELCOME_SEED_SHA256.has(await sha256(welcome))) return false
+  const aside = path.join(inbox, `.Welcome.settling-${randomUUID()}`)
+  await fs.rename(welcome, aside)
+  if (WELCOME_SEED_SHA256.has(await sha256(aside))) {
+    await fs.rm(aside)
+    return true
+  }
+  const taken = await pathExists(welcome)
+  await fs.rename(aside, taken ? path.join(inbox, `Welcome ${randomUUID()}.md`) : welcome)
+  return false
 }
 
 /**
@@ -1722,10 +1763,12 @@ export async function settleSeededInbox(root: string): Promise<boolean> {
     // its owner a problem that is not this function's to act on.
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') return false
   }
-  if (statesPrimaryNotesLocation(parsed)) return false
+  // A vault that says root has no Inbox to keep. One that says inbox keeps it, however
+  // much is at its root: that is what the banner is for.
+  if (statesPrimaryNotesLocation(parsed) && !statesRootMode(parsed)) return false
   const paths = statedSystemFolderPaths(parsed)
   if ((await inferPrimaryNotesLocation(root, paths)) !== 'root') return false
-  return await removeSeedOnlyInbox(root, paths)
+  return await removeSeedOnlyInbox(root, paths, { explicit: false })
 }
 
 /**

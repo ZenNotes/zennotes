@@ -136,10 +136,89 @@ describe('a folder opened empty, then filled', () => {
     expect(await exists(path.join(root, 'inbox'))).toBe(false)
   })
 
-  it('takes away an empty inbox and what Finder left in it', async () => {
+  it('leaves an empty inbox on its own: it may be a capture tool\'s', async () => {
     const root = await seededVault()
     await rm(path.join(root, 'inbox', 'Welcome.md'))
     await writeFile(path.join(root, 'inbox', '.DS_Store'), 'x')
+    await copyFolderIn(root)
+    expect(await settleSeededInbox(root)).toBe(false)
+    await ensureVaultLayout(root)
+    expect(await exists(path.join(root, 'inbox'))).toBe(true)
+  })
+
+  it('takes away an empty inbox and what Finder left in it on a switch to root mode', async () => {
+    const root = await seededVault()
+    await rm(path.join(root, 'inbox', 'Welcome.md'))
+    await writeFile(path.join(root, 'inbox', '.DS_Store'), 'x')
+    const base = await getVaultSettings(root)
+    const stated = await setVaultSettings(root, { ...base, primaryNotesLocation: 'inbox' })
+    await setVaultSettings(root, { ...stated, primaryNotesLocation: 'root' })
+    expect(await exists(path.join(root, 'inbox'))).toBe(false)
+  })
+
+  it('keeps an edit that lands while the Welcome is being looked at', async () => {
+    const root = await seededVault()
+    await copyFolderIn(root)
+    const welcome = path.join(root, 'inbox', 'Welcome.md')
+    const realRename = fsPromises.rename
+    const rename = vi.spyOn(fsPromises, 'rename').mockImplementationOnce(async (from, to) => {
+      // The first hash has passed. The edit lands before the file moves.
+      await writeFile(welcome, '# Mine now\n')
+      await realRename(from, to)
+    })
+    expect(await settleSeededInbox(root)).toBe(false)
+    rename.mockRestore()
+    expect(await readFile(welcome, 'utf8')).toBe('# Mine now\n')
+    expect((await fsPromises.readdir(path.join(root, 'inbox'))).sort()).toEqual(['Welcome.md'])
+  })
+
+  it('keeps a file saved while the Welcome is out of the way, and the folder with it', async () => {
+    const root = await seededVault()
+    await copyFolderIn(root)
+    const welcome = path.join(root, 'inbox', 'Welcome.md')
+    const realRename = fsPromises.rename
+    const rename = vi.spyOn(fsPromises, 'rename').mockImplementationOnce(async (from, to) => {
+      await realRename(from, to)
+      await writeFile(welcome, '# Saved after the move\n')
+    })
+    await settleSeededInbox(root)
+    rename.mockRestore()
+    expect(await readFile(welcome, 'utf8')).toBe('# Saved after the move\n')
+    expect(await fsPromises.readdir(path.join(root, 'inbox'))).toEqual(['Welcome.md'])
+  })
+
+  it('keeps a Welcome with comments on it', async () => {
+    const root = await seededVault()
+    await writeNoteComments(root, 'inbox/Welcome.md', [
+      {
+        id: 'c1',
+        body: 'mine',
+        anchorStart: 0,
+        anchorEnd: 1,
+        anchorText: '#',
+        createdAt: 1,
+        updatedAt: 1
+      } as never
+    ])
+    await copyFolderIn(root)
+    expect(await settleSeededInbox(root)).toBe(false)
+    expect(await exists(path.join(root, 'inbox', 'Welcome.md'))).toBe(true)
+  })
+
+  it('keeps the Welcome when root mode is chosen with nothing else in the vault', async () => {
+    const root = await seededVault()
+    const base = await getVaultSettings(root)
+    const asRoot = await setVaultSettings(root, { ...base, primaryNotesLocation: 'root' })
+    expect(await exists(path.join(root, 'inbox', 'Welcome.md'))).toBe(true)
+    // Switching back in the same breath finds the vault as it was.
+    await setVaultSettings(root, { ...asRoot, primaryNotesLocation: 'inbox' })
+    expect(await exists(path.join(root, 'inbox', 'Welcome.md'))).toBe(true)
+  })
+
+  it('lets the Welcome go once a vault that chose root mode gets something else', async () => {
+    const root = await seededVault()
+    const base = await getVaultSettings(root)
+    await setVaultSettings(root, { ...base, primaryNotesLocation: 'root' })
     await copyFolderIn(root)
     expect(await settleSeededInbox(root)).toBe(true)
     expect(await exists(path.join(root, 'inbox'))).toBe(false)
