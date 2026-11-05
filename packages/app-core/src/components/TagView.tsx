@@ -510,7 +510,7 @@ export function TagView(): JSX.Element {
           <input
             ref={filterRef}
             type="text"
-            placeholder="Filter…  /  to focus"
+            placeholder={vimMode ? 'Filter…  /  to focus' : 'Filter…'}
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             onKeyDown={(e) => {

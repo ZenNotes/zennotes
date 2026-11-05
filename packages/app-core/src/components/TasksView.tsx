@@ -1010,7 +1010,12 @@ export function TasksView(): JSX.Element {
     >
       {/* Nothing here wraps inside itself: on a narrow pane the filter box
           gives up its width first. */}
-      <div className="flex items-center gap-2 whitespace-nowrap border-b border-paper-300/45 px-4 py-3">
+      {/* Wraps instead of squeezing: on a tablet the filter was clipped to "/ to fo",
+          and "scanning…" appearing pushed Refresh and Close off the edge. */}
+      <div
+        data-tasks-header
+        className="flex flex-wrap items-center gap-2 whitespace-nowrap border-b border-paper-300/45 px-4 py-3"
+      >
         <CheckSquareIcon width={18} height={18} className="shrink-0" />
         <h1 className="shrink-0 text-sm font-semibold">Tasks</h1>
         <span className="ml-2 shrink-0 whitespace-nowrap rounded bg-paper-300/60 px-1.5 py-0.5 text-xs text-current/60">
@@ -1018,7 +1023,7 @@ export function TasksView(): JSX.Element {
             ? `${filteredTasks.length} of ${shownTasks.length}`
             : `${shownTasks.length} total`}
         </span>
-        {loading && <span className="text-xs text-current/50">scanning…</span>}
+        {loading && <span className="shrink-0 text-xs text-current/50">scanning…</span>}
 
         <div className="ml-2 flex shrink-0 items-center gap-0.5 rounded-md bg-paper-200/60 p-0.5">
           {VIEW_BUTTONS.map(({ id, label, shortcut, Icon }) => {
@@ -1043,14 +1048,14 @@ export function TasksView(): JSX.Element {
           })}
         </div>
 
-        <div className="ml-auto flex min-w-0 items-center gap-2">
+        <div className="ml-auto flex max-w-full items-center gap-2">
           {/* Mounted in every sub-view: the same query narrows the list, the
               calendar, and the Kanban board, so switching views keeps the
               focus you typed. (#583) */}
           <input
             ref={filterRef}
             type="text"
-            placeholder="Filter…  /  to focus"
+            placeholder={vimMode ? 'Filter…  /  to focus' : 'Filter…'}
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             onKeyDown={(e) => {
