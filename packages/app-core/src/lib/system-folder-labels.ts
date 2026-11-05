@@ -53,3 +53,17 @@ export function resolveSystemFolderLabels(
     tasks: getSystemFolderLabel('tasks', overrides)
   }
 }
+
+/**
+ * What a result row calls the system folder a note sits in: its label, custom ones
+ * included. Nothing for the notes of a vault that keeps them at its root, which are
+ * in no folder worth naming, whatever the bucket is called internally.
+ */
+export function noteAreaLabel(
+  folder: LabelKey,
+  primaryNotesAtRoot: boolean,
+  overrides?: SystemFolderLabels | null
+): string | null {
+  if (folder === 'inbox' && primaryNotesAtRoot) return null
+  return getSystemFolderLabel(folder, overrides)
+}

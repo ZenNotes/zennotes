@@ -23,6 +23,7 @@ import {
   listViewSequencesLive,
   listViewYieldsKey
 } from '../lib/list-view-keys'
+import { noteAreaLabel } from '../lib/system-folder-labels'
 import { isPrimaryNotesAtRoot, noteFolderSubpath } from '../lib/vault-layout'
 import { isImeComposing } from '../lib/ime'
 import { isAppOverlayOpen } from '../lib/overlay-open'
@@ -52,12 +53,11 @@ function formatDate(ms: number): string {
 }
 
 function folderLabel(note: NoteMeta): string {
-  const vaultSettings = useStore.getState().vaultSettings
+  const { vaultSettings, systemFolderLabels } = useStore.getState()
   const subpath = noteFolderSubpath(note, vaultSettings)
-  if (note.folder === 'inbox' && isPrimaryNotesAtRoot(vaultSettings)) {
-    return subpath
-  }
-  return subpath ? `${note.folder} › ${subpath}` : note.folder
+  const area = noteAreaLabel(note.folder, isPrimaryNotesAtRoot(vaultSettings), systemFolderLabels)
+  if (!area) return subpath
+  return subpath ? `${area} › ${subpath}` : area
 }
 
 export function TagView(): JSX.Element {
@@ -737,9 +737,11 @@ export function TagView(): JSX.Element {
                   <div className="truncate text-sm text-current/90">
                     {note.title || '(untitled)'}
                   </div>
-                  <div className="mt-0.5 truncate text-xs text-current/50">
-                    {folderLabel(note) || note.folder}
-                  </div>
+                  {folderLabel(note) && (
+                    <div className="mt-0.5 truncate text-xs text-current/50">
+                      {folderLabel(note)}
+                    </div>
+                  )}
                   {/* The tagged blocks listed below say more than the opening
                       of the note, so the excerpt only shows without them. */}
                   {note.excerpt && row.blockCount === 0 && (

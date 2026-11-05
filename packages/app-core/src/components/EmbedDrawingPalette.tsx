@@ -3,6 +3,8 @@ import { useStore } from '../store'
 import type { NoteMeta } from '@shared/ipc'
 import { isExcalidrawPath, isObsidianExcalidrawPath } from '@shared/excalidraw'
 import { rankItems } from '../lib/fuzzy-score'
+import { noteAreaLabel } from '../lib/system-folder-labels'
+import { isPrimaryNotesAtRoot } from '../lib/vault-layout'
 import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
 import { isImeComposing } from '../lib/ime'
 import { focusEditorAfterPaletteClose, focusEditorNormalMode } from '../lib/editor-focus'
@@ -15,6 +17,8 @@ import { Modal } from './ui/Modal'
  */
 export function EmbedDrawingPalette(): JSX.Element {
   const notes = useStore((s) => s.notes)
+  const vaultSettings = useStore((s) => s.vaultSettings)
+  const systemFolderLabels = useStore((s) => s.systemFolderLabels)
   const setOpen = useStore((s) => s.setEmbedDrawingPaletteOpen)
   const insertEmbedAtCursor = useStore((s) => s.insertEmbedAtCursor)
   const [query, setQuery] = useState('')
@@ -109,7 +113,9 @@ export function EmbedDrawingPalette(): JSX.Element {
               <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink-900">
                 {n.title}
               </span>
-              <span className="shrink-0 truncate text-xs text-ink-400">{n.folder}</span>
+              <span className="shrink-0 truncate text-xs text-ink-400">
+                {noteAreaLabel(n.folder, isPrimaryNotesAtRoot(vaultSettings), systemFolderLabels)}
+              </span>
             </button>
           ))
         )}
