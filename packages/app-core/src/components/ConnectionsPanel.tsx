@@ -488,7 +488,10 @@ function ConnectionRow({
     <button
       type="button"
       onClick={onOpen}
-      onPointerEnter={(event) => onHover(event.currentTarget.getBoundingClientRect())}
+      onPointerEnter={(event) => {
+        // A finger down on a row means open it. The preview is for a pointer resting.
+        if (event.pointerType !== 'touch') onHover(event.currentTarget.getBoundingClientRect())
+      }}
       onPointerLeave={onLeave}
       data-connections-idx={rowIndex}
       data-connections-type="note"
@@ -511,9 +514,11 @@ function ConnectionRow({
             {note.path}
           </div>
         </div>
+        {/* Says the row previews under a pointer, which a finger is not. */}
         <span
+          data-connection-hover-chip
           className={[
-            'rounded-full px-2 py-1 text-2xs uppercase tracking-[0.14em]',
+            'zn-hover-only rounded-full px-2 py-1 text-2xs uppercase tracking-[0.14em]',
             active ? 'bg-white/12 text-white/80' : 'bg-paper-200/80 text-ink-500'
           ].join(' ')}
         >
