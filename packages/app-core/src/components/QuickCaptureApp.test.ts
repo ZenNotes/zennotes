@@ -404,6 +404,42 @@ describe('Quick Capture close shortcut (#893)', () => {
     expect(overlayInput()?.placeholder).toContain('Run a command')
   })
 
+  describe('how the picker names a folder', () => {
+    function seedLayout(primaryNotesLocation: 'inbox' | 'root'): void {
+      const zen = (window as unknown as { zen: Record<string, unknown> }).zen
+      Object.defineProperty(window, 'zen', {
+        configurable: true,
+        value: { ...zen, getVaultSettings: vi.fn(async () => ({ primaryNotesLocation })) }
+      })
+    }
+    const areas = (): string[] =>
+      [...document.querySelectorAll('[data-picker-area]')].map((row) => row.textContent ?? '')
+
+    afterEach(() => localStorage.removeItem('zen:prefs:v2'))
+
+    it('names none for a note of a vault that keeps notes at its root', async () => {
+      seedNotes([
+        { path: 'Plan.md', title: 'Plan', folder: 'inbox' },
+        { path: 'archive/Old.md', title: 'Old', folder: 'archive' }
+      ])
+      seedLayout('root')
+      const view = await mount()
+      await toNormalMode(view)
+      await onWindow(modP)
+      expect(areas()).toEqual(['Archive'])
+    })
+
+    it('uses a custom label in a vault with an Inbox', async () => {
+      localStorage.setItem('zen:prefs:v2', JSON.stringify({ systemFolderLabels: { inbox: 'Desk' } }))
+      seedNotes([{ path: 'inbox/Plan.md', title: 'Plan', folder: 'inbox' }])
+      seedLayout('inbox')
+      const view = await mount()
+      await toNormalMode(view)
+      await onWindow(modP)
+      expect(areas()).toEqual(['Desk'])
+    })
+  })
+
   it('moves down rather than toggling once the picker has focus', async () => {
     seedNotes([
       { path: 'inbox/Alpha.md', title: 'Alpha', folder: 'inbox' },
@@ -557,7 +593,7 @@ describe('Quick Capture close shortcut (#893)', () => {
     expect(cells).toContain('Calendar Panel Tasks Placement')
     expect(cells).toContain('ZenNotes/Enhancements')
     // Neither the folder nor the filename is repeated in the path column.
-    expect(cells.filter((c) => c === 'inbox')).toHaveLength(1)
+    expect(cells.filter((c) => c === 'Inbox')).toHaveLength(1)
     expect(cells.some((c) => c.endsWith('.md'))).toBe(false)
     // The column is right to left so its ellipsis lands on the left, and the
     // path inside it is embedded left to right, as in Open Buffers: without
