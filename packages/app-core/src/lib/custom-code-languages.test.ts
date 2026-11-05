@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { markdown as markdownLanguage } from "@codemirror/lang-markdown";
+import { forceParsing, syntaxTreeAvailable } from "@codemirror/language";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import type { CustomCodeLanguage } from "@shared/custom-code-languages";
@@ -43,6 +44,12 @@ const jsonnet: CustomCodeLanguage = {
   scopeName: "source.jsonnet",
   grammar: gleam.grammar.replaceAll("gleam", "jsonnet"),
 };
+
+// The fence's decorations come from the syntax tree, and a state only gets 20 ms
+// of parsing: a slow runner reads the DOM before the fence is in the tree.
+function finishParse(view: EditorView): void {
+  forceParsing(view, view.state.doc.length, 5000);
+}
 
 afterEach(async () => {
   await customCodeLanguageRegistry.replace([]);
@@ -105,6 +112,7 @@ describe("custom code language runtime", () => {
         ],
       }),
     });
+    finishParse(view);
     expect(host.querySelector(".tok-keyword")?.textContent).toBe("fn");
     expect(host.querySelector(".tok-number")?.textContent).toBe("42");
     view.destroy();
@@ -132,6 +140,7 @@ describe("custom code language runtime", () => {
         ],
       }),
     });
+    finishParse(view);
     expect(host.querySelector(".tok-keyword")).toBeNull();
     view.destroy();
     host.remove();
@@ -154,6 +163,36 @@ describe("custom code language runtime", () => {
         ],
       }),
     });
+    finishParse(view);
+    expect(host.querySelector(".tok-keyword")?.textContent).toBe("let");
+    view.destroy();
+    host.remove();
+  });
+
+  it("decorates a fence once a parse cut before it finishes", async () => {
+    await customCodeLanguageRegistry.replace([gleam]);
+    const host = document.createElement("div");
+    document.body.append(host);
+    let now = Date.now();
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => (now += 25));
+    let view: EditorView;
+    try {
+      view = new EditorView({
+        parent: host,
+        state: EditorState.create({
+          doc: "# Title\n\nProse.\n\n```gleam\nlet answer = 42\n```",
+          extensions: [
+            markdownLanguage({ codeLanguages: resolveCodeLanguage }),
+            customCodeFenceHighlightExtension,
+          ],
+        }),
+      });
+    } finally {
+      clock.mockRestore();
+    }
+    expect(syntaxTreeAvailable(view.state)).toBe(false);
+    expect(host.querySelector(".tok-keyword")).toBeNull();
+    finishParse(view);
     expect(host.querySelector(".tok-keyword")?.textContent).toBe("let");
     view.destroy();
     host.remove();

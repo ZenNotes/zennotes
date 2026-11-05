@@ -3,7 +3,8 @@
 // Enter pressed for real in an editor mounted like EditorPane's (note grammar,
 // the Vim-aware markdown keymap, ordered-list renumbering): a list never grows
 // blank lines of its own, even once one sits between its first two items.
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { forceParsing, syntaxTreeAvailable } from '@codemirror/language'
 import { EditorState } from '@codemirror/state'
 import { EditorView, keymap } from '@codemirror/view'
 import { noteMarkdown } from './cm-markdown-language'
@@ -35,7 +36,11 @@ function mount(marked: string): EditorView {
   return view
 }
 
+/** Enter reads the list from the syntax tree, and a state only gets 20 ms of
+ *  parsing: on a slow runner the list is not in the tree yet and Enter is a plain
+ *  newline. These tests are about what Enter does to a parsed list. */
 function pressEnter(view: EditorView, shiftKey = false): void {
+  forceParsing(view, view.state.doc.length, 5000)
   view.contentDOM.dispatchEvent(
     new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, shiftKey, bubbles: true, cancelable: true })
   )
@@ -54,6 +59,20 @@ function type(view: EditorView, text: string): void {
 }
 
 describe('Enter in a list keeps it tight', () => {
+  it('finishes a parse cut by a slow runner before it presses Enter', () => {
+    let now = Date.now()
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => (now += 25))
+    let view: EditorView
+    try {
+      view = mount('# Title\n\nProse.\n\n- one\n- two|')
+    } finally {
+      clock.mockRestore()
+    }
+    expect(syntaxTreeAvailable(view.state)).toBe(false)
+    pressEnter(view)
+    expect(marked(view)).toBe('# Title\n\nProse.\n\n- one\n- two\n- |')
+  })
+
   it('opens the next bullet right below once a blank line sits between the first two', () => {
     const view = mount('- one\n\n- two|')
     pressEnter(view)
