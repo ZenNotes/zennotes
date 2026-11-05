@@ -27,7 +27,7 @@ import {
   type VaultTarget
 } from '../cli/vault-target.js'
 import { RemoteRequestError } from '../main/remote/connection.js'
-import type { NoteFolder } from './vault-ops.js'
+import { treatRecordPagesAsNotes, type NoteFolder } from './vault-ops.js'
 import { addComment, listCommentThreads, replyToComment, resolveComment } from './comment-ops.js'
 import {
   isMcpScopeActive,
@@ -53,6 +53,14 @@ import {
   type ToolDef,
   wellFormedArguments
 } from './tool-support.js'
+
+/** A vault as an assistant sees it: on this machine, a database's record pages are
+ *  notes, as they are on a server. */
+function openVaultForAssistant(target: VaultTarget): VaultBackend {
+  const backend = createBackend(target)
+  if (backend.kind === 'local') treatRecordPagesAsNotes(backend.root)
+  return backend
+}
 
 /* ---------- Comment authorship ---------------------------------------- */
 
@@ -1108,7 +1116,7 @@ export class VaultSession {
 
   constructor(
     private readonly resolve: () => Promise<VaultTarget>,
-    private readonly open: (target: VaultTarget) => VaultBackend = createBackend,
+    private readonly open: (target: VaultTarget) => VaultBackend = openVaultForAssistant,
     /** Keeps absolute paths out of what a switch reports. */
     private readonly scoped = false,
     private readonly served: (target: VaultTarget) => Promise<VaultTarget> = servedTarget
@@ -1220,7 +1228,7 @@ export async function runMcpServer(options: McpServerOptions = {}): Promise<void
   // When nothing resolves yet we still boot so the client surface stays
   // consistent; every tool call then reports the error, and the next call
   // tries again rather than repeating a stale failure.
-  const vaults = new VaultSession(resolveTarget, createBackend, isMcpScopeActive(options.scope))
+  const vaults = new VaultSession(resolveTarget, openVaultForAssistant, isMcpScopeActive(options.scope))
 
   // Try at startup and say so on stderr when it fails: a terminal shows it at
   // once and MCP clients keep it in their server logs, whereas waiting for the

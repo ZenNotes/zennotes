@@ -142,7 +142,7 @@ function joinRel(dir: string, sub: string): string {
  *  to it after case and Unicode form, else the one equal after accent folding too.
  *  The order matters beside a look-alike: NFD `Café` means `Café/` and is not left
  *  undecided by `Cafe/` next to it. */
-function spell(p: string, known: readonly string[]): string | null {
+export function spell(p: string, known: readonly string[]): string | null {
   const cased = foldCase(p)
   const folded = foldMcpScopePath(p)
   // The lists can name one path twice, which is still one path.
@@ -573,6 +573,11 @@ export class ScopedBackend implements VaultBackend {
       known.push(note.path)
     }
     known.push(...v.dirs)
+    // A database folder is there to name, where a folder listing leaves it out, even
+    // with no record page yet. It stays out of v.dirs: it takes no notes and no moves.
+    for (const entry of (await this.inner.listDatabaseDirs?.()) ?? []) {
+      known.push(v.folderRel(entry))
+    }
 
     // An entry can name an attachment folder or an asset, which the listings
     // above do not show, so those are read only for an entry they did not find.
