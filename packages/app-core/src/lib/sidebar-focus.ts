@@ -1,3 +1,4 @@
+import type { NoteFolder } from '@shared/ipc'
 import { useStore } from '../store'
 
 /**
@@ -34,4 +35,33 @@ export function focusSidebarPanel(
   }
 
   requestAnimationFrame(() => run(attempts))
+}
+
+/**
+ * Goes to a system folder that has no page of its own: its row, opened and under
+ * the cursor. The note list shows a folder when that layout is on; without it,
+ * `setView` changed nothing on screen except the title and the status bar, which
+ * went blank while the note stayed open.
+ */
+export function revealSystemFolderInSidebar(folder: NoteFolder): void {
+  const state = useStore.getState()
+  if (!state.unifiedSidebar && state.noteListOpen) {
+    state.setView({ kind: 'folder', folder, subpath: '' })
+    return
+  }
+  if (!state.sidebarOpen) state.toggleSidebar()
+  const key = `${folder}:`
+  if (state.collapsedFolders.includes(key)) {
+    state.setCollapsedFolders(state.collapsedFolders.filter((other) => other !== key))
+  }
+  focusSidebarPanel()
+  // After the render the focus causes, whose reveal puts the cursor on the open note.
+  requestAnimationFrame(() => {
+    const row = document.querySelector<HTMLElement>(
+      `[data-sidebar-type="folder"][data-sidebar-key="${key}"]`
+    )
+    const idx = Number(row?.dataset.sidebarIdx)
+    if (Number.isFinite(idx)) useStore.getState().setSidebarCursorIndex(idx)
+    row?.scrollIntoView({ block: 'nearest' })
+  })
 }

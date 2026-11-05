@@ -36,6 +36,76 @@ beforeEach(() => {
   installZen()
 })
 
+describe('the Go commands', () => {
+  const note = {
+    path: 'inbox/One.md',
+    title: 'One',
+    folder: 'inbox',
+    body: '# One',
+    siblingOrder: 0
+  }
+
+  function arrange(useStore: {
+    setState: (s: never) => void
+    getState: () => { vaultSettings: object }
+  }): void {
+    useStore.setState({
+      vault: { root: '/v', name: 'v' },
+      selectedPath: note.path,
+      activeNote: note,
+      sidebarOpen: true,
+      unifiedSidebar: true,
+      noteListOpen: false,
+      collapsedFolders: ['inbox:', 'Other:'],
+      vaultSettings: { ...useStore.getState().vaultSettings, primaryNotesLocation: 'inbox' }
+    } as never)
+  }
+
+  it.each([
+    ['nav.assets', 'openAssetsView'],
+    ['nav.folder.quick', 'openQuickNotesView'],
+    ['nav.folder.archive', 'openArchiveView'],
+    ['nav.folder.trash', 'openTrashView']
+  ])('%s opens its page and leaves the open note alone until it does', async (id, opener) => {
+    const { buildCommands, useStore } = await loadCommands()
+    arrange(useStore)
+    const open = vi.fn(async () => {})
+    useStore.setState({ [opener]: open } as never)
+    await buildCommands().find((c) => c.id === id)!.run()
+    expect(open).toHaveBeenCalledTimes(1)
+    expect(useStore.getState().activeNote?.path).toBe(note.path)
+    expect(useStore.getState().selectedPath).toBe(note.path)
+  })
+
+  it('nav.folder.inbox opens the row in the sidebar and keeps the open note', async () => {
+    const { buildCommands, useStore } = await loadCommands()
+    arrange(useStore)
+    await buildCommands().find((c) => c.id === 'nav.folder.inbox')!.run()
+    const state = useStore.getState()
+    expect(state.activeNote?.path).toBe(note.path)
+    expect(state.selectedPath).toBe(note.path)
+    expect(state.collapsedFolders).toEqual(['Other:'])
+    expect(state.focusedPanel).toBe('sidebar')
+  })
+
+  it('nav.folder.inbox still shows the folder in the note list layout', async () => {
+    const { buildCommands, useStore } = await loadCommands()
+    arrange(useStore)
+    useStore.setState({ unifiedSidebar: false, noteListOpen: true } as never)
+    await buildCommands().find((c) => c.id === 'nav.folder.inbox')!.run()
+    expect(useStore.getState().view).toEqual({ kind: 'folder', folder: 'inbox', subpath: '' })
+  })
+
+  it('nav.folder.inbox is not offered in a vault that keeps its notes at the root', async () => {
+    const { buildCommands, useStore } = await loadCommands()
+    arrange(useStore)
+    useStore.setState({
+      vaultSettings: { ...useStore.getState().vaultSettings, primaryNotesLocation: 'root' }
+    } as never)
+    expect(buildCommands().some((c) => c.id === 'nav.folder.inbox')).toBe(false)
+  })
+})
+
 describe('vault commands', () => {
   it('exposes one switch-vault picker command', async () => {
     const { buildCommands, useStore } = await loadCommands()

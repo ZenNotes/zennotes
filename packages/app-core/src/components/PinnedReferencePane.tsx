@@ -522,7 +522,7 @@ export function PinnedReferencePane(): JSX.Element | null {
               title={isAsset ? `Reveal ${title} in files` : `Reveal ${title} in the sidebar`}
               onClick={() => {
                 if (isAsset) {
-                  setView({ kind: 'assets' })
+                  void useStore.getState().openAssetsView()
                   return
                 }
                 const parts = pinnedRefPath.split('/')

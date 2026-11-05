@@ -24,7 +24,7 @@ import { promptApp } from './prompt-requests'
 import { captureNavigationContext } from './navigation-context'
 import { buildMoveNotePrompt, moveNoteVocabulary, parseMoveNoteTarget } from './move-note'
 import { focusPaneInDirection } from './pane-nav'
-import { focusSidebarPanel } from './sidebar-focus'
+import { focusSidebarPanel, revealSystemFolderInSidebar } from './sidebar-focus'
 import { runSidebarNotePlan, sidebarCommandPlan } from './sidebar-note-actions'
 import { openContextGallery } from './folder-gallery-open'
 import { newContextKanban } from './kanban-create'
@@ -75,6 +75,7 @@ import { getKeymapDisplay, getLeaderChordDisplay, type KeymapId } from './keymap
 import { commandBindingHint } from './command-keymaps'
 import { dispatchKeyboardContextMenu, findTabContextMenuTarget } from './keyboard-context-menu'
 import { resolveSystemFolderLabels } from './system-folder-labels'
+import { isPrimaryNotesAtRoot } from './vault-layout'
 import {
   findDailyNoteForDate,
   findMonthlyNoteForDate,
@@ -1649,13 +1650,15 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: `Go to ${labels().quick}`,
       category: 'Go',
       keywords: 'quick scratch',
-      run: () => getState().setView({ kind: 'folder', folder: 'quick', subpath: '' })
+      run: () => getState().openQuickNotesView()
     },
     {
       id: 'nav.folder.inbox',
       title: `Go to ${labels().inbox}`,
       category: 'Go',
-      run: () => getState().setView({ kind: 'folder', folder: 'inbox', subpath: '' })
+      // A vault that keeps its notes at the root has no Inbox row to go to.
+      when: () => !isPrimaryNotesAtRoot(getState().vaultSettings),
+      run: () => revealSystemFolderInSidebar('inbox')
     },
     {
       id: 'nav.folder.archive',
@@ -1676,7 +1679,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: 'Go to Files',
       category: 'Go',
       keywords: 'assets files images',
-      run: () => getState().setView({ kind: 'assets' })
+      run: () => getState().openAssetsView()
     },
     {
       id: 'nav.focus.sidebar',
