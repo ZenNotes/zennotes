@@ -116,6 +116,7 @@ import {
   writeFileAtomic,
   setVaultSettings,
   rootContentHiddenByInboxMode,
+  settleSeededInbox,
   type PersistedRemoteWorkspaceConfig,
   type PersistedRemoteWorkspaceProfile,
   type PersistedWindowState,
@@ -445,6 +446,7 @@ const windowVaults = new WindowVaultRegistry({
     if (vaultChangeAffectsSettings(ev)) {
       invalidateVaultSettingsCache(root);
       scheduleShareVaultsRefresh();
+      scheduleSeededInboxSettle(root);
     }
   },
   sendVaultChange: (windowId, ev) => {
@@ -453,6 +455,22 @@ const windowVaults = new WindowVaultRegistry({
     win.webContents.send(IPC.VAULT_ON_CHANGE, ev);
   },
 });
+// A copy arrives as a burst of root-level events; one look after it is enough.
+const SEEDED_INBOX_SETTLE_DELAY_MS = 400;
+const seededInboxSettles = new Map<string, NodeJS.Timeout>();
+function scheduleSeededInboxSettle(root: string): void {
+  clearTimeout(seededInboxSettles.get(root));
+  seededInboxSettles.set(
+    root,
+    setTimeout(() => {
+      seededInboxSettles.delete(root);
+      void settleSeededInbox(root).catch((err) =>
+        console.error("settling a seeded inbox failed", err),
+      );
+    }, SEEDED_INBOX_SETTLE_DELAY_MS),
+  );
+}
+
 const DEFAULT_WINDOW_WIDTH = 1280;
 const DEFAULT_WINDOW_HEIGHT = 820;
 const MIN_WINDOW_WIDTH = 900;

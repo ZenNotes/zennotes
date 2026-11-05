@@ -322,7 +322,7 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
   {
     title: 'Primary notes can live at the vault root',
     body:
-      'Settings → Vault lets you choose between the original Inbox model and a Vault root model. Vault root mode surfaces top-level notes, folders, and loose files directly, which is better for imported Obsidian-style vaults and flat Markdown folders.'
+      'Settings → Vault lets you choose between the original Inbox model and a Vault root model. Vault root mode surfaces top-level notes, folders, and loose files directly, which is better for imported Obsidian-style vaults and flat Markdown folders. A vault that has not chosen follows what is in it: copy folders into a new one and it turns to Vault root mode. The Welcome note goes with the Inbox if nobody wrote in it; a note you edited stays, as a folder named `inbox`.'
   },
   {
     title: 'Tabs and splits are first-class',

@@ -44,6 +44,7 @@ import {
   restoreDeletedAsset,
   restoreFromTrash,
   rootContentHiddenByInboxMode,
+  settleSeededInbox,
   searchVaultText,
   searchVaultTextCapabilities,
   setVaultSettings,
@@ -95,6 +96,131 @@ describe('rootContentHiddenByInboxMode (#195)', () => {
     const base = await getVaultSettings(root)
     await setVaultSettings(root, { ...base, primaryNotesLocation: 'inbox' })
     expect(await rootContentHiddenByInboxMode(root)).toBe(false)
+  })
+})
+
+describe('a folder opened empty, then filled', () => {
+  const exists = (p: string): Promise<boolean> =>
+    stat(p).then(
+      () => true,
+      () => false
+    )
+
+  async function seededVault(): Promise<string> {
+    const root = await makeTempDir('zennotes-vault-seeded-')
+    await ensureVaultLayout(root)
+    expect(await exists(path.join(root, 'inbox', 'Welcome.md'))).toBe(true)
+    expect((await getVaultSettings(root)).primaryNotesLocation).toBe('inbox')
+    return root
+  }
+
+  async function copyFolderIn(root: string): Promise<void> {
+    await mkdir(path.join(root, 'Projects'), { recursive: true })
+    await writeFile(path.join(root, 'Projects', 'Plan.md'), '# Plan\n')
+    invalidateVaultSettingsCache(root)
+  }
+
+  it('takes away the system inbox holding only an untouched Welcome', async () => {
+    const root = await seededVault()
+    await copyFolderIn(root)
+    expect(await settleSeededInbox(root)).toBe(true)
+    expect(await exists(path.join(root, 'inbox'))).toBe(false)
+    expect((await getVaultSettings(root)).primaryNotesLocation).toBe('root')
+    expect(await readFile(path.join(root, 'Projects', 'Plan.md'), 'utf8')).toBe('# Plan\n')
+  })
+
+  it('heals a vault that already turned, the next time it opens', async () => {
+    const root = await seededVault()
+    await copyFolderIn(root)
+    await ensureVaultLayout(root)
+    expect(await exists(path.join(root, 'inbox'))).toBe(false)
+  })
+
+  it('takes away an empty inbox and what Finder left in it', async () => {
+    const root = await seededVault()
+    await rm(path.join(root, 'inbox', 'Welcome.md'))
+    await writeFile(path.join(root, 'inbox', '.DS_Store'), 'x')
+    await copyFolderIn(root)
+    expect(await settleSeededInbox(root)).toBe(true)
+    expect(await exists(path.join(root, 'inbox'))).toBe(false)
+  })
+
+  it.each([
+    ['an edited Welcome', 'Welcome.md', '# Mine now\n'],
+    ['a note of the same bytes under another name', 'Copy.md', null]
+  ])('never touches %s', async (_label, name, body) => {
+    const root = await seededVault()
+    const seeded = await readFile(path.join(root, 'inbox', 'Welcome.md'), 'utf8')
+    await writeFile(path.join(root, 'inbox', name), body ?? seeded)
+    if (name !== 'Welcome.md') await rm(path.join(root, 'inbox', 'Welcome.md'))
+    await copyFolderIn(root)
+    expect(await settleSeededInbox(root)).toBe(false)
+    expect(await readFile(path.join(root, 'inbox', name), 'utf8')).toBe(body ?? seeded)
+  })
+
+  it('never touches an untouched Welcome beside another note', async () => {
+    const root = await seededVault()
+    await writeFile(path.join(root, 'inbox', 'Mine.md'), 'mine')
+    await copyFolderIn(root)
+    expect(await settleSeededInbox(root)).toBe(false)
+    expect(await exists(path.join(root, 'inbox', 'Welcome.md'))).toBe(true)
+    expect(await exists(path.join(root, 'inbox', 'Mine.md'))).toBe(true)
+  })
+
+  it('does nothing while the layout still reads as inbox mode', async () => {
+    const root = await seededVault()
+    expect(await settleSeededInbox(root)).toBe(false)
+    expect(await exists(path.join(root, 'inbox', 'Welcome.md'))).toBe(true)
+  })
+
+  it('does nothing in a vault that states its layout', async () => {
+    const root = await seededVault()
+    const base = await getVaultSettings(root)
+    await setVaultSettings(root, { ...base, primaryNotesLocation: 'inbox' })
+    await copyFolderIn(root)
+    expect(await settleSeededInbox(root)).toBe(false)
+    expect(await exists(path.join(root, 'inbox', 'Welcome.md'))).toBe(true)
+    expect(await rootContentHiddenByInboxMode(root)).toBe(true)
+  })
+
+  it('leaves a folder the inbox was remapped to', async () => {
+    const root = await makeTempDir('zennotes-vault-remapped-')
+    await mkdir(path.join(root, '.zennotes'), { recursive: true })
+    await writeFile(
+      path.join(root, '.zennotes', 'vault.json'),
+      JSON.stringify({ systemFolderPaths: { inbox: 'inbox-of-mine' } })
+    )
+    await mkdir(path.join(root, 'inbox'), { recursive: true })
+    await mkdir(path.join(root, 'Projects'), { recursive: true })
+    expect(await settleSeededInbox(root)).toBe(false)
+    expect(await exists(path.join(root, 'inbox'))).toBe(true)
+  })
+
+  it('leaves a capitalized Inbox, which is a folder of the owner', async () => {
+    const root = await makeTempDir('zennotes-vault-capital-')
+    await mkdir(path.join(root, 'Inbox'), { recursive: true })
+    await mkdir(path.join(root, 'Projects'), { recursive: true })
+    expect(await settleSeededInbox(root)).toBe(false)
+    expect(await exists(path.join(root, 'Inbox'))).toBe(true)
+  })
+
+  it('switching a stated vault to root mode takes the seed-only inbox with it', async () => {
+    const root = await seededVault()
+    const base = await getVaultSettings(root)
+    const stated = await setVaultSettings(root, { ...base, primaryNotesLocation: 'inbox' })
+    await copyFolderIn(root)
+    await setVaultSettings(root, { ...stated, primaryNotesLocation: 'root' })
+    expect(await exists(path.join(root, 'inbox'))).toBe(false)
+    expect(await rootContentHiddenByInboxMode(root)).toBe(false)
+  })
+
+  it('switching to root mode keeps an inbox with an edited Welcome', async () => {
+    const root = await seededVault()
+    const base = await getVaultSettings(root)
+    const stated = await setVaultSettings(root, { ...base, primaryNotesLocation: 'inbox' })
+    await writeFile(path.join(root, 'inbox', 'Welcome.md'), '# Mine now\n')
+    await setVaultSettings(root, { ...stated, primaryNotesLocation: 'root' })
+    expect(await readFile(path.join(root, 'inbox', 'Welcome.md'), 'utf8')).toBe('# Mine now\n')
   })
 })
 
