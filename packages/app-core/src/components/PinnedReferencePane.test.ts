@@ -128,6 +128,10 @@ describe('PinnedReferencePane reveal in the sidebar', () => {
   let root: Root
   let originalState: ReturnType<typeof useStore.getState>
 
+  // Revealing focuses the sidebar with retries, on timers that must not outlive the
+  // test's window: there is no sidebar here for them to settle on.
+  const focusRetriesDone = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 250))
+
   beforeEach(() => {
     originalState = useStore.getState()
     Object.defineProperty(Range.prototype, 'getClientRects', {
@@ -143,7 +147,8 @@ describe('PinnedReferencePane reveal in the sidebar', () => {
     root = createRoot(host)
   })
 
-  afterEach(() => {
+  afterEach(async () => {
+    await focusRetriesDone()
     act(() => root.unmount())
     host.remove()
     useStore.setState(originalState, true)

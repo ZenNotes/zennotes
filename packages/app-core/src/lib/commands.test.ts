@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 function installZen(): void {
   Object.defineProperty(window, 'zen', {
@@ -37,6 +37,12 @@ beforeEach(() => {
 })
 
 describe('the Go commands', () => {
+  // Revealing focuses the sidebar with retries, on timers that must not outlive the
+  // test's window: there is no sidebar here for them to settle on.
+  const focusRetriesDone = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 250))
+
+  afterEach(focusRetriesDone)
+
   const note = {
     path: 'inbox/One.md',
     title: 'One',
