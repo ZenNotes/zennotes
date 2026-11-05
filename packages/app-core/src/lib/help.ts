@@ -1,10 +1,21 @@
+/**
+ * Where an entry applies, when that is not everywhere the manual is read. Without
+ * it, an entry shows on every host. `desktop`: the desktop app only. `computer`:
+ * also the web client, which sits at a keyboard with a terminal nearby, but not a
+ * phone or tablet. `workflows`: wherever the host runs workflows, which on the web
+ * depends on its server.
+ */
+export type HelpAvailability = 'desktop' | 'computer' | 'workflows'
+
 export interface HelpCard {
   title: string
+  only?: HelpAvailability
   body: string
 }
 
 export interface HelpShortcut {
   keys: string
+  only?: HelpAvailability
   action: string
   detail: string
 }
@@ -12,19 +23,37 @@ export interface HelpShortcut {
 export interface HelpShortcutSection {
   id: string
   title: string
+  only?: HelpAvailability
   description: string
   items: HelpShortcut[]
 }
 
 export interface HelpExCommand {
   command: string
+  only?: HelpAvailability
   summary: string
   detail: string
 }
 
 export interface HelpSettingsSection {
   title: string
-  items: Array<{ label: string; detail: string }>
+  only?: HelpAvailability
+  items: Array<{ label: string; only?: HelpAvailability; detail: string }>
+}
+
+/** What the manual needs to know about the app it is being read in. */
+export interface HelpHost {
+  runtime: 'desktop' | 'web'
+  hostKind?: 'desktop' | 'browser' | 'ios' | 'android'
+  supportsWorkflows?: boolean
+}
+
+/** Whether an entry applies here. On the desktop app every entry does. */
+export function helpAppliesTo(only: HelpAvailability | undefined, host: HelpHost): boolean {
+  if (!only || host.runtime === 'desktop') return true
+  if (only === 'workflows') return host.supportsWorkflows === true
+  if (only === 'computer') return host.hostKind !== 'ios' && host.hostKind !== 'android'
+  return false
 }
 
 export const HELP_QUICK_START: HelpCard[] = [
@@ -93,11 +122,13 @@ export const HELP_HOW_TO_GUIDES: HelpCard[] = [
   },
   {
     title: 'Capture from anywhere with the floating window',
+    only: 'desktop',
     body:
       'Press the quick capture hotkey (CommandOrControl+Shift+Space by default, configurable under Settings → Editor) to drop a small always-on-top window over whatever app you are using. You type in one place: the first line becomes the note title and the rest is the body. Mod+Enter saves the note into Quick Notes and hides the window; Mod+N saves and immediately opens a fresh blank capture so you can jot several in a row; Mod+P loads an existing note to edit instead. Editing the first line of a Quick note renames that note in place rather than creating a duplicate, and you can drag the window by its top bar to reposition it.'
   },
   {
     title: 'Save a page or text from Safari and other apps (Share → ZenNotes)',
+    only: 'desktop',
     body:
       'On macOS, choose Share → ZenNotes in Safari or any app with a Share menu to save the page you are on, the text you selected, or both, as a note: in Quick Notes unless you choose another place. The sheet shows what you are saving and, in its heading, where it will go, a line for an optional note, and, when you use more than one vault, the vault it goes to: your local and Cloud vaults and the servers you have connected to. Return saves and Escape cancels; ⌘1 to ⌘9 pick a vault in the order the menu lists them, and the sheet remembers the vault you picked last. A page becomes a note named after the page, with your selection quoted, your note under it and a link back to the page; text on its own becomes a note named from its first line, the way the quick capture window names one. Settings → Vault → Notes → **Default shares location** decides where shares land, per vault: Quick Notes (the default), your primary notes location, or a specific folder inside it such as `Clippings`; a Quick Notes or Inbox folder you remapped is honored, and a vault on a self-hosted server offers the setting once that server runs 2.79 or later (an older server keeps Quick Notes). With ZenNotes running the note appears right away; when it is not running, the share waits and is filed the next time you open ZenNotes, and a share for a server is filed once ZenNotes is connected to that server. The extension comes with the app and registers once you have opened ZenNotes; macOS may list it switched off at first, so if ZenNotes is missing from a Share menu, choose Edit Extensions… at the bottom of that menu and turn ZenNotes on, or turn it on in System Settings → General → Login Items & Extensions → Sharing.'
   },
@@ -128,16 +159,19 @@ export const HELP_HOW_TO_GUIDES: HelpCard[] = [
   },
   {
     title: 'Automate repetitive edits with Workflows',
+    only: 'workflows',
     body:
       'Workflows turn a vault ritual (find the notes tagged `#book`, keep the ones rated 4 or higher, write them as a table into the reading log, tag the rest `#someday`) into a file you run with one key. The feature is off by default: turn it on once under Settings → Workflows and the view appears in the sidebar (also `Space a` in Vim mode, or "Open Workflows" in the command palette). Start from the recipe gallery ("New workflow"): each recipe is an ordinary `.md` file that copies into `.zennotes/workflows/` and opens in the same editor as anything you write yourself, as a canvas and as text, whichever you prefer. Press `R` (or the Run button) and nothing happens blind: a dry-run confirmation lists every change first, grouped and counted, and after you apply, Undo restores every file the run wrote, byte for byte. That promise survives the worst case: a run the app never finished (a crash mid-apply) is found on the next launch and offered back as an undo, and undoing a run names any file you edited after it ran instead of reverting your work silently. You can also run any active workflow without opening the view at all: every one is a command-palette entry, and "Run Workflow…" opens a picker; the receipt arrives as a toast carrying the Undo button. New workflows start as inert drafts until you activate them, and importing a workflow someone shared is a review, never an install. New to all of this? Settings → Workflows → Start tutorial walks the whole loop hands-on, on a practice folder it seeds and then removes.'
   },
   {
     title: 'Bring your Notion workspace over',
+    only: 'desktop',
     body:
       'Run “Import Notes…” from the command palette (`Space I` in Vim mode), or set it up during onboarding, and choose Notion. Then choose Sign in with Notion. Your browser asks you to approve, and that’s all the setup: nothing has to be shared page by page. ZenNotes then shows your workspace as a tree with everything ticked. Open a page to see what’s under it and untick whatever should stay behind, which leaves out everything beneath it too; arrows or `j`/`k`/`h`/`l` in Vim mode move, Space ticks. Choose Import and it reads what you picked, then adds one `Notion Import` folder to your notes in one step, so nothing already in your vault changes and deleting that folder undoes it. Pages become notes (a page with subpages is `Title.md` beside a `Title/` folder), and links between them become `[[wikilinks]]`. Images, PDFs, audio, video and other files go in the folder’s `assets/`, including ones hosted outside Notion; one that can’t be fetched stays a link, and YouTube and Vimeo stay embeds. Databases become real ZenNotes databases: fields keep their types, relations become note links, and table and board views keep their columns, sorts and the filters ZenNotes can express. A large workspace can take hours at Notion’s rate limit. It runs in the background, and if you stop it or quit, the next run picks up where it was. Formula and rollup columns keep the values they had and stop calculating; calendar, timeline, gallery and other views become tables; comments, page history and permissions do not come over. `Import Report` in the folder lists what was left out or changed. Imported to-dos stay out of Tasks unless you tick “Show imported to-dos in Tasks”. Not available on a vault hosted on a server: import into a local vault, then sync it. Use a token instead if you’d rather share page by page with a Notion integration.'
   },
   {
     title: 'Bring your Obsidian vault over',
+    only: 'desktop',
     body:
       'Run “Import Notes…” from the command palette (`Space I` in Vim mode), or set it up during onboarding, choose Obsidian, and pick the folder that holds your vault. There are two ways to go from there. Open as its own vault points ZenNotes at the folder directly, so both apps share the same files and nothing is copied. Copy in brings it into the vault you have open: you get a tree of its folders and notes with everything ticked, and unticking a folder leaves it out, though images a kept note uses still come along. It adds one `Obsidian Import` folder in one step, with the same folders inside, so your original vault and what’s already here don’t change, and deleting that folder undoes it. Callouts, `[[wikilinks]]`, embeds, block references, tags and frontmatter work as they are, so most notes stay byte for byte what they were. A link only changes where its name is now shared: a title two folders use, or one that’s already in this vault, gets pinned to the note Obsidian would have opened. `.obsidian` and `.trash` stay behind, and plugins don’t come over, so Dataview queries stay code blocks and canvases and Obsidian Bases stay files that ZenNotes doesn’t open. `Import Report` in the folder lists these, and where your daily notes and templates went so you can point Settings at them. To-dos show in Tasks unless you untick “Show imported to-dos in Tasks”.'
   },
@@ -183,6 +217,7 @@ export const HELP_HOW_TO_GUIDES: HelpCard[] = [
   },
   {
     title: 'Open a vault in your file manager',
+    only: 'desktop',
     body:
       'Every local vault can open its folder in Finder, File Explorer or your file manager, whether or not it is the vault you are in. Click the vault name at the top of the sidebar: each vault in the list shows a folder button when you point at it, and `Shift+Enter` does the same for the row under the cursor. In the vault switcher (`Space v`), `Shift+Enter` opens the highlighted vault’s folder instead of switching to it. For the vault you are in, use “Open in Finder” in that same sidebar menu, “Open Vault in File Manager” in the command palette, `Space F` in Vim mode, or the button in Settings → Vault → Location. A remote workspace has no folder on this machine, so it does not offer this, and neither does the web app. A vault whose folder has moved says so instead of opening.'
   },
@@ -238,16 +273,19 @@ export const HELP_HOW_TO_GUIDES: HelpCard[] = [
   },
   {
     title: 'Search from Raycast on macOS',
+    only: 'desktop',
     body:
       'Install the `zn` CLI from Settings → CLI, then use the Raycast Extension section on the same page to install ZenNotes for Raycast locally. Raycast can search notes, filter by folder or tag, open a note in the app, open it in a floating window, archive or unarchive, move to Trash, reveal in Finder, copy the note path, and copy a wikilink.'
   },
   {
     title: 'Preview a note in Finder with Quick Look',
+    only: 'desktop',
     body:
       'On macOS, select a Markdown file in Finder and press Space: Quick Look shows it the way ZenNotes renders it, in your theme and fonts, with callouts, tasks, tables, code, math, Mermaid diagrams and the images the note embeds. Press Open in ZenNotes to open it in the app: a note inside a vault you use opens there, any other file in its own window. Once you click into the preview, Enter does the same, and with Vim mode on `o` opens it too while `j` / `k`, Ctrl+D / Ctrl+U, `gg` and `G` move through the note. The preview is read-only and never goes online: links to websites open in your browser, wikilinks and tags stay plain text, and pictures on the web are not loaded. The preview comes with the app and turns on after you open ZenNotes once; to use another app\'s preview, turn ZenNotes off in System Settings → General → Login Items & Extensions → Quick Look.'
   },
   {
     title: 'Check for updates and install them',
+    only: 'desktop',
     body:
       'Use Check for Updates from the app menu, the command palette, or Settings → About. ZenNotes also checks on its own shortly after launch. If that check finds no network (Settings → About then says "Waiting for network"), nothing needs doing: it checks again by itself once the connection is back, and keeps trying at growing intervals if GitHub stays out of reach. A check that runs while a new release is still being published says so (for example "ZenNotes 2.79.0 is still being published"): try again in a few minutes. Any other failed check or download is one sentence in Settings → About, with the technical text under Details, where Copy details and Report an Issue help with a bug report. When a release is available, ZenNotes can download it in the background and then prompt you to install and relaunch. A copy installed by a package manager (the AUR package, or a tarball unpacked by hand) is only told that a newer version exists; install it the way you installed ZenNotes, since the package manager owns those files. On Arch, a `.pacman` build installs through a graphical polkit prompt; dismissing it keeps the download ready to retry, and if no graphical agent can run, Details in Settings → About shows the manual install command.'
   },
@@ -263,6 +301,7 @@ export const HELP_HOW_TO_GUIDES: HelpCard[] = [
   },
   {
     title: 'Connect the desktop app to a self-hosted server',
+    only: 'desktop',
     body:
       'Settings → Vault → Remote workspace takes the server URL and its token. **On macOS**, a server on your own network also needs the system Local Network permission: macOS asks the first time ZenNotes reaches a local address, and if you dismiss that prompt the connection fails with no packets sent and no further warning: it looks exactly like a server that is down. Turn it back on under System Settings → Privacy & Security → Local Network. A server reached over the public internet is unaffected. Live updates travel over a WebSocket at /api/watch. If a reverse proxy in front of the server does not pass WebSocket upgrades, the app refreshes on its own every 30 seconds instead, so a note renamed or trashed on another device can show its old name for up to half a minute; passing the upgrade through gives instant updates.'
   },
@@ -278,11 +317,13 @@ export const HELP_HOW_TO_GUIDES: HelpCard[] = [
   },
   {
     title: 'Customize the look: themes vs. overrides',
+    only: 'desktop',
     body:
       'ZenNotes has two CSS-based ways to change how it looks. A **theme** is a complete palette you select under Settings → Appearance → Custom. An **override** is a small CSS file that layers on top of whichever theme is active, toggled on or off under Settings → Appearance → Overrides. Reach for a theme to design a whole look; reach for an override to change one or two things (a different accent, a darker background) without forking a theme. Both apply live, no restart.'
   },
   {
     title: 'Build a custom theme',
+    only: 'desktop',
     body:
       'Settings → Appearance → Custom → New theme scaffolds a folder at `~/.config/zennotes/themes/<name>/` with a `manifest.json` and a `theme.css`, reveals it, and adds a card you click to apply. Edits to `theme.css` apply live. Only the active theme CSS is loaded, so write `:root { … }` for the light/shared values and `:root[data-theme-mode="dark"] { … }` for dark. You never put the theme name in a selector. Colors are the `--z-*` tokens, written as space-separated RGB (`--z-accent: 255 59 48;`): backgrounds `--z-bg` / `--z-bg-softer` / `--z-bg-1`…`--z-bg-4`, text `--z-fg-1` / `--z-fg-2` / `--z-grey-0`…`--z-grey-2`, accent `--z-accent` / `--z-accent-soft` / `--z-accent-muted`, and the syntax hues `--z-red` / `--z-green` / `--z-yellow` / `--z-blue` / `--z-purple` / `--z-aqua`. `manifest.json` carries name, author, version, description, `modes` (light | dark | both), and an optional preview swatch.'
   },
@@ -293,16 +334,19 @@ export const HELP_HOW_TO_GUIDES: HelpCard[] = [
   },
   {
     title: 'Add syntax highlighting for another language',
+    only: 'desktop',
     body:
       'In the desktop app, open Settings → Editor → Languages and select a self-contained `.tmLanguage.json` TextMate grammar. Choose its fenced-code tag and aliases, then edit the sample to verify the live preview before installing it. Enabled languages highlight the same fences in Edit, Split, and Preview without changing your Markdown files. Built-in language and diagram tags stay reserved. ZenNotes stores installed packs machine-wide under `~/.config/zennotes/languages/`; this first version adds highlighting only, not completion, formatting, indentation, or language-server features.'
   },
   {
     title: 'Override one thing on any theme',
+    only: 'desktop',
     body:
       'An override is a `.css` file in `~/.config/zennotes/overrides/`, toggled under Settings → Appearance → Overrides. Enabled overrides inject on top of the active theme in filename order, so they win the cascade. Target `:root[data-theme] { … }` so the rule beats both built-in and custom themes. Because they sit on top, one override re-themes everything: `:root[data-theme] { --z-accent: 255 59 48; }` turns the accent hot pink on every theme. Overrides stack, so keep several small ones and flip each independently. The seeded `example.css` is a commented cookbook with the full token list and ready-to-uncomment recipes. To find what controls an element, use the **Developer tools** button in that same Overrides section and inspect it.'
   },
   {
     title: 'Bundle fonts and images in a theme',
+    only: 'desktop',
     body:
       'Ship an asset with a theme by dropping the file in the theme folder and referencing it with the `zen-theme://` scheme, where the host is the folder name: `@font-face { font-family: "Display"; src: url(zen-theme://my-theme/display.woff2); }`. Remote http/https URLs are never loaded, so themes stay self-contained and work offline; small images can also be inlined as `data:` URIs. Font family and text size are not theme tokens. Set those under Settings → Typography.'
   }
@@ -561,6 +605,7 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
   },
   {
     title: 'Open links in other applications',
+    only: 'desktop',
     body:
       'On desktop, enable application prefixes such as zotero, obsidian, or vscode under Settings → Editor → Links → External application links. Separate prefixes with commas; they are saved in config.toml. Use ordinary Markdown, for example [Paper](zotero://open-pdf/library/items/W78FUE98). Editor clicks, Cmd/Ctrl-click, preview links, and Vim gd open enabled links in the installed application. A disabled application link offers Open settings, never note creation. If the application cannot open the link, ZenNotes shows an error.'
   },
@@ -591,6 +636,7 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
   },
   {
     title: 'The CLI is the bridge to launchers',
+    only: 'computer',
     body:
       'The `zn` command-line tool can list, read, search, capture, edit, archive, trash, inspect tasks, work with databases (`zn base list / rows / get / add / set / create / pages`: add rows with record pages (a row added while the database opens on a view of picked rows joins that view\'s picks, as + Row does in the grid), give every record its page with `zn base pages`, set fields with the grid’s exact semantics, locally or against a self-hosted server; renaming a record page with `zn rename` keeps its row pointing at it), and start the MCP server without the app running. With no `--vault` or `--server` flag, `zn` works on the vault the app has open, a connected server included (it sends the token `zn connect` saved for that server, or `ZENNOTES_REMOTE_TOKEN` / `--token`). Raycast uses it for search, then uses `zennotes://open` and `zennotes://open-window` links to bring the selected note back into ZenNotes. On macOS, Settings → CLI can install the bundled Raycast extension locally so users do not need to wait for the Raycast Store version.'
   },
@@ -621,21 +667,25 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
   },
   {
     title: 'Updates are release-driven',
+    only: 'desktop',
     body:
       'In-app updates read the published GitHub release feed. That means update checks, download prompts, and release notes are all driven by the same public releases you can open manually from the app menu or command palette.'
   },
   {
     title: 'Workflows plan first and write second',
+    only: 'workflows',
     body:
       'A workflow is a plain `.md` file under `.zennotes/workflows/`: frontmatter plus one pipeline per line, like `good = books | where rating >= 4`. Wires carry sets of notes, so every wire on the canvas shows the live count flowing through it, and the canvas and the text are lossless projections of the same file (layout is computed, so no coordinates ever land in your vault). The engine can only propose changes: running shows the full dry-run diff before anything is applied, applying journals every file\'s pre-run bytes so Undo restores them exactly, and a run that fails midway rolls the whole thing back on its own. There are no code steps, no shell, and no network, which is why a workflow you did not write is safe to read and run. A workflow runs when you run it, and since 2.55 also on its own when its `trigger:` names an event: `on note-created`, `on note-saved`, `on note-moved` or `on tag-added` fires for the note you change in this app, a moment after it settles, with no confirmation and a receipt toast that carries Undo (see the Event triggers card); a `schedule` trigger parses but does not fire yet. Local desktop vaults, self-hosted web servers, and desktop remote workspaces can all author and run workflows; a remote workspace needs a server on 2.29 or newer, and against an older server workflows stay read-only. The feature is off by default; enable it under Settings → Workflows.'
   },
   {
     title: 'The workflow grammar in one card',
+    only: 'workflows',
     body:
       'Six sources open a set: `all`, `folder inbox`, `tag #book`, `search reading list`, `current`, `selection` (the Trash and Archive stay out unless you name them, like `folder trash`; the four system names `inbox`, `quick`, `archive`, `trash` mean those folders wherever the vault keeps them, so on a vault whose notes live at the root `folder inbox` is the vault root). Thirteen steps filter and shape it: `where rating >= 4`, `tagged` / `not-tagged #x`, `no-tags`, `in inbox/projects`, `matching inbox/**/*.md`, `contains TODO`, `since 7d`, `sort finished desc`, `limit 25`, `dedupe`, and `union` / `subtract <wire>` to combine named wires. `tag`, `tagged` and `not-tagged` also take a comma-separated list and match any tag in it, so `all | not-tagged #someday, #reference` keeps the notes carrying neither, and `all | no-tags` keeps the notes with no tag at all. Mutating steps change every note on the wire, always behind the dry-run confirmation: `set status done`, `add-tag` / `remove-tag`, `move`, `rename {{date}}-{{title}}`, `append` / `prepend`, `apply-template`, `archive`, `trash`. Outputs turn the wire into text: `render table title, rating` feeds `write "Log.md"`, `write-section "Log.md" "Finished"`, `create-each "inbox/{{title}}.md"`, `notify`, or `clipboard`, and `call <workflow>` folds another workflow into the same run. `{{title}}`, `{{date}}`, `{{count}}` and any frontmatter field expand per note. Press `?` in the Workflows view for the live reference, with a one-line description and a real example for every step.'
   },
   {
     title: 'Event triggers',
+    only: 'workflows',
     body:
       'Set `trigger: on note-saved` (or `on note-created`, `on note-moved`, `on tag-added`) on an active workflow and it runs by itself when you make that change in this app, about a second and a half after the note settles: a burst of autosaves while you type is one run, and a note you are still typing in waits for its next save. `note-moved` fires with the note\'s new path for a rename, a move, Archive, Trash and Restore; `tag-added` fires for a save that gave the note a tag it did not have. The run sees only the note that changed: every source (`all`, `folder`, `tag`, `search`, `current`) resolves over that one note, so `all | contains type: topic | move Topics` means "file this note under Topics when it says so", and nothing is read across the vault on every save. Add a condition to fire only when the note matches: `trigger: on note-saved where folder = inbox` takes the same `field op value` a `where` step takes. There is no confirmation; the receipt toast carries Undo, a run that changed nothing says nothing, and a note the run would write that has unsaved edits is left alone and named. Only edits made in this app fire: a change that arrives by sync or from another device does not, what a run itself writes never fires again, a folder rename does not fire for the notes inside it, and the phone apps do not fire at all. `status: draft` or `trigger: manual` silences one workflow; Settings → Workflows → Event triggers (`workflow_event_triggers` under `[view]` in config.toml) silences them all on this device. A `schedule` trigger still parses without firing.'
   }
@@ -694,6 +744,7 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
   {
     id: 'quick-capture-window',
     title: 'Quick capture window',
+    only: 'desktop',
     description: 'These apply inside the floating capture window, opened with the quick capture hotkey.',
     items: [
       { keys: 'Mod+Enter', action: 'Save and hide', detail: 'Save the note into Quick Notes and hide the window. A fresh capture clears for next time; an opened note is left as you left it.' },
@@ -726,13 +777,13 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
       { keys: 'Space G', action: 'Folder gallery', detail: 'Open the Gallery of the folder under the sidebar cursor (while the sidebar has focus) or of the open note’s folder: its notes as cards led by their covers. h / j / k / l move, Enter opens, / filters by title. A capital G, since `Space g` is the Atlas.' },
       { keys: 'Space k', action: 'New Kanban', detail: 'Create a Kanban board (To do, Doing, Done) in the folder under the sidebar cursor while the sidebar has focus, otherwise where new databases go, and open it. Also New Kanban in the palette and `:kanban`.' },
       { keys: 'Space v', action: 'Switch vault', detail: 'Open the command palette directly to the local vault switcher.' },
-      { keys: 'Space I', action: 'Import notes', detail: 'Open the Import window, for Notion and Obsidian.' },
-      { keys: 'Space F', action: 'Open vault folder', detail: 'Open the current vault’s folder in Finder, File Explorer or your file manager. Desktop, local vaults only.' },
+      { only: 'desktop', keys: 'Space I', action: 'Import notes', detail: 'Open the Import window, for Notion and Obsidian.' },
+      { only: 'desktop', keys: 'Space F', action: 'Open vault folder', detail: 'Open the current vault’s folder in Finder, File Explorer or your file manager. Desktop, local vaults only.' },
       { keys: 'Space a', action: 'Open workflows', detail: 'Open the Workflows view, where saved pipelines over your notes are built and run. Workflows are off by default; turn them on under Settings → Workflows first.' },
       { keys: 'Space r', action: 'Review Cloud conflicts', detail: 'Open whatever Cloud sync is waiting on: the queue of files two devices changed at once, one decision at a time, or the vault settings question, which lists each setting that differs with this device’s value beside the cloud’s and lets you pick a side per setting. When the open note is one of the waiting files, the queue starts on it. A waiting note also says so across its top, in Edit and Preview alike: sync is paused for it until you choose what to keep, and its Review button opens the queue on it. Choosing the other device’s version puts the file where that device left it; when this device already has a different file there, that file moves beside it under the next free name, such as Untitled 2.md. A notification with Review appears once when a new conflict arrives. When the Cloud vault this vault syncs with is deleted, on this device, another device or the website, the status bar says Cloud vault deleted and the binding opens Settings → Cloud instead, where This vault says what happened until you choose a cloud vault, start a new one, or dismiss the notice. If another device moved it into an end-to-end encrypted vault, the status bar says Cloud vault now encrypted instead, and This vault asks you to unlock this device if needed, then choose the encrypted vault. The binding and the command palette entry appear only while something is waiting, and open the same place as Review in the status bar.' },
       { keys: 'Space g', action: 'Open atlas', detail: 'Open the Atlas view: the whole vault drawn as a map of notes and links.' },
       { keys: 'Space q', action: 'Quick capture window', detail: 'Open the floating, always-on-top capture window, same as the global hotkey.' },
-      { keys: 'Space b', action: 'Hide to tray', detail: 'With Settings → Appearance → Keep running in the tray on, hide this window. ZenNotes keeps running, Cloud sync and the Quick capture hotkey keep working, and the tray icon brings the window back. Hide Window to Tray in the command palette does the same.' },
+      { only: 'desktop', keys: 'Space b', action: 'Hide to tray', detail: 'With Settings → Appearance → Keep running in the tray on, hide this window. ZenNotes keeps running, Cloud sync and the Quick capture hotkey keep working, and the tray icon brings the window back. Hide Window to Tray in the command palette does the same.' },
       { keys: 'Space i', action: 'Insert template into note', detail: 'Pick a template and insert it at the cursor of the active note, instead of creating a new note from it. Without Vim mode, give “Insert template into current note” a key under Settings → Keymap.' },
       { keys: 'Space c', action: 'Toggle calendar', detail: 'Show or hide the calendar panel for the active pane.' },
       { keys: 'Space n', action: 'Toggle timeline', detail: 'Show or hide the Timeline panel for the active pane, and move the keyboard into it: j / k move, gg / G jump to the ends, x ticks the task, Enter opens it at its line, m opens the task menu, / focuses the filter, and Esc goes back to the note. Mod+7 toggles it in any mode.' },
@@ -905,6 +956,7 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
   {
     id: 'workflows-view',
     title: 'Workflows view',
+    only: 'workflows',
     description:
       'Off by default; enable under Settings → Workflows. The single-letter keys below are Vim-mode only, like every list in the app; arrows, Enter, and Esc always work, and Shift+F10 (or the ContextMenu key) opens the row menu in either mode.',
     items: [
@@ -1281,6 +1333,7 @@ export const HELP_VIM_COMMANDS: HelpExCommand[] = [
   },
   {
     command: '<Space> F',
+    only: 'desktop',
     summary: 'Leader open vault folder',
     detail: 'Open the current vault’s folder in the system file manager.'
   },
@@ -1388,7 +1441,7 @@ export const HELP_SETTINGS: HelpSettingsSection[] = [
       { label: 'Theme, mode, and variant', detail: 'Pick a theme family: Apple, Gruvbox, Catppuccin, GitHub, Solarized, One, Nord, Tokyo Night, Kanagawa (Wave / Dragon / Paper Ink (Custom) / Lotus), Rosé Pine (Rosé Pine / Moon / Dawn), or the monochrome, true-black (OLED-friendly) Black Metal, plus light or dark mode and the active flavor or contrast where the theme supports it.' },
       { label: 'Window title bar', detail: 'Under Settings → Appearance → Chrome, turn off Window title bar to remove the main window title and controls on macOS, Windows, and Linux, including tiling desktops such as Hyprland. The sidebar and editor stay visible, and the change applies to open vault windows without a restart. Drag blank space in the tab strip, the sidebar header or the note list header to move the window, or use your window manager shortcuts. Press Cmd/Ctrl+, to restore the setting. The preference is saved as [appearance].show_window_title_bar in config.toml. In the browser app the same switch is called Title bar: it hides the bar with the open note’s title, in that browser.' },
       { label: 'Status bar', detail: 'Under Settings → Appearance → Chrome, Status bar shows or hides the bar along the bottom of the window: the ZenNotes Cloud status (Synced, Sync now, Set up) and, on desktop, the open note’s backlinks, words, characters, reading time and cursor position. It is on by default. Turned off, the bar stays hidden except while Cloud needs you: a sync that stopped or failed, files or vault settings waiting for review, a Cloud vault that went away, or a device that was signed out. Then it comes back until that is dealt with, so nothing that needs an answer goes silent. On Android the bar is the Cloud row at the bottom of the screen, and turning it off gives that row back to the note; the iPhone already shows that row only while Cloud needs you. Toggle it from the command palette (Toggle Status Bar) or, in Vim mode, with `:set nostatusbar` and `:set statusbar`. The preference is saved as [appearance].show_status_bar in config.toml.' },
-      { label: 'Keep running in the tray', detail: 'Off by default. Under Settings → Appearance → Window, turn it on and closing the last window hides it instead of ending the session: a ZenNotes icon in the system tray (the menu bar on macOS) stays, Cloud sync and the Quick capture hotkey keep working, and the icon\'s tooltip and menu show the sync state while a Cloud vault is linked. Click the icon, or choose Open ZenNotes in its menu, to bring the window back; on macOS the Dock icon does too. Quit from the icon\'s menu, with Quit ZenNotes in the command palette, or with Cmd+Q on macOS. On a desktop with no tray host the icon does not appear: open ZenNotes again and the window comes back. `Space b` (Hide Window to Tray in the palette) hides the window on purpose, which a tiling window manager cannot do with minimise. The setting belongs to this computer and is not part of config.toml. While ZenNotes runs it also checks for updates every six hours, not only at launch.' },
+      { only: 'desktop', label: 'Keep running in the tray', detail: 'Off by default. Under Settings → Appearance → Window, turn it on and closing the last window hides it instead of ending the session: a ZenNotes icon in the system tray (the menu bar on macOS) stays, Cloud sync and the Quick capture hotkey keep working, and the icon\'s tooltip and menu show the sync state while a Cloud vault is linked. Click the icon, or choose Open ZenNotes in its menu, to bring the window back; on macOS the Dock icon does too. Quit from the icon\'s menu, with Quit ZenNotes in the command palette, or with Cmd+Q on macOS. On a desktop with no tray host the icon does not appear: open ZenNotes again and the window comes back. `Space b` (Hide Window to Tray in the palette) hides the window on purpose, which a tiling window manager cannot do with minimise. The setting belongs to this computer and is not part of config.toml. While ZenNotes runs it also checks for updates every six hours, not only at launch.' },
       { label: 'Dark sidebar', detail: 'Tint the sidebar slightly darker than the canvas so the chrome reads as a distinct surface.' },
       { label: 'Sidebar arrows', detail: 'Show or hide disclosure arrows for collapsible sidebar folders and sections.' },
       { label: 'Use theme for PDF export', detail: 'Under Settings → Appearance → PDF export. Off by default, so exported PDFs use a clean light print theme. Turn it on to export in your current look instead: your theme (colors and dark/light, including custom themes), plus your enabled CSS snippets and color tweaks, as a full-bleed page. This toggle is the single switch for how the PDF looks; your CSS snippets style the export only while it is on, so you customize the PDF by editing your snippets, not with a separate print stylesheet.' }
@@ -1454,7 +1507,7 @@ export const HELP_SETTINGS: HelpSettingsSection[] = [
   {
     title: 'Vault',
     items: [
-      { label: 'Vault location', detail: 'Open the folder ZenNotes treats as the active vault in Finder, File Explorer or your file manager, or change it.' },
+      { only: 'desktop', label: 'Vault location', detail: 'Open the folder ZenNotes treats as the active vault in Finder, File Explorer or your file manager, or change it.' },
       { label: 'Vault name', detail: 'What the sidebar header, the vault switcher and the title bar call this vault; the folder keeps its own name on disk. Leave it empty to use the folder name. Saved in the vault’s `.zennotes/vault.json`, so it follows the folder wherever it is opened. Also “Rename Vault…” in the command palette (`:vault_rename`) and the sidebar’s vault menu. Local vaults only.' },
       { label: 'Primary notes location', detail: 'Treat `inbox/` as the main notes area, or use the vault root directly for an Obsidian-style flat vault.' },
       { label: 'Default Locations', detail: 'Choose where new Excalidraw drawings, databases (Kanbans included), and task files are created so they do not pile up in the vault root: the primary notes location (the default), the folder of the note you are currently viewing, or a specific folder you name (e.g. `Drawings` or `Tasks`). A specific folder lives inside the primary notes area, so `Tasks` means `inbox/Tasks/` in an Inbox vault and `Tasks/` in a root vault; the folder field lists the folders there and shows the exact destination. In a root vault, a folder under `assets/` (or another attachments folder, or a hidden one) cannot hold notes, so new files go to the vault root instead and the field says why. New task files come from `+ New task`, the `a` key in the Tasks view, `:newtask` and the command palette; `New Task in Folder…` and `:newtask <folder>` still pick a folder per task. Search Settings for "tasks folder" or "drawings folder" to jump there. Only new files are affected; existing ones stay put.' },
@@ -1481,6 +1534,7 @@ export const HELP_SETTINGS: HelpSettingsSection[] = [
   },
   {
     title: 'CLI',
+    only: 'desktop',
     items: [
       { label: 'Install Command-Line Tool', detail: 'Symlink the bundled `zn` wrapper into a usable PATH location so any terminal session can capture, search, and edit notes. ZenNotes prefers user-writable directories and only prompts for admin access when no writable PATH target is available. The app carries the tested CLI runtime, so desktop-managed updates ship together. Builds with the terminal app install a persistent copy that also works after desktop closes.' },
       { label: 'Status, path, and quick reference', detail: 'Settings → CLI shows whether `zn` is installed, where the symlink lives, and a copy-able quick reference of the most useful commands. If the chosen directory is not on PATH yet, Settings shows the exact shell command to add it. An "External install" badge appears when something else owns `zn` so ZenNotes never clobbers an unmanaged binary.' },
@@ -1511,6 +1565,7 @@ export const HELP_SETTINGS: HelpSettingsSection[] = [
   },
   {
     title: 'Workflows',
+    only: 'workflows',
     items: [
       { label: 'Workflows', detail: 'Off by default. Turn it on to add the Workflows view (sidebar row, palette commands, and the Space a leader binding in Vim mode): saved, repeatable pipelines over your notes, edited on a canvas and run behind a dry-run confirmation with whole-run undo. Turning it off hides all of that again and closes the view if it is open.' }
     ]
@@ -1522,9 +1577,9 @@ export const HELP_SETTINGS: HelpSettingsSection[] = [
       { label: 'Version details', detail: 'Under the version, a Version details block lists what a bug report needs: operating system and architecture, the Electron or browser engine, how this copy was installed, and the remote server version when connected to one. Copy details puts the block on the clipboard. In Vim mode, `:version` prints the same lines and `:version copy` copies them.' },
       { label: 'What’s New', detail: 'The first time ZenNotes starts after an update, a window shows what the version brought, once: its highlights, any announcement, and a link to the full release notes. Escape or Close dismisses it. Open it again any time with What’s New in ZenNotes in the command palette, or `:whatsnew` in Vim mode.' },
       { label: 'Count this copy anonymously', detail: 'Once when ZenNotes is installed and once per update, the desktop app sends zennotes.org the version, operating system, architecture and install type, so we know how many copies are in use. It carries no identifier and nothing about your notes, vaults or account, and only daily totals are kept. On by default; turn it off here to send nothing. Set in config.toml as `[privacy] usage_count`.' },
-      { label: 'Updates and releases', detail: 'Check for updates, download a newer build, install and relaunch, or jump straight to the latest GitHub release from inside the app. AUR and tarball installs get the check and the notice only; the package manager does the install.' },
+      { only: 'desktop', label: 'Updates and releases', detail: 'Check for updates, download a newer build, install and relaunch, or jump straight to the latest GitHub release from inside the app. AUR and tarball installs get the check and the notice only; the package manager does the install.' },
       { label: 'Website, community, and issue links', detail: 'The app now exposes direct links to the ZenNotes website, Discord, GitHub repository, and issue tracker so support paths stay discoverable.' },
-      { label: 'Configuration file', detail: 'Your preferences (theme, editor, Vim, keymaps, fonts, search backend, and more) are mirrored to a plain-text `config.toml` so you can sync them across machines with git, stow, or chezmoi. It lives at `$XDG_CONFIG_HOME/zennotes/config.toml` (`~/.config/zennotes/config.toml` on macOS and Linux, `%APPDATA%\\zennotes\\config.toml` on Windows), or wherever `$ZENNOTES_CONFIG_DIR` points. The file is self-documenting: every available setting is listed with its allowed values, and every keymap action is listed with its default binding (commented out: uncomment a line and edit it to remap, or set it to `""` to remove the key entirely), and every command palette command is listed under `[keymaps.commands]` (`"note.trash" = "Mod+Backspace"`, or `"note.archive" = "Leader x a"` for a leader sequence; a command id written straight under `[keymaps]` is read as a command key too and moved to that table on the next save), so you can discover and change anything without opening the app. That list reads the same on every OS: where macOS has its own default, the line notes it, as in `# "tabs.select1" = "Alt+1"  # Go to tab 1 (macOS: "Ctrl+1")`, so a file synced between a Mac and a Linux or Windows machine changes only when you change a setting. Settings → About has Reveal and Copy-path buttons. Existing setups are written out automatically the first time you launch this version, and edits to the file, by hand or via a synced dotfile, apply live without a restart. Tables and keys only zn uses, like `[terminal]`, stay in the file when the app saves it. Machine-specific layout (window size, pane widths, collapsed folders) stays local so the file does not churn.' },
+      { only: 'desktop', label: 'Configuration file', detail: 'Your preferences (theme, editor, Vim, keymaps, fonts, search backend, and more) are mirrored to a plain-text `config.toml` so you can sync them across machines with git, stow, or chezmoi. It lives at `$XDG_CONFIG_HOME/zennotes/config.toml` (`~/.config/zennotes/config.toml` on macOS and Linux, `%APPDATA%\\zennotes\\config.toml` on Windows), or wherever `$ZENNOTES_CONFIG_DIR` points. The file is self-documenting: every available setting is listed with its allowed values, and every keymap action is listed with its default binding (commented out: uncomment a line and edit it to remap, or set it to `""` to remove the key entirely), and every command palette command is listed under `[keymaps.commands]` (`"note.trash" = "Mod+Backspace"`, or `"note.archive" = "Leader x a"` for a leader sequence; a command id written straight under `[keymaps]` is read as a command key too and moved to that table on the next save), so you can discover and change anything without opening the app. That list reads the same on every OS: where macOS has its own default, the line notes it, as in `# "tabs.select1" = "Alt+1"  # Go to tab 1 (macOS: "Ctrl+1")`, so a file synced between a Mac and a Linux or Windows machine changes only when you change a setting. Settings → About has Reveal and Copy-path buttons. Existing setups are written out automatically the first time you launch this version, and edits to the file, by hand or via a synced dotfile, apply live without a restart. Tables and keys only zn uses, like `[terminal]`, stay in the file when the app saves it. Machine-specific layout (window size, pane widths, collapsed folders) stays local so the file does not churn.' },
       { label: 'Lumary Labs', detail: 'The About section links to Lumary Labs at lumarylabs.com so company details stay easy to find from inside the app.' }
     ]
   }
@@ -1533,87 +1588,133 @@ export const HELP_SETTINGS: HelpSettingsSection[] = [
 export const HELP_CLI: HelpCard[] = [
   {
     title: 'What the CLI is for',
+    only: 'computer',
     body:
       '`zn` is a command-line companion that talks to your vault directly. It reads and writes the same markdown files the app does, so anything you do in a terminal (capture, search, append, archive, list tasks) shows up in the app instantly. Use it for shell pipelines, scripts, cron jobs, editor plugins (vim, emacs, helix), launcher integrations (Raycast, Alfred), or just because the keyboard is faster.'
   },
   {
     title: 'Install it once from Settings',
+    only: 'desktop',
     body:
       'Open Settings → CLI and click Install. ZenNotes symlinks the bundled wrapper into a usable PATH location, preferring user-writable directories and only asking for admin access when no writable PATH target is available. After that, `zn --help` works in any new terminal. You can also run the install from the command palette via "Install Command-Line Tool (zn)".'
   },
   {
     title: 'The terminal app and existing installations',
+    only: 'desktop',
     body:
       'Builds with the Go terminal tool include `zn tui`. An existing desktop-managed CLI keeps itself up to date (see Updates arrive without a ZenNotes update); keep using the same `zn` commands. Settings shows the installed terminal version and offers Repair if an upgrade needs attention. Desktop-installed commands keep following the desktop vault, while the TUI remembers its own selection. Explicit `--vault` and `--server` flags still win. Set `ZENNOTES_WORKSPACE_SOURCE=terminal` to use the terminal default for a command, or `ZENNOTES_CLI_ENGINE=legacy` to run the previous CLI during the transition. Homebrew and manual installations stay managed by their own installer. A shortcut left behind by a moved Mac app or an old AppImage can be repaired from Settings: review the old target, replacement and backup path before choosing Repair shortcut. Note saves preserve creation dates in small files under `.zennotes/note-metadata` without changing Markdown; keep the `.zennotes` folder with vault backups. Explicit legacy rollback needs the original app resources to remain available.'
   },
   {
     title: 'CLI 0.17.0 in desktop 2.83.0',
+    only: 'desktop',
     body:
       'On macOS and Linux, desktop 2.83.0 bundles CLI 0.17.0. Run `zn` in an interactive terminal or `zn tui` to open the editor. It includes editable settings, restored splits and sessions, comments, attachments, templates, bulk actions, and cross-note yank and paste. Use `:version` in the TUI for a persistent report and press `c` or `y` to copy it. `zn status`, `zn doctor`, `zn config`, and `zn completion` help with setup and scripts; `zn server` manages native local servers, also available through `:servers`. Since 0.6.1, `zn vault list` marks each entry `app` (saved by this desktop app) or `terminal` (saved by zn itself) and says which of them `zn use`, `zn disconnect` and `zn vault remove` act on; every command starts without waiting on terminals that do not answer a background-color query; and the help output lines up. 0.6.2 is the first release with a signed manifest, which is how this app keeps its managed zn current, 0.6.3 reads a line over a lone `-` as a paragraph, as the app does (#898), and 0.7.0’s `zn mcp` records an assistant’s edits for review in this app and no longer lets an assistant write into `.zennotes`. 0.7.1 leaves cancelled tasks out of the open ones in `zn task list` and in `zn mcp`’s `list_tasks` (#929), and when a server needs a token, its message points to Settings → MCP → Server token. 0.7.2 reads tasks in numbered lists and quotes the way the app does, in `zn task` and in `zn mcp`, and 0.8.0 adds `zn task watch`, which prints each task status change as it happens, and gives each task’s status in `zn task list --json` and in `list_tasks`. 0.8.1 keeps a finished task note in its Custom status column and gives `zn mcp` this app’s assistant instructions again, and 0.9.0 follows the vault’s Task folders in `zn task list`, `zn task watch` and `zn mcp`, and the TUI’s Settings saves both Tasks folder lists where every app reads them. 0.9.1 keeps a wikilink of more than one word from widening the TUI preview’s row and scrolling the whole screen. 0.9.2 lets a second `$` on a wrapped line reach the end of the line and makes three backticks a code fence, 0.10.0 adds `zn base pages`, which gives every database record its record page so each can be linked, and 0.11.0 gives a task without a due date its own No due date group and Status board column, as this app does (#990), and orders the task list by priority with `O` or `:order priority` (#989). 0.12.0 can draw display math and TikZ in the TUI preview with `[terminal] math = "latex"`, using TeX installed on your computer (zn does not include TeX; `zn doctor` prints the install commands), 0.12.1 fits pictures in the preview to the pane as it grows or shrinks, 0.12.2 says which TeX tool is missing and how to install it, and 0.13.0 lets `zn mcp` share only part of a vault (`--allow-path`, `--deny-path`, `--read-only`, `--access`; see Share part of a vault with an assistant), keeps assistants out of hidden and system folders, and puts a row `zn base add` makes into the picked rows of the view the database opens on; 0.13.1 leaves the template folder out of tasks, search and tags, as the app does; 0.14.0 adds month, week and day views to the TUI’s Tasks calendar, a bar cursor while you type, a note’s own view mode from its frontmatter (`[terminal] view_mode_field` and `[terminal.view_mode_rules]`), and opens every new note in the editor; and 0.15.0 stops undo from wiping a note, lets autosave be turned off (`[terminal] autosave = false`), and makes `gd` follow links the way the desktop does. 0.16.0 gives `zn mcp` tools for attachments, `update_task`, `daily_note` and sections. 0.17.0 draws Mermaid diagrams at any pane width, keeps a note’s control sequences out of your terminal, keeps code literal in the preview, and reads a table’s `[[Note\\|alias]]` as a link. Run `zn update --check` to see the latest CLI release; for a desktop-managed CLI, ZenNotes installs it. The full command reference is at https://zennotes.org/tui/docs.'
   },
   {
     title: 'Updates arrive without a ZenNotes update',
+    only: 'desktop',
     body:
       'For a zn installed from Settings → CLI, ZenNotes checks the latest zn release once a day and installs it when it is newer than the zn you have, so a CLI fix no longer waits for a ZenNotes release. Every release carries a manifest signed with the ZenNotes release key: ZenNotes checks that signature and the download\'s checksum, then runs the new zn once to confirm it answers before switching to it, so a failed or tampered download never replaces a working CLI. The zn a ZenNotes build ships is its floor: a newer release stays installed across restarts, and a ZenNotes update that ships something newer takes over. A release that needs a newer ZenNotes waits until you update ZenNotes. Turn off Update zn automatically in Settings → CLI → Updates to be told instead; Check for updates there, or Check for zn Updates… in the command palette, checks right away. A zn installed with Homebrew, Go or by hand keeps updating through its own installer (`zn update`).'
   },
   {
     title: 'No app required',
+    only: 'computer',
     body:
       'The CLI reads from the same vault folder the desktop app uses, so it works whether or not ZenNotes is open. When the app is open, file watchers pick up CLI changes automatically, so captures and edits show up live in the sidebar.'
   },
   {
     title: 'Point it at a self-hosted server',
+    only: 'computer',
     body:
       'Every command works against a vault behind a ZenNotes server, not just one on this disk. Once you have connected the desktop app to a server, that server is nameable from the terminal: `zn list --server home`, `zn capture "..." --server home`. `zn vault list` shows local vaults and servers together, and `--vault <name>` resolves either kind, so the short name you already type keeps working. Pass a URL directly for a server you have not saved (`zn list --server 192.168.1.10:7878`) and `--token` for its auth token. For CI or a headless box, set `ZENNOTES_SERVER` and `ZENNOTES_REMOTE_TOKEN` instead of storing anything on disk. `zn open` is the one exception: it hands file paths to the desktop app, so it needs a local vault.'
   },
   {
     title: 'Capture is the gateway drug',
+    only: 'computer',
     body:
       'The fastest way to add a note is `zn capture "..."`. Pipe-friendly: `pbpaste | zn capture --tag idea` lifts the clipboard into a tagged note. The first non-empty line becomes the title. Markdown works too: `zn capture "- [ ] buy milk"` keeps the leading `- [ ]` as a task in the body (so it appears in the Tasks view) while the title reads "buy milk".'
   },
   {
     title: 'Read and search from the terminal',
+    only: 'computer',
     body:
       'Use `zn list` to see recent notes, `zn list --tag work --limit 5` to filter, `zn read inbox/Project.md` to print a body, and `zn search "deadline"` for full-text matches with file:line previews. Quote paths with spaces, like `zn read "hellointerview/system design.md"`, or use `--path`. Add `--json` to any command to get structured output you can pipe into `jq`.'
   },
   {
     title: 'Open notes, folders, and a second window',
+    only: 'computer',
     body:
       '`zn open inbox/Today.md` brings the ZenNotes window to the front with that note loaded, and `zn open ~/code/project/docs` opens a folder as a focused session without turning it into a vault. When a window already shows the vault or folder, `zn open` raises that window. Add `-n` (or `--new-window`) for a second window on the same notes instead, with its own tabs, leaving the first window where it was: `zn open -n ~/notes`. A markdown file outside every vault always reuses its editor window, since nothing keeps two standalone editors of one file in sync.'
   },
   {
     title: 'Raycast uses the same CLI',
+    only: 'desktop',
     body:
       'On macOS, install the Raycast extension locally from Settings → CLI after `zn` is installed. ZenNotes copies the bundled extension into app data, runs the local build, and imports it into Raycast, so you do not need the Raycast Store version. The Search Notes command reads from `zn list --json`, then uses `zennotes://open` to open notes in the main app or `zennotes://open-window` to open a floating window. Cmd+K actions also archive, unarchive, move to Trash, reveal in Finder, copy the path, and copy a wikilink.'
   },
   {
     title: 'Raycast local install requirements',
+    only: 'desktop',
     body:
       'The local Raycast installer is macOS-only. It needs Raycast, the `zn` CLI, Node.js 22.14 or newer, and npm 7 or newer available from your login shell. Settings shows each requirement, the local extension path, and whether the installed copy is current with the bundled ZenNotes version.'
   },
   {
     title: 'Edit incrementally',
+    only: 'computer',
     body:
       'Prefer `zn append` and `zn prepend` over `zn write` for journals and running lists: they preserve the rest of the body. Both accept `--body "literal"` or `--body -` to read stdin (so `cat ideas.txt | zn append daily.md --body -` works).'
   },
   {
     title: 'Tasks and folders',
+    only: 'computer',
     body:
       '`zn task list` enumerates open checkboxes across the vault with stable ids; with `--json`, each task also carries its status. `zn task toggle <id>` flips a task without opening the note. `zn task watch` prints a line each time a task’s status changes, with the previous and the new status: a card moved on the Kanban board, a task note’s `status:` or a line’s `@status:` edited, or a box checked. With `--json` each change is one line of JSON, so a script can start an agent when a task becomes ready; zn only reports, and whatever runs is your own script. `zn folder list / create / rename / delete` keep your subfolder tree manageable from the terminal.'
   },
   {
     title: 'MCP for AI agents',
+    only: 'computer',
     body:
       '`zn mcp` starts the ZenNotes MCP server in stdio mode, the same one Claude Code, Claude Desktop, and Codex use under the hood. The Claude desktop app\'s Code tab runs Claude Code, so it reads the **Claude Code (CLI + Desktop Code tab)** entry in Settings → MCP; **Claude Desktop (Chat)** reaches only its Chat tab. Once `zn` is installed from Settings → CLI, Settings → MCP installs configure the clients to launch `zn mcp` directly, so the install path is one stable absolute path that survives app moves; otherwise, a `zn` installed some other way included, they run the server bundled with the app. The server works on the vault the app has open: a folder on this machine, or a self-hosted ZenNotes server you connected from Settings → Vault. `vault_info` says which. Switch vaults in the app and the server follows: the assistant\'s next tool call is refused with a note naming the old and the new vault, and once `vault_info` confirms the switch it carries on in the new one, so nothing planned in one vault lands in the other. A server that requires a token needs one the MCP server can read, because the app keeps its own copy in the OS secret store. Settings → MCP → Server token → **Let assistants use it** saves it to `credentials.toml` in the config folder, the file `zn connect` writes and both servers read (`zn mcp` and the bundled one), and the assistant\'s next call uses it. Any program running as you can read that file, so it is your choice: **Stop sharing** removes the token, forgetting the server in Settings → Vault removes it too, and a new token you save for the server replaces it. From a terminal, `zn connect <server-url> --no-default` saves it the same way without changing which vault `zn` follows, and `ZENNOTES_REMOTE_TOKEN` in the MCP client\'s environment works as well. To point an agent somewhere else, give the command the same flags every other `zn` command takes: `zn mcp --vault work` or `zn mcp --server home --token <token>` in the client\'s config, or `ZENNOTES_SERVER` / `ZENNOTES_VAULT` in its environment. Beyond reading and writing notes, the server can hold a review with you through comments: ask the assistant to read a note\'s comments and answer them, and its replies land in the Comments panel under yours, signed with its name (`list_comments`, `add_comment`, `reply_to_comment`, `resolve_comment`).\n\nIt can work with attachments too. `list_assets` lists every file in the vault that is not a note, `read_asset` returns one up to 5 MiB (an image the model can see, text as text, anything else as an embedded file), and `upload_asset` adds a file from base64, up to 16 MiB, to the `assets` folder without overwriting anything and returns the embed to paste into a note. `rename_asset` and `move_asset` update the notes that link to the file and name any that may still use the old name, `duplicate_asset` copies it, and `delete_asset` moves it to the Trash with a token `restore_asset` takes; `list_assets` with `deleted: true` shows what can come back. Permanent deletion stays in the app. Files reach `upload_asset` as base64 in the tool call, so a model that writes it out itself only manages small ones; there is deliberately no argument that reads a path on your computer, since that would let an assistant with no file access of its own pull any of your files into the vault.\n\nFour more save an assistant from guessing. `update_task` changes a task\'s due date, priority, `@waiting`, state, status or text by its id, `daily_note` finds the daily, weekly or monthly note for a date under the vault\'s own settings and says how to start it if it does not exist, `note_sections` lists a note\'s headings or reads the part under one, and `edit_section` appends to, prepends to or replaces that part.'
   },
   {
     title: 'Share part of a vault with an assistant',
+    only: 'computer',
     body:
       'An assistant connected through MCP sees the whole vault unless its launch flags say otherwise, and the server enforces them on every tool: listings, search, tags, tasks, backlinks, assets, comments and error messages, so a hidden note cannot be listed or read another way. One thing can still show: a new or moved file takes a number when a hidden file already has its name. `--allow-path <path>` shares only that folder or note and what is inside it (repeat it for more), `--deny-path <path>` hides one even inside an allowed folder, `--read-only` offers the reading tools only, and `--access comment` adds the comment tools to them. Paths are vault-relative, as the tools report them: `Projects` in a vault that keeps notes at its root, `inbox/Projects` in one with an Inbox folder, and a system folder you moved under its own name (`99 Archive/Projects` shares that folder\'s archived notes). A path covers the folder and everything below it, never a sibling that only starts with the same letters, and case and accents do not matter, except that an `--allow-path` with accents shares only a folder that has them. `zn mcp` and the server bundled with the app take the same flags and give the same answers; add them after the command in the client\'s config, for example `"args": ["mcp", "--allow-path", "Projects", "--read-only"]`. Settings → MCP then shows that client as **Needs update**, and updating it there removes the flags.\n\nWhat the assistant gets: a hidden note answers exactly like a missing one (`Note not found`), and so do paths through a symbolic link, case variants and the `.zennotes` folder. Its errors and `vault_info` never show where the vault lives on disk, and `vault_info` lists what was shared under `access`. Tools it cannot use are not offered, and `empty_trash` never is once paths are restricted, since it would delete trashed notes it cannot see. New notes, moves and restores land only inside allowed folders, never through a symbolic link; archiving or trashing a note it can see is allowed even when the archive or trash is not shared, and the note then leaves its view. A `--deny-path` follows a note into the other system folders, however it names the folder: `Journal` also hides `archive/Journal`. `duplicate_note` refuses a copy that would land outside what is shared. A folder is renamed or deleted as a whole only when nothing inside it is hidden. Renaming a note rewrites `[[links]]` only in notes the assistant can see with `zn mcp`, and in none with the bundled server; on a self-hosted ZenNotes server, which rewrites links in every note, an assistant that sees part of the vault cannot rename notes. Attachments follow the same paths: a file is visible when its path is, and a hidden one answers `Asset not found`, like a missing one. Name them in the flags as `list_assets` shows them (`--allow-path assets`, `--deny-path assets/private`). `upload_asset` writes only to `assets`, so it needs that folder shared. Renaming or moving a file rewrites links only in notes the assistant can see. On a self-hosted server, an assistant that sees part of the vault cannot rename, move, read or copy a file; it can list, upload, delete and restore. `daily_note` gives no template, since a template is not filed under any folder a path can name, and where a note\'s folder is not shared it says so rather than offering to create it. A `--deny-path` that names nothing in the vault (renamed outside ZenNotes, or meant for another vault) shares nothing at all until it is fixed, so a rename never quietly reveals what it hid; the MCP server\'s log, which the client keeps, names the entry.\n\nThe flags govern the ZenNotes tools only. An assistant that can also run commands or read files (Claude Code, Codex, OpenCode) can still read the vault from disk.'
   },
   {
     title: 'Review an assistant’s edits',
+    only: 'computer',
     body:
       'When an assistant changes a note through MCP (`write_note`, `append_to_note`, `prepend_to_note`, `insert_at_line`, `replace_in_note`, `edit_section`, `toggle_task`, `update_task`), ZenNotes keeps what the note said before, beside it in `.zennotes/agent-edits/`. The note then shows a banner, “Claude Code changed this note 4 minutes ago”, and **Review changes** opens the review in the note itself: each change inline, the removed lines above the new ones, with **Accept** and **Reject** on each and **Accept all**, **Reject all** and **Done** on top. Reject puts the old text back. The note is read-only while you review, and once every change is decided the kept copy is deleted. What you typed after the assistant is yours and is not part of the review. Keys: Ctrl+Alt+↓ and Ctrl+Alt+↑ (Cmd+Option on macOS) move between changes, Ctrl+Shift+Enter (Cmd+Shift+Enter) accepts and Ctrl+Shift+Backspace (Cmd+Shift+Backspace) rejects; in Vim mode, Vim’s diff-mode keys: `]c` and `[c` move, `dp` keeps a change and `do` puts back what it replaced. Escape or **Done** leaves the review and keeps what is undecided. The palette lists every note waiting (**Review Agent Changes**). To tell the assistant why, comment on a change before you decide it; it reads comments with `list_comments`. Turn it off in Settings → MCP → **Review agent edits**. Not kept yet: notes in a vault on a self-hosted server, new notes an assistant creates, and moves, renames and deletions (Trash keeps those).'
   }
 ]
+
+/** The manual as this host shows it. On the desktop app, the whole of it. */
+export function helpForHost(host: HelpHost): {
+  quickStart: HelpCard[]
+  howTo: HelpCard[]
+  concepts: HelpCard[]
+  shortcuts: HelpShortcutSection[]
+  vim: HelpExCommand[]
+  settings: HelpSettingsSection[]
+  cli: HelpCard[]
+} {
+  const applies = (entry: { only?: HelpAvailability }): boolean =>
+    helpAppliesTo(entry.only, host)
+  return {
+    quickStart: HELP_QUICK_START.filter(applies),
+    howTo: HELP_HOW_TO_GUIDES.filter(applies),
+    concepts: HELP_CORE_CONCEPTS.filter(applies),
+    shortcuts: HELP_SHORTCUT_SECTIONS.filter(applies).map((section) => ({
+      ...section,
+      items: section.items.filter(applies)
+    })),
+    vim: HELP_VIM_COMMANDS.filter(applies),
+    settings: HELP_SETTINGS.filter(applies).map((section) => ({
+      ...section,
+      items: section.items.filter(applies)
+    })),
+    cli: HELP_CLI.filter(applies)
+  }
+}

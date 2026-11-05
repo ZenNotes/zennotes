@@ -8,13 +8,9 @@ import {
   type KeymapOverrides
 } from '../lib/keymaps'
 import {
-  HELP_CLI,
-  HELP_CORE_CONCEPTS,
-  HELP_HOW_TO_GUIDES,
-  HELP_QUICK_START,
+  helpForHost,
   HELP_SETTINGS,
-  HELP_SHORTCUT_SECTIONS,
-  HELP_VIM_COMMANDS
+  HELP_SHORTCUT_SECTIONS
 } from '../lib/help'
 import { parseHelpKeys } from '../lib/help-keys'
 import { helpSearchText, renderHelpRichText } from '../lib/help-rich-text'
@@ -276,33 +272,40 @@ export function HelpView(): JSX.Element {
 
   const allCommands = buildCommands({ includeUnavailable: true })
 
+  const appInfo = window.zen.getAppInfo()
+  const supportsWorkflows = window.zen.getCapabilities().supportsWorkflows
+  const manual = useMemo(
+    () => helpForHost({ runtime: appInfo.runtime, hostKind: appInfo.hostKind, supportsWorkflows }),
+    [appInfo.runtime, appInfo.hostKind, supportsWorkflows]
+  )
+
   const quickStart = useMemo(
     () =>
-      HELP_QUICK_START.filter((card) =>
+      manual.quickStart.filter((card) =>
         matchesQuery(deferredQuery, card.title, card.body)
       ),
-    [deferredQuery]
+    [deferredQuery, manual]
   )
 
   const coreConcepts = useMemo(
     () =>
-      HELP_CORE_CONCEPTS.filter((card) =>
+      manual.concepts.filter((card) =>
         matchesQuery(deferredQuery, card.title, card.body)
       ),
-    [deferredQuery]
+    [deferredQuery, manual]
   )
 
   const howToGuides = useMemo(
     () =>
-      HELP_HOW_TO_GUIDES.filter((card) =>
+      manual.howTo.filter((card) =>
         matchesQuery(deferredQuery, card.title, card.body)
       ),
-    [deferredQuery]
+    [deferredQuery, manual]
   )
 
   const shortcutSections = useMemo(
     () =>
-      HELP_SHORTCUT_SECTIONS.map((section) => {
+      manual.shortcuts.map((section) => {
         const items = section.items.filter((item) =>
           matchesQuery(
             deferredQuery,
@@ -327,12 +330,12 @@ export function HelpView(): JSX.Element {
         }
         return null
       }).filter((section): section is (typeof HELP_SHORTCUT_SECTIONS)[number] => !!section),
-    [deferredQuery, keymapOverrides]
+    [deferredQuery, keymapOverrides, manual]
   )
 
   const vimCommands = useMemo(
     () =>
-      HELP_VIM_COMMANDS.filter((command) =>
+      manual.vim.filter((command) =>
         matchesQuery(
           deferredQuery,
           resolveVimCommandLabel(command.command, keymapOverrides),
@@ -343,12 +346,12 @@ export function HelpView(): JSX.Element {
         ...command,
         command: resolveVimCommandLabel(command.command, keymapOverrides)
       })),
-    [deferredQuery, keymapOverrides]
+    [deferredQuery, keymapOverrides, manual]
   )
 
   const settingsSections = useMemo(
     () =>
-      HELP_SETTINGS.map((section) => {
+      manual.settings.map((section) => {
         const items = section.items.filter((item) =>
           matchesQuery(deferredQuery, section.title, item.label, item.detail)
         )
@@ -357,13 +360,13 @@ export function HelpView(): JSX.Element {
         }
         return null
       }).filter((section): section is (typeof HELP_SETTINGS)[number] => !!section),
-    [deferredQuery]
+    [deferredQuery, manual]
   )
 
   const cliCards = useMemo(
     () =>
-      HELP_CLI.filter((card) => matchesQuery(deferredQuery, card.title, card.body)),
-    [deferredQuery]
+      manual.cli.filter((card) => matchesQuery(deferredQuery, card.title, card.body)),
+    [deferredQuery, manual]
   )
 
   const commandGroups = useMemo(() => {
