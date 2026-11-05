@@ -3,6 +3,7 @@ import { isTasksTabPath } from '@shared/tasks'
 import { isWorkflowsTabPath } from '@shared/workflows-view'
 import { isAtlasTabPath } from '@shared/atlas-view'
 import { isTagsTabPath } from '@shared/tags'
+import { isAssetsViewTabPath } from '@shared/assets-view'
 import { isHelpTabPath } from '@shared/help'
 import { isArchiveTabPath } from '@shared/archive'
 import { isTrashTabPath } from '@shared/trash'
@@ -41,6 +42,8 @@ export function TitleBar({ standalone = false }: { standalone?: boolean }): JSX.
         ? 'Tags'
         : isHelpTabPath(selectedPath)
           ? 'Help'
+          : isAssetsViewTabPath(selectedPath)
+            ? 'Assets'
           : isArchiveTabPath(selectedPath)
             ? labels.archive
           : isTrashTabPath(selectedPath)

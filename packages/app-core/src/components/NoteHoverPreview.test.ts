@@ -70,6 +70,15 @@ describe('NoteHoverPreview', () => {
     expect(card.textContent).not.toContain('Loading preview')
   })
 
+  it('stays opaque, so nothing behind it smears through the blur', async () => {
+    readNote.mockResolvedValue({ ...note, body: PLAN })
+    const preview = await render()
+    // `bg-paper-100/98` looks opaque, but 98 is not on the opacity scale, so
+    // Tailwind drew no background at all and the blur showed the text behind it.
+    expect(preview.classList.contains('bg-paper-100')).toBe(true)
+    expect(preview.className).not.toContain('backdrop-blur')
+  })
+
   it('says it is loading while the note is read', async () => {
     readNote.mockReturnValue(new Promise(() => {}))
     const card = await render()

@@ -17,6 +17,7 @@ import { promptApp } from '../lib/prompt-requests'
 import { focusEditorNormalMode } from '../lib/editor-focus'
 import { usePanelResize } from '../lib/use-panel-resize'
 import { PanelResizeHandle } from './PanelResizeHandle'
+import { excerptBesideTitle } from '../lib/note-excerpt'
 
 interface MentionItem {
   note: NoteMeta
@@ -315,7 +316,7 @@ export function ConnectionsPanel({
               <ConnectionRow
                 key={item.path}
                 note={item}
-                summary={item.excerpt || 'No excerpt available yet.'}
+                summary={excerptBesideTitle(item.title, item.excerpt) || 'No excerpt available yet.'}
                 onOpen={() => openConnection(item.path)}
                 onHover={(rect) => {
                   cancelScheduledClose()
@@ -369,7 +370,7 @@ export function ConnectionsPanel({
                   // rather than replacing it, since a note can link the page
                   // plainly and point at a block in the same breath. (#601)
                   [
-                    item.excerpt,
+                    excerptBesideTitle(item.title, item.excerpt),
                     blocks.length
                       ? `Points at ${blocks.map((id) => `^${id}`).join(', ')}`
                       : ''
@@ -488,7 +489,10 @@ function ConnectionRow({
     <button
       type="button"
       onClick={onOpen}
-      onPointerEnter={(event) => onHover(event.currentTarget.getBoundingClientRect())}
+      onPointerEnter={(event) => {
+        // A finger down on a row means open it. The preview is for a pointer resting.
+        if (event.pointerType !== 'touch') onHover(event.currentTarget.getBoundingClientRect())
+      }}
       onPointerLeave={onLeave}
       data-connections-idx={rowIndex}
       data-connections-type="note"
@@ -511,9 +515,11 @@ function ConnectionRow({
             {note.path}
           </div>
         </div>
+        {/* Says the row previews under a pointer, which a finger is not. */}
         <span
+          data-connection-hover-chip
           className={[
-            'rounded-full px-2 py-1 text-2xs uppercase tracking-[0.14em]',
+            'zn-hover-only rounded-full px-2 py-1 text-2xs uppercase tracking-[0.14em]',
             active ? 'bg-white/12 text-white/80' : 'bg-paper-200/80 text-ink-500'
           ].join(' ')}
         >

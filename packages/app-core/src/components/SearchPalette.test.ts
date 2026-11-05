@@ -303,7 +303,7 @@ describe('SearchPalette: the create row opens a New note form', () => {
     type(search(), 'Alph')
     const rows = [...document.querySelectorAll<HTMLElement>('[data-search-idx]')]
     expect(rows.map((r) => r.dataset.searchIdx)).toEqual(['0', '1'])
-    expect(rows[0].textContent).toBe('Alphainbox')
+    expect(rows[0].textContent).toBe('AlphaInbox')
     expect(rows[1].hasAttribute('data-search-create')).toBe(true)
     expect(highlighted()).toBe('0')
 
@@ -639,8 +639,23 @@ describe('SearchPalette: each row shows the note\'s folder (#982)', () => {
       { title: 'Overview', folder: 'Projects/Atlas/docs' },
       { title: 'Overview', folder: 'Projects/Billing/docs' },
       { title: 'Overview', folder: 'archive/2025/Atlas' },
-      { title: 'Overview', folder: 'inbox' }
+      { title: 'Overview', folder: 'Inbox' }
     ])
+  })
+
+  it('names a root note by the custom label of its folder', () => {
+    useStore.setState({ systemFolderLabels: { inbox: 'Desk' } } as never)
+    act(() => root.render(createElement(SearchPalette)))
+    expect(shown().at(-1)).toEqual({ title: 'Overview', folder: 'Desk' })
+  })
+
+  it('names no folder for a note at the root of a vault that keeps notes there', () => {
+    useStore.setState({
+      vaultSettings: { ...useStore.getState().vaultSettings, primaryNotesLocation: 'root' }
+    } as never)
+    act(() => root.render(createElement(SearchPalette)))
+    const row = [...document.querySelectorAll<HTMLButtonElement>('[data-search-idx]')].at(-1)!
+    expect(row.textContent).toBe('Overview')
   })
 
   it('cuts a long folder from the left and keeps a root note\'s area label', () => {

@@ -45,7 +45,7 @@ describe('EditorPane', () => {
   it('draws a control for both slots the tab strip does not cover', () => {
     expect(editorPaneSource).toMatch(/sidebarSlot === 'pane-strip' && \(/)
     expect(editorPaneSource).toMatch(/sidebarSlot === 'note-header' && \(/)
-    expect(editorPaneSource.match(/title="Show sidebar \(⌘1\)"/g)).toHaveLength(3)
+    expect(editorPaneSource.match(/'Show sidebar',\r?\n\s+getKeymapDisplay/g)).toHaveLength(3)
   })
 
   it('marks them so a phone layout, which has no sidebar, can leave them out', () => {

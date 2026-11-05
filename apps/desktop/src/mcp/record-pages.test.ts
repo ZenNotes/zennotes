@@ -1,0 +1,337 @@
+import { promises as fsp } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { newMcpScope, type McpScopeFlags } from '@shared/mcp-scope'
+import type { VaultBackend } from '../cli/backend'
+import { ScopedBackend, spell } from './scoped-backend'
+import { runMcpServer } from './server'
+
+// A database's record pages are notes to an assistant on this machine, as they are
+// on a server and in zn. Mirrors internal/mcp/record_pages_test.go in ZenNotes/tui.
+
+const RECORD_PAGE = 'memory/Books.base/Alpha.md'
+
+let root: string
+const clients: Client[] = []
+
+async function seed(): Promise<void> {
+  const files: Record<string, string> = {
+    '.zennotes/vault.json': '{"primaryNotesLocation":"root"}',
+    'memory/note.md': '# Note\n\nneedle in the note\n\n[[Alpha]]\n',
+    'memory/Books.base/data.csv': 'title\nAlpha\n',
+    'memory/Books.base/schema.json': '{}\n',
+    [RECORD_PAGE]: '# Alpha\n\nneedle on the page\n\n- [ ] page task\n',
+    'memory/Empty.base/data.csv': 'title\n',
+    'memory/Empty.base/schema.json': '{}\n'
+  }
+  for (const [rel, body] of Object.entries(files)) {
+    const abs = path.join(root, ...rel.split('/'))
+    await fsp.mkdir(path.dirname(abs), { recursive: true })
+    await fsp.writeFile(abs, body)
+  }
+}
+
+const exists = (rel: string): Promise<boolean> =>
+  fsp.lstat(path.join(root, ...rel.split('/'))).then(
+    () => true,
+    () => false
+  )
+
+async function connect(flags?: McpScopeFlags): Promise<Client> {
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
+  await runMcpServer({
+    resolveTarget: async () => ({ kind: 'local', root }),
+    scope: flags ? newMcpScope(flags) : null,
+    transport: serverTransport
+  })
+  const client = new Client({ name: 'claude-code', version: '0' })
+  await client.connect(clientTransport)
+  clients.push(client)
+  return client
+}
+
+async function call(
+  client: Client,
+  name: string,
+  args: Record<string, unknown> = {}
+): Promise<{ text: string; isError: boolean }> {
+  const result = await client.callTool({ name, arguments: args })
+  const parts = result.content as { text?: string }[]
+  return { text: parts[0]?.text ?? '', isError: !!result.isError }
+}
+
+/** Every listing asked whether the page is there. They must agree. */
+async function seesRecordPage(client: Client): Promise<boolean> {
+  const notes = (await call(client, 'list_notes')).text.includes(RECORD_PAGE)
+  const search = (await call(client, 'search_text', { query: 'needle' })).text.includes(RECORD_PAGE)
+  const tasks = (await call(client, 'list_tasks')).text.includes('page task')
+  const read = await call(client, 'read_note', { path: RECORD_PAGE })
+  const opened = !read.isError && read.text.includes('needle on the page')
+  expect({ search, tasks, opened }).toEqual({ search: notes, tasks: notes, opened: notes })
+  return notes
+}
+
+beforeEach(async () => {
+  root = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), 'zen-record-pages-')))
+  vi.stubEnv('ZENNOTES_CONFIG_DIR', path.join(root, '.config-for-test'))
+  await seed()
+})
+
+afterEach(async () => {
+  vi.restoreAllMocks()
+  vi.unstubAllEnvs()
+  await Promise.all(clients.splice(0).map((client) => client.close()))
+  await fsp.rm(root, { recursive: true, force: true })
+})
+
+describe('a record page and a path scope', () => {
+  it.each<[string, McpScopeFlags | undefined, boolean, boolean]>([
+    ['no paths', undefined, true, true],
+    ['allow the folder holding it', { allow: ['memory'] }, true, true],
+    ['allow the database', { allow: ['memory/Books.base'] }, true, false],
+    ['allow the page', { allow: [RECORD_PAGE] }, true, false],
+    ['allow another database', { allow: ['memory/Empty.base'] }, false, false],
+    ['deny the page', { deny: [RECORD_PAGE] }, false, true],
+    ['deny the page in another case', { deny: ['MEMORY/books.BASE/ALPHA.md'] }, false, true],
+    ['deny the database', { deny: ['memory/Books.base'] }, false, true],
+    ['deny the database with no pages', { deny: ['memory/Empty.base'] }, true, true],
+    ['deny its folder', { deny: ['memory'] }, false, false]
+  ])('%s', async (_name, flags, page, note) => {
+    const client = await connect(flags)
+    expect(await seesRecordPage(client)).toBe(page)
+    const listed = (await call(client, 'list_notes')).text
+    expect(listed.includes('memory/note.md')).toBe(note)
+    expect(listed).not.toContain('data.csv')
+    expect(listed).not.toContain('schema.json')
+  })
+
+  it.each(['memory/Gone.base', 'memory/Books.base/Gone.md'])(
+    'still stops the client for an entry that names nothing: %s',
+    async (deny) => {
+      const client = await connect({ deny: [deny] })
+      const listed = await call(client, 'list_notes')
+      expect(listed.isError).toBe(true)
+      expect(listed.text).toContain('does not exist in this vault')
+    }
+  )
+})
+
+describe('what holds around a record page', () => {
+  it('keeps the folder whole and the database closed', async () => {
+    const client = await connect({ deny: [RECORD_PAGE] })
+    const deleted = await call(client, 'delete_folder', { folder: 'inbox', subpath: 'memory', confirm: true })
+    expect(deleted.text).toContain('cannot delete that folder')
+    const renamed = await call(client, 'rename_folder', {
+      folder: 'inbox',
+      oldSubpath: 'memory',
+      newSubpath: 'moved'
+    })
+    expect(renamed.text).toContain('cannot rename that folder')
+    expect((await call(client, 'read_asset', { path: 'memory/Books.base/data.csv' })).isError).toBe(true)
+    expect(
+      (await call(client, 'create_note', { folder: 'inbox', subpath: 'memory/Books.base', title: 'Nope' }))
+        .isError
+    ).toBe(true)
+    expect(await exists(RECORD_PAGE)).toBe(true)
+    expect(await exists('memory/Books.base/Nope.md')).toBe(false)
+  })
+
+  it('does not let a client that sees a database delete it as a folder', async () => {
+    const client = await connect({ allow: ['memory/Books.base'] })
+    const deleted = await call(client, 'delete_folder', {
+      folder: 'inbox',
+      subpath: 'memory/Books.base',
+      confirm: true
+    })
+    expect(deleted.text).toContain('Folder not found')
+    expect(await exists(RECORD_PAGE)).toBe(true)
+  })
+
+  it('keeps the database out of the folder listing', async () => {
+    const client = await connect()
+    expect((await call(client, 'list_folders')).text).not.toContain('Books.base')
+  })
+})
+
+describe('a record page stays where it is under a path scope', () => {
+  const SCHEMA = '{"pages":{"row-1":"Alpha.md"}}'
+  const scopes: [string, McpScopeFlags][] = [
+    ['allow', { allow: ['memory', 'archive', 'trash', 'elsewhere'] }],
+    ['deny', { deny: ['memory/note.md'] }]
+  ]
+  const tools: [string, Record<string, unknown>][] = [
+    ['rename_note', { path: RECORD_PAGE, newTitle: 'Beta' }],
+    ['move_note', { path: RECORD_PAGE, targetFolder: 'inbox', targetSubpath: 'memory' }],
+    ['archive_note', { path: RECORD_PAGE }],
+    ['move_to_trash', { path: RECORD_PAGE }],
+    ['duplicate_note', { path: RECORD_PAGE }],
+    ['delete_note', { path: RECORD_PAGE, confirm: true }]
+  ]
+
+  describe.each(scopes)('with %s', (_name, flags) => {
+    it.each(tools)('%s refuses', async (tool, args) => {
+      await fsp.mkdir(path.join(root, 'elsewhere'), { recursive: true })
+      await fsp.mkdir(path.join(root, 'archive'), { recursive: true })
+      await fsp.mkdir(path.join(root, 'trash'), { recursive: true })
+      await fsp.writeFile(path.join(root, 'elsewhere', 'x.md'), 'x')
+      await fsp.writeFile(path.join(root, 'memory/Books.base/schema.json'), SCHEMA)
+      const client = await connect(flags)
+      const answer = await call(client, tool, args)
+      expect(answer.isError, answer.text).toBe(true)
+      expect(answer.text).toContain('record page')
+      expect(await exists(RECORD_PAGE)).toBe(true)
+      expect(await exists('memory/Books.base/Alpha copy.md')).toBe(false)
+      expect(await exists('memory/Books.base/Beta.md')).toBe(false)
+      expect(await exists('memory/Alpha.md')).toBe(false)
+      expect(await fsp.readFile(path.join(root, 'memory/Books.base/schema.json'), 'utf8')).toBe(SCHEMA)
+      const written = await call(client, 'write_note', { path: RECORD_PAGE, body: 'edited\n' })
+      expect(written.isError, written.text).toBe(false)
+    })
+  })
+
+  it('answers a hidden page as a missing one, before what it is', async () => {
+    const client = await connect({ deny: [RECORD_PAGE] })
+    const answer = await call(client, 'duplicate_note', { path: RECORD_PAGE })
+    expect(answer.text).toContain('Note not found')
+  })
+
+  it('refuses to bring an archived page back through a scope', async () => {
+    const archived = 'archive/memory/Books.base/Beta.md'
+    await fsp.mkdir(path.join(root, 'archive/memory/Books.base'), { recursive: true })
+    await fsp.writeFile(path.join(root, archived), '# Beta\n')
+    const client = await connect({ deny: ['memory/note.md'] })
+    const answer = await call(client, 'unarchive_note', { path: archived })
+    expect(answer.isError, answer.text).toBe(true)
+    expect(await exists(archived)).toBe(true)
+  })
+
+  it('stays an ordinary note at full access', async () => {
+    const client = await connect()
+    const copied = await call(client, 'duplicate_note', { path: RECORD_PAGE })
+    expect(copied.isError, copied.text).toBe(false)
+    expect(await exists('memory/Books.base/Alpha copy.md')).toBe(true)
+    const deleted = await call(client, 'delete_note', { path: RECORD_PAGE, confirm: true })
+    expect(deleted.isError, deleted.text).toBe(false)
+    expect(await exists(RECORD_PAGE)).toBe(false)
+  })
+
+  it('stays an ordinary note to a scope that only limits access', async () => {
+    const client = await connect({ access: 'write' })
+    const copied = await call(client, 'duplicate_note', { path: RECORD_PAGE })
+    expect(copied.isError, copied.text).toBe(false)
+  })
+})
+
+describe('a database is not a folder to a client with a path scope', () => {
+  const scopes: [string, McpScopeFlags][] = [
+    ['allow its folder', { allow: ['memory'] }],
+    ['allow it', { allow: ['memory/Books.base'] }],
+    ['deny another note', { deny: ['memory/note.md'] }],
+    ['deny another database', { deny: ['memory/Empty.base'] }]
+  ]
+  const tools: [string, Record<string, unknown>][] = [
+    ['delete_folder', { folder: 'inbox', subpath: 'memory/Books.base', confirm: true }],
+    ['rename_folder', { folder: 'inbox', oldSubpath: 'memory/Books.base', newSubpath: 'Plain' }],
+    ['rename_folder', { folder: 'inbox', oldSubpath: 'memory/Books.base', newSubpath: 'memory/Moved.base' }]
+  ]
+
+  describe.each(scopes)('on a local vault, with %s', (_name, flags) => {
+    it('lists none, and neither renames nor deletes one', async () => {
+      const client = await connect(flags)
+      expect((await call(client, 'list_folders')).text).not.toContain('.base')
+      for (const [tool, args] of tools) {
+        const answer = await call(client, tool, args)
+        expect(answer.isError, `${tool}: ${answer.text}`).toBe(true)
+        expect(answer.text).toContain('Folder not found')
+      }
+      expect(await exists(RECORD_PAGE)).toBe(true)
+      expect(await exists('memory/Books.base/data.csv')).toBe(true)
+      expect(await exists('Plain')).toBe(false)
+      expect(await exists('memory/Moved.base')).toBe(false)
+    })
+  })
+
+  // A server's listing does show them, so this is where the filter does the work.
+  function serverVault(): {
+    backend: VaultBackend
+    renameFolder: ReturnType<typeof vi.fn>
+    deleteFolder: ReturnType<typeof vi.fn>
+  } {
+    const renameFolder = vi.fn(async () => 'moved')
+    const deleteFolder = vi.fn(async () => {})
+    const backend = {
+      kind: 'remote',
+      root: '',
+      label: 'server',
+      vaultLayout: async () => ({ primaryNotesLocation: 'root', systemFolderPaths: {} }),
+      marksLinks: async () => true,
+      linkedSystemFolders: async () => [],
+      listNotes: async () => [
+        { path: RECORD_PAGE, title: 'Alpha', folder: 'inbox' },
+        { path: 'memory/note.md', title: 'note', folder: 'inbox' }
+      ],
+      listFolders: async () => [
+        { folder: 'inbox', subpath: 'memory' },
+        { folder: 'inbox', subpath: 'memory/Books.base' },
+        { folder: 'inbox', subpath: 'memory/Empty.base' }
+      ],
+      listAssets: async () => [],
+      renameFolder,
+      deleteFolder
+    } as unknown as VaultBackend
+    return { backend, renameFolder, deleteFolder }
+  }
+
+  describe.each(scopes)('on a server, with %s', (_name, flags) => {
+    it('lists none, and neither renames nor deletes one', async () => {
+      const { backend, renameFolder, deleteFolder } = serverVault()
+      const scoped = new ScopedBackend(backend, newMcpScope(flags))
+      expect(JSON.stringify(await scoped.listFolders())).not.toContain('.base')
+      await expect(scoped.deleteFolder('inbox', 'memory/Books.base')).rejects.toThrow('Folder not found')
+      await expect(scoped.renameFolder('inbox', 'memory/Books.base', 'Plain')).rejects.toThrow(
+        'Folder not found'
+      )
+      expect(deleteFolder).not.toHaveBeenCalled()
+      expect(renameFolder).not.toHaveBeenCalled()
+    })
+  })
+
+  it('leaves a server listing whole for a scope that only limits access', async () => {
+    const { backend, deleteFolder } = serverVault()
+    const scoped = new ScopedBackend(backend, newMcpScope({ access: 'write' }))
+    expect(JSON.stringify(await scoped.listFolders())).toContain('Books.base')
+    await scoped.deleteFolder('inbox', 'memory/Books.base')
+    expect(deleteFolder).toHaveBeenCalledOnce()
+  })
+
+  it('can still name a server database in a deny entry', async () => {
+    const { backend } = serverVault()
+    const scoped = new ScopedBackend(backend, newMcpScope({ deny: ['memory/Empty.base'] }))
+    expect((await scoped.listNotes()).map((note) => note.path)).toContain(RECORD_PAGE)
+  })
+})
+
+describe('spell', () => {
+  const nfc = 'Caf\u00e9'
+  const nfd = 'Cafe\u0301'
+
+  it('prefers exact, then case and composition, then folded accents', () => {
+    expect(spell(nfc, [nfc, nfd])).toBe(nfc)
+    expect(spell(nfd, ['Cafe', nfc])).toBe(nfc)
+    expect(spell('caf\u00c9', ['Cafe', nfc])).toBe(nfc)
+    expect(spell('cafe', [nfc])).toBe(nfc)
+  })
+
+  it('matches nothing for two paths equal after case and composition', () => {
+    expect(spell(nfd, [nfc, 'CAF\u00c9'])).toBeNull()
+    expect(spell('cafe', ['Cafe', 'CAFE'])).toBeNull()
+  })
+
+  it('counts a path a list names twice once, in each pass', () => {
+    expect(spell(nfd, [nfc, nfc, 'Cafe'])).toBe(nfc)
+    expect(spell('cafe', [nfc, nfc])).toBe(nfc)
+  })
+})

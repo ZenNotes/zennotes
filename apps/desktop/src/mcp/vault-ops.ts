@@ -58,10 +58,23 @@ import { buildOpenNoteDeepLink } from '../main/deep-links'
 export type NoteFolder = 'inbox' | 'quick' | 'archive' | 'trash'
 const FOLDERS: NoteFolder[] = ['inbox', 'quick', 'archive', 'trash']
 const LIVE_FOLDERS: NoteFolder[] = ['inbox', 'quick', 'archive']
-/** A database is a self-contained folder whose name ends with `.base`; its
- *  internals (data.csv, schema.json, record-page notes) aren't part of the MCP
- *  note/folder surface, so the walks skip these folders. */
+/** A database is a self-contained folder whose name ends with `.base`. Its data.csv
+ *  and schema.json are never part of the MCP surface, and neither is the folder
+ *  itself. Its record pages are notes to an assistant (below); the CLI's listings
+ *  draw a database as one thing and leave them out. */
 const isFormDirName = (name: string): boolean => name.toLowerCase().endsWith('.base')
+
+const recordPageVaults = new Set<string>()
+
+/**
+ * Has the walks treat this vault's database record pages as notes, as a server's
+ * listings do, so a client gets one answer wherever its vault is and a path scope
+ * can name what it can see. The MCP server calls it for each vault it opens. Mirrors
+ * `RecordPages` on the Vault in ZenNotes/tui.
+ */
+export function treatRecordPagesAsNotes(root: string): void {
+  recordPageVaults.add(root)
+}
 const ASSETS_DIR = 'assets'
 const PRIMARY_ATTACHMENTS_DIR = 'attachements'
 const LEGACY_ATTACHMENTS_DIRS = [PRIMARY_ATTACHMENTS_DIR, '_assets']
@@ -908,7 +921,8 @@ export async function listNotes(root: string): Promise<NoteMeta[]> {
       const full = path.join(dirAbs, entry.name)
       if (entry.isDirectory()) {
         if (entry.name.startsWith('.')) continue
-        if (isFormDirName(entry.name)) continue // database folder — not loose notes
+        // A database folder, whose pages are notes only where that was asked for.
+        if (isFormDirName(entry.name) && !recordPageVaults.has(root)) continue
         // When walking the vault root in primary='root' mode, system
         // subdirectories (quick/, archive/, trash/, attachments) are
         // not part of inbox — they're walked separately as their own
@@ -1794,6 +1808,13 @@ function cutToBytes(text: string, limit: number): string {
   return out
 }
 
+/** A note's copy: a title at the limit gives way to the word, so a copy of a
+ *  copy stays a name every other tool can write. */
+export function copyTitle(title: string): string {
+  const word = ' copy'
+  return `${cutToBytes(title, MAX_TITLE_BYTES - word.length).trimEnd()}${word}`
+}
+
 export function sanitizeTitle(raw: string): string {
   // Filenames must be safe on all 3 OSes. Strip path separators, null,
   // and common reserved characters.
@@ -1937,8 +1958,8 @@ export async function duplicateNote(root: string, rel: string): Promise<NoteMeta
   const dir = path.dirname(abs)
   const ext = path.extname(abs)
   const baseTitle = path.basename(abs, ext)
-  const copyTitle = await uniqueTitle(dir, `${baseTitle} copy`)
-  const destAbs = path.join(dir, `${copyTitle}${ext}`)
+  const finalTitle = await uniqueTitle(dir, copyTitle(baseTitle))
+  const destAbs = path.join(dir, `${finalTitle}${ext}`)
   const body = await fs.readFile(abs, 'utf8')
   await removeNoteCreation(root, toPosix(path.relative(root, destAbs)))
   await fs.writeFile(destAbs, body, { encoding: 'utf8', flag: 'wx' })

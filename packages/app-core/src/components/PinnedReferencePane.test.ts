@@ -122,3 +122,99 @@ describe('PinnedReferencePane search bindings (#860)', () => {
     expect(searchPanelOpen(view.state)).toBe(false)
   })
 })
+
+describe('PinnedReferencePane reveal in the sidebar', () => {
+  let host: HTMLDivElement
+  let root: Root
+  let originalState: ReturnType<typeof useStore.getState>
+
+  // Revealing focuses the sidebar with retries, on timers that must not outlive the
+  // test's window: there is no sidebar here for them to settle on.
+  const focusRetriesDone = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 250))
+
+  beforeEach(() => {
+    originalState = useStore.getState()
+    Object.defineProperty(Range.prototype, 'getClientRects', {
+      configurable: true,
+      value: () => []
+    })
+    Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => new DOMRect()
+    })
+    host = document.createElement('div')
+    document.body.append(host)
+    root = createRoot(host)
+  })
+
+  afterEach(async () => {
+    await focusRetriesDone()
+    act(() => root.unmount())
+    host.remove()
+    useStore.setState(originalState, true)
+  })
+
+  async function reveal(
+    path: string,
+    settings: Record<string, unknown>,
+    layout: { unifiedSidebar: boolean; noteListOpen: boolean } = {
+      unifiedSidebar: true,
+      noteListOpen: false
+    }
+  ): Promise<void> {
+    const pinned = { ...note, path }
+    useStore.setState({
+      vault: { root: '/vault', name: 'Vault' },
+      selectedPath: 'inbox/Open.md',
+      pinnedRefPath: path,
+      pinnedRefKind: 'note',
+      pinnedRefVisible: true,
+      pinnedRefMode: 'edit',
+      noteRefs: {},
+      noteContents: { [path]: pinned },
+      noteDirty: {},
+      vimMode: false,
+      livePreview: false,
+      keymapOverrides: {},
+      searchOpen: false,
+      updateNoteBody: vi.fn(),
+      sidebarOpen: true,
+      vaultSettings: { ...originalState.vaultSettings, ...settings },
+      collapsedFolders: ['inbox:', 'inbox:Projects', 'inbox:Projects/Deep', 'archive:Sub', 'other:'],
+      ...layout
+    } as never)
+    await act(async () => root.render(createElement(PinnedReferencePane)))
+    const button = host.querySelector<HTMLButtonElement>('button[title^="Reveal "]')!
+    await act(async () => button.click())
+  }
+
+  it('finds the folders of a note in a vault that keeps notes at its root', async () => {
+    await reveal('Projects/Deep/Reference.md', { primaryNotesLocation: 'root' })
+    const state = useStore.getState()
+    expect(state.collapsedFolders).toEqual(['archive:Sub', 'other:'])
+    expect(state.focusedPanel).toBe('sidebar')
+    expect(state.selectedPath).toBe('inbox/Open.md')
+  })
+
+  it('finds the folders of a note under a moved system folder', async () => {
+    await reveal('99 Old/Sub/Reference.md', {
+      primaryNotesLocation: 'inbox',
+      systemFolderPaths: { archive: '99 Old' }
+    })
+    expect(useStore.getState().collapsedFolders).not.toContain('archive:Sub')
+    expect(useStore.getState().collapsedFolders).toContain('inbox:')
+  })
+
+  it('shows the right folder in the note list layout', async () => {
+    await reveal(
+      'Projects/Deep/Reference.md',
+      { primaryNotesLocation: 'root' },
+      { unifiedSidebar: false, noteListOpen: true }
+    )
+    expect(useStore.getState().view).toEqual({
+      kind: 'folder',
+      folder: 'inbox',
+      subpath: 'Projects/Deep'
+    })
+  })
+})

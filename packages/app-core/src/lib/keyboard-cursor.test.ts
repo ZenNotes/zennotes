@@ -1,46 +1,99 @@
 // @vitest-environment jsdom
-
 import { act, createElement } from 'react'
-import { createRoot } from 'react-dom/client'
-import { afterEach, describe, expect, it } from 'vitest'
+import { createRoot, type Root } from 'react-dom/client'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { useKeyboardCursor } from './keyboard-cursor'
 
-const original = Object.getOwnPropertyDescriptor(window, 'matchMedia')
+;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
-function pointer(coarse: boolean): void {
+function Probe(): JSX.Element {
+  return createElement('output', null, useKeyboardCursor() ? 'drawn' : 'hidden')
+}
+
+let coarse = true
+let host: HTMLDivElement
+let root: Root
+
+const shown = (): string | null => host.textContent
+
+function press(key: string, target: EventTarget = document.body): void {
+  act(() => {
+    target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
+  })
+}
+
+function touch(pointerType: string): void {
+  act(() => {
+    const event = new MouseEvent('pointerdown', { bubbles: true })
+    Object.defineProperty(event, 'pointerType', { value: pointerType })
+    document.body.dispatchEvent(event)
+  })
+}
+
+beforeEach(() => {
+  coarse = true
   Object.defineProperty(window, 'matchMedia', {
     configurable: true,
-    value: (query: string) => ({ matches: coarse && query === '(pointer: coarse)' })
+    value: (query: string) => ({ matches: coarse && query === '(pointer: coarse)', media: query })
   })
-}
+  host = document.createElement('div')
+  document.body.append(host)
+  root = createRoot(host)
+  act(() => root.render(createElement(Probe)))
+})
 
-async function read(): Promise<boolean> {
-  ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
-  let seen: boolean | undefined
-  function Probe(): null {
-    seen = useKeyboardCursor()
-    return null
-  }
-  const host = document.createElement('div')
-  const root = createRoot(host)
-  await act(async () => root.render(createElement(Probe)))
+afterEach(() => {
   act(() => root.unmount())
-  return seen!
-}
+  host.remove()
+})
 
 describe('useKeyboardCursor', () => {
-  afterEach(() => {
-    if (original) Object.defineProperty(window, 'matchMedia', original)
-    else delete (window as { matchMedia?: unknown }).matchMedia
+  it('draws where the pointer is fine, whatever happens', () => {
+    act(() => root.unmount())
+    coarse = false
+    root = createRoot(host)
+    act(() => root.render(createElement(Probe)))
+    expect(shown()).toBe('drawn')
+    touch('touch')
+    expect(shown()).toBe('drawn')
   })
 
-  it('draws the cursor where there is a keyboard', async () => {
-    pointer(false)
-    expect(await read()).toBe(true)
+  it('stays hidden on touch alone', () => {
+    expect(shown()).toBe('hidden')
+    touch('touch')
+    expect(shown()).toBe('hidden')
   })
 
-  it('draws none on a touch-first device, a phone', async () => {
-    pointer(true)
-    expect(await read()).toBe(false)
+  it('draws once a key is pressed on a tablet with a keyboard, until a finger comes back', () => {
+    press('j')
+    expect(shown()).toBe('drawn')
+    touch('mouse')
+    expect(shown()).toBe('drawn')
+    touch('touch')
+    expect(shown()).toBe('hidden')
+  })
+
+  it.each(['Shift', 'Meta', 'Unidentified'])('takes no notice of %s', (key) => {
+    press(key)
+    expect(shown()).toBe('hidden')
+  })
+
+  it.each(['input', 'textarea'])('takes no notice of typing in a %s', (tag) => {
+    const field = document.createElement(tag)
+    document.body.append(field)
+    press('a', field)
+    field.remove()
+    expect(shown()).toBe('hidden')
+  })
+
+  it('takes no notice of typing in the editor', () => {
+    const editor = document.createElement('div')
+    editor.setAttribute('contenteditable', 'true')
+    const line = document.createElement('div')
+    editor.append(line)
+    document.body.append(editor)
+    press('a', line)
+    editor.remove()
+    expect(shown()).toBe('hidden')
   })
 })

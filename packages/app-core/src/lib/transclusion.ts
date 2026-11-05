@@ -80,6 +80,20 @@ function inTableRow(md: string, index: number): boolean {
   return false
 }
 
+/**
+ * What `expand` does to an embed on a table row, for the source of one cell, which
+ * is all a table widget in the editor has: a cell holds a link to the note, not the
+ * note. Anything else (an image, a file) stays an embed.
+ */
+export function linkNoteEmbedsInCell(cell: string, isNote: (target: string) => boolean): string {
+  const ranges = codeRanges(cell)
+  return cell.replace(EMBED_RE, (match: string, inner: string, index: number) => {
+    if (inCode(index, ranges)) return match
+    const target = (inner.split(WIKILINK_SEPARATOR, 1)[0] ?? '').trim()
+    return target && isNote(target) ? match.slice(1) : match
+  })
+}
+
 /** Drop a leading YAML/TOML frontmatter block so it isn't embedded as text. */
 function stripFrontmatter(md: string): string {
   return md.replace(/^﻿?\s*---\n[\s\S]*?\n---\n?/, '').replace(/^﻿?\s*\+\+\+\n[\s\S]*?\n\+\+\+\n?/, '')

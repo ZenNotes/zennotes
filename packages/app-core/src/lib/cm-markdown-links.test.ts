@@ -1,12 +1,17 @@
 // @vitest-environment jsdom
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
-import { defaultHighlightStyle, syntaxHighlighting } from '@codemirror/language'
+import {
+  defaultHighlightStyle,
+  forceParsing,
+  syntaxHighlighting,
+  syntaxTreeAvailable
+} from '@codemirror/language'
 import { EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { markdownLinkExtension } from './cm-markdown-links'
 
-function mount(doc: string): EditorView {
+function create(doc: string): EditorView {
   return new EditorView({
     state: EditorState.create({
       doc,
@@ -17,6 +22,30 @@ function mount(doc: string): EditorView {
       ]
     })
   })
+}
+
+/** A state gets 20 ms of parsing and a slow runner can spend them before the
+ *  definition at the end of a note, so a test finishes the parse before it reads
+ *  a decoration. In the app the idle worker does this moments later. */
+function finishParse(view: EditorView): void {
+  forceParsing(view, view.state.doc.length, 5000)
+}
+
+function mount(doc: string): EditorView {
+  const view = create(doc)
+  finishParse(view)
+  return view
+}
+
+/** Every read of the clock jumps past the budget: one parser step per slice. */
+function withStalledClock<T>(work: () => T): T {
+  let now = Date.now()
+  const clock = vi.spyOn(Date, 'now').mockImplementation(() => (now += 25))
+  try {
+    return work()
+  } finally {
+    clock.mockRestore()
+  }
 }
 
 describe('Markdown link highlighting', () => {
@@ -82,9 +111,23 @@ describe('Markdown link highlighting', () => {
       view.dispatch({
         changes: { from: at, insert: '\n\n[some   label]: https://example.com' }
       })
+      finishParse(view)
       expect(view.dom.querySelector('.tok-link')?.textContent).toBe('[Some Label]')
       view.dispatch({ changes: { from: at, to: view.state.doc.length } })
+      finishParse(view)
       expect(view.dom.querySelector('.tok-link')).toBeNull()
+    } finally {
+      view.destroy()
+    }
+  })
+
+  it('highlights a defined reference once a parse cut before its definition finishes', () => {
+    const view = withStalledClock(() => create('[EE]\n\nEnd.\n\n[EE]: https://example.com'))
+    try {
+      expect(syntaxTreeAvailable(view.state)).toBe(false)
+      expect(view.dom.querySelector('.tok-link')).toBeNull()
+      finishParse(view)
+      expect(view.dom.querySelector('.tok-link')?.textContent).toBe('[EE]')
     } finally {
       view.destroy()
     }

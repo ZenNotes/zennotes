@@ -106,3 +106,74 @@ describe('ConnectionsPanel: following a connection hands the keyboard to the edi
     expect(focusEditorNormalMode).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('ConnectionsPanel: a row where nothing can hover', () => {
+  let host: HTMLDivElement
+  let root: Root
+  let originalState: ReturnType<typeof useStore.getState>
+
+  beforeEach(async () => {
+    originalState = useStore.getState()
+    host = document.createElement('div')
+    document.body.append(host)
+    root = createRoot(host)
+    ;(window as unknown as { zen: unknown }).zen = {
+      readNote: vi.fn(async (path: string) => ({
+        ...meta(path.replace(/^inbox\/|\.md$/g, '')),
+        body: bodies[path] ?? ''
+      }))
+    }
+    const alpha = { ...meta('Alpha'), wikilinks: ['Beta'] }
+    useStore.setState({
+      notes: [alpha, meta('Beta')],
+      selectedPath: alpha.path,
+      activeNote: { ...alpha, body: bodies[alpha.path] }
+    } as never)
+    await act(async () =>
+      root.render(
+        createElement(ConnectionsPanel, {
+          note: { ...alpha, body: bodies[alpha.path] } as NoteContent
+        } as never)
+      )
+    )
+  })
+
+  afterEach(() => {
+    act(() => root.unmount())
+    host.remove()
+    useStore.setState(originalState, true)
+  })
+
+  const row = (): HTMLElement =>
+    host.querySelector<HTMLElement>('[data-connections-type="note"]')!
+
+  it('marks the hover chip for the rule that hides it on touch', () => {
+    const chip = row().querySelector('[data-connection-hover-chip]')
+    expect(chip?.textContent).toBe('hover')
+    expect(chip?.classList.contains('zn-hover-only')).toBe(true)
+  })
+
+  it('opens no preview under a finger, and still does under a pointer', async () => {
+    const enter = (pointerType: string): void => {
+      const event = new MouseEvent('pointerover', { bubbles: true })
+      Object.defineProperty(event, 'pointerType', { value: pointerType })
+      row().dispatchEvent(event)
+    }
+    const preview = (): Element | null => document.querySelector('.note-hover-preview')
+    vi.useFakeTimers()
+    try {
+      await act(async () => {
+        enter('touch')
+        vi.advanceTimersByTime(1000)
+      })
+      expect(preview()).toBeNull()
+      await act(async () => {
+        enter('mouse')
+        vi.advanceTimersByTime(1000)
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+    await vi.waitFor(() => expect(preview()).not.toBeNull())
+  })
+})

@@ -8,7 +8,7 @@ import {
 import { agentEditFolderPath, removeAgentEditRecord } from './agent-edit-files'
 import { promises as fs, type Dirent } from 'node:fs'
 import { execFile, spawn } from 'node:child_process'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { app, shell } from 'electron'
@@ -1421,6 +1421,10 @@ function statesPrimaryNotesLocation(parsed: unknown): boolean {
   return (parsed as { primaryNotesLocation?: unknown }).primaryNotesLocation != null
 }
 
+function statesRootMode(parsed: unknown): boolean {
+  return (parsed as { primaryNotesLocation?: unknown } | null)?.primaryNotesLocation === 'root'
+}
+
 /** The remap stated by a parsed (or caller-supplied) settings object, for the
  *  inference (a remapped system dir is not loose root content). */
 function statedSystemFolderPaths(parsed: unknown): SystemFolderPaths {
@@ -1534,6 +1538,7 @@ export async function setVaultSettings(
   root: string,
   next: VaultSettings
 ): Promise<VaultSettings> {
+  const previousPrimary = (await getVaultSettings(root)).primaryNotesLocation
   const fallbackPrimary = statesPrimaryNotesLocation(next)
     ? DEFAULT_VAULT_SETTINGS.primaryNotesLocation
     : await inferredPrimaryNotesLocation(root, statedSystemFolderPaths(next))
@@ -1565,6 +1570,8 @@ export async function setVaultSettings(
     )
     // A new root-level directory is exactly what the inference reads.
     inferredPrimaryCache.delete(root)
+  } else if (previousPrimary === 'inbox') {
+    await removeSeedOnlyInbox(root, normalized.systemFolderPaths, { explicit: true })
   }
   return cloneVaultSettings(normalized)
 }
@@ -1651,6 +1658,120 @@ export function folderForRelativePath(
 }
 
 /**
+ * SHA-256 of every Welcome note this app has seeded, the current text included
+ * (a test holds it to that). None ever leaves: these bytes are the proof that a
+ * vault's Welcome is still ours and that nobody wrote in it.
+ */
+const WELCOME_SEED_SHA256 = new Set([
+  '50c264c87b2790dbb685cd9a699118e1d62e84eb5532701e96d5b1ab55373fac',
+  'a5d1b711723c817947c48b844ddc789b9889ce13645a060f33e6e6c4362cf1af',
+  'f1d62f8864688c0c51d627c1156c8a00b0c3925eddf0678dfe3da84dd5e6a9e8',
+  '04fabc332abe4b892d548782ecfcec27b77cf157ec59c7f0663b5774fae01aa9'
+])
+
+/**
+ * Takes away `inbox/` when it only holds what this app put there, so it does not
+ * sit among the notes as a plain folder in a vault that keeps them at its root.
+ * Anything else in it stays where it is, a note you edited included: such a vault
+ * shows `inbox` as an ordinary folder, and nothing in it is hidden. A folder the
+ * inbox was remapped to is theirs by name, and so is `Inbox/`, which a
+ * case-insensitive volume would otherwise answer for.
+ *
+ * An empty folder goes only when someone asked, by switching to root mode: without
+ * a Welcome there is no sign this app made it, and it can be a capture tool's. The
+ * Welcome goes only beside something else to look at, since a vault switched to root
+ * before anything is in it (onboarding) would otherwise open on nothing, and
+ * switching back could not bring it back. A later look removes it once there is more.
+ */
+async function removeSeedOnlyInbox(
+  root: string,
+  systemFolderPaths: SystemFolderPaths | null | undefined,
+  { explicit }: { explicit: boolean }
+): Promise<boolean> {
+  if (resolveFolderPath('inbox', systemFolderPaths) !== 'inbox') return false
+  const inbox = path.join(root, 'inbox')
+  try {
+    const top = await fs.readdir(root, { withFileTypes: true })
+    if (!top.some((entry) => entry.name === 'inbox' && entry.isDirectory())) return false
+    const entries = await fs.readdir(inbox, { withFileTypes: true })
+    // Finder writes this into any folder it shows; it says nothing about the folder.
+    const inside = entries.filter((entry) => entry.name !== '.DS_Store')
+    if (inside.length > 1) return false
+    const [only] = inside
+    if (!only && !explicit) return false
+    if (only) {
+      if (only.name !== 'Welcome.md' || !only.isFile()) return false
+      if ((await inferPrimaryNotesLocation(root, systemFolderPaths)) !== 'root') return false
+      if (await pathExists(noteCommentsPath(root, 'inbox/Welcome.md'))) return false
+      if (!(await takeAwayUntouchedWelcome(inbox, only.name))) return false
+      await removeNoteCreation(root, 'inbox/Welcome.md')
+    }
+    await fs.rm(path.join(inbox, '.DS_Store'), { force: true })
+    // Not recursive: a file landing after the look stays, and so does the folder.
+    await fs.rmdir(inbox)
+    return true
+  } catch {
+    return false
+  }
+}
+
+const pathExists = (target: string): Promise<boolean> =>
+  fs.lstat(target).then(
+    () => true,
+    () => false
+  )
+
+const sha256 = async (file: string): Promise<string> =>
+  createHash('sha256').update(await fs.readFile(file)).digest('hex')
+
+/**
+ * Deletes the Welcome if it is still a seed. It is hashed where nothing can save to
+ * it any more: an edit landing between a hash and a delete would be lost. A save
+ * after the rename makes a new file, which keeps the folder. An edit the rename
+ * carried with it goes back, beside any newer file rather than over it.
+ */
+async function takeAwayUntouchedWelcome(inbox: string, name: string): Promise<boolean> {
+  const welcome = path.join(inbox, name)
+  if (!WELCOME_SEED_SHA256.has(await sha256(welcome))) return false
+  const aside = path.join(inbox, `.Welcome.settling-${randomUUID()}`)
+  await fs.rename(welcome, aside)
+  if (WELCOME_SEED_SHA256.has(await sha256(aside))) {
+    await fs.rm(aside)
+    return true
+  }
+  const taken = await pathExists(welcome)
+  await fs.rename(aside, taken ? path.join(inbox, `Welcome ${randomUUID()}.md`) : welcome)
+  return false
+}
+
+/**
+ * A folder opened empty is seeded in inbox mode without saying so in vault.json,
+ * so the layout is still inferred when folders are copied in, and it turns to root
+ * mode. That is right, it shows what was copied. What it must not leave behind is
+ * the system Inbox as a lowercase `inbox` folder holding a Welcome nobody asked for.
+ * Stating inbox mode at the seed instead would hide everything copied in behind a
+ * banner, and inferring inbox mode from a non-empty `inbox/` would turn a flat
+ * Obsidian vault with a folder of that name upside down.
+ */
+export async function settleSeededInbox(root: string): Promise<boolean> {
+  if (isEphemeralRoot(root)) return false
+  let parsed: unknown = null
+  try {
+    parsed = JSON.parse(await fs.readFile(vaultSettingsPath(root), 'utf8'))
+  } catch (err) {
+    // A vault.json that does not parse states nothing we can read, and leaves
+    // its owner a problem that is not this function's to act on.
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') return false
+  }
+  // A vault that says root has no Inbox to keep. One that says inbox keeps it, however
+  // much is at its root: that is what the banner is for.
+  if (statesPrimaryNotesLocation(parsed) && !statesRootMode(parsed)) return false
+  const paths = statedSystemFolderPaths(parsed)
+  if ((await inferPrimaryNotesLocation(root, paths)) !== 'root') return false
+  return await removeSeedOnlyInbox(root, paths, { explicit: false })
+}
+
+/**
  * Ensure the expected vault folder layout exists and seed a welcome note
  * the very first time a vault is opened.
  */
@@ -1674,6 +1795,7 @@ export async function ensureVaultLayout(root: string): Promise<void> {
     }
   }
   if (!wasEmpty) {
+    await settleSeededInbox(root)
     try {
       await migrateLegacyDatabases(root)
     } catch (err) {

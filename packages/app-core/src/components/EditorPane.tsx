@@ -4294,7 +4294,13 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             >
               <TimelineIcon />
             </IconBtn>
-            <IconBtn title="Export as PDF (⇧⌘E)" onClick={() => void exportActiveNotePdf()}>
+            <IconBtn
+              title={labelWithShortcut(
+                'Export as PDF',
+                getKeymapDisplay(tabNavOverrides, 'global.exportNotePdf')
+              )}
+              onClick={() => void exportActiveNotePdf()}
+            >
               <FileDownIcon />
             </IconBtn>
           </>
@@ -4728,7 +4734,10 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           <div className="flex shrink-0 items-center gap-0.5 self-center">
             {!sidebarOpen && (
               <IconBtn
-                title="Show sidebar (⌘1)"
+                title={labelWithShortcut(
+                  'Show sidebar',
+                  getKeymapDisplay(tabNavOverrides, 'global.toggleSidebar')
+                )}
                 onClick={toggleSidebar}
                 tooltipAlign="left"
               >
@@ -4789,7 +4798,14 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       {sidebarSlot === 'pane-strip' && (
         <div data-sidebar-restore className={tabStripHeaderClass}>
           <div className="flex shrink-0 items-center self-center">
-            <IconBtn title="Show sidebar (⌘1)" onClick={toggleSidebar} tooltipAlign="left">
+            <IconBtn
+              title={labelWithShortcut(
+                'Show sidebar',
+                getKeymapDisplay(tabNavOverrides, 'global.toggleSidebar')
+              )}
+              onClick={toggleSidebar}
+              tooltipAlign="left"
+            >
               <PanelLeftIcon width={16} height={16} />
             </IconBtn>
           </div>
@@ -4808,7 +4824,14 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           <div className="flex min-w-0 flex-1 items-center gap-1">
             {sidebarSlot === 'note-header' && (
               <div data-sidebar-restore className="-ml-2 mr-1 shrink-0">
-                <IconBtn title="Show sidebar (⌘1)" onClick={toggleSidebar} tooltipAlign="left">
+                <IconBtn
+              title={labelWithShortcut(
+                'Show sidebar',
+                getKeymapDisplay(tabNavOverrides, 'global.toggleSidebar')
+              )}
+              onClick={toggleSidebar}
+              tooltipAlign="left"
+            >
                   <PanelLeftIcon width={16} height={16} />
                 </IconBtn>
               </div>
@@ -5462,6 +5485,9 @@ function EmptyPaneState({
   zenMode: boolean
   onShowSidebar: () => void
 }): JSX.Element {
+  const overrides = useStore((s) => s.keymapOverrides)
+  const zenKey = getKeymapDisplay(overrides, 'global.toggleZenMode')
+  const sidebarKey = getKeymapDisplay(overrides, 'global.toggleSidebar')
   return (
     <div className="flex min-h-0 flex-1 items-center justify-center px-6">
       <div className="max-w-md rounded-3xl border border-paper-300/70 bg-paper-50/35 px-6 py-6 text-center shadow-[0_18px_48px_rgba(15,23,42,0.08)] backdrop-blur-sm">
@@ -5473,7 +5499,7 @@ function EmptyPaneState({
         </h2>
         <p className="mt-2 text-sm leading-6 text-ink-500">
           {zenMode
-            ? 'Leave Zen mode with ⌘. to bring the rest of the app chrome back.'
+            ? `Leave Zen mode${zenKey ? ` with ${zenKey}` : ''} to bring the rest of the app chrome back.`
             : sidebarOpen
             ? 'Select a note from the sidebar, or create a new one to start writing.'
             : 'Bring the sidebar back to browse your notes, folders, and shortcuts.'}
@@ -5487,9 +5513,11 @@ function EmptyPaneState({
             >
               <PanelLeftIcon width={16} height={16} />
               <span>Show sidebar</span>
-              <span className="rounded-md border border-paper-300/80 bg-paper-50/80 px-1.5 py-0.5 font-mono text-xs text-ink-500">
-                ⌘1
-              </span>
+              {sidebarKey && (
+                <span className="rounded-md border border-paper-300/80 bg-paper-50/80 px-1.5 py-0.5 font-mono text-xs text-ink-500">
+                  {sidebarKey}
+                </span>
+              )}
             </button>
           </div>
         )}
@@ -5578,7 +5606,7 @@ function IconBtn({
       aria-label={title}
       aria-pressed={active}
       className={[
-        'group relative flex h-7 w-7 items-center justify-center rounded-md transition-colors',
+        'group relative flex h-7 w-7 items-center justify-center rounded-md',
         disabled
           ? 'cursor-default text-ink-500/40'
           : active

@@ -46,6 +46,7 @@ import { syntaxHighlighting, HighlightStyle, defaultHighlightStyle } from '@code
 import { tags as t } from '@lezer/highlight'
 import { autocompletion } from '@codemirror/autocomplete'
 import { useStore } from '../store'
+import { revealNoteInSidebar } from '../lib/sidebar-focus'
 import type { LineNumberMode } from '../store'
 import { livePreviewPlugin } from '../lib/cm-live-preview'
 import { sourceRevealExtension, sourceRevealForNewNote } from '../lib/cm-source-reveal'
@@ -199,7 +200,6 @@ export function PinnedReferencePane(): JSX.Element | null {
   const editorFontSize = useStore((s) => s.editorFontSize)
   const editorLineHeight = useStore((s) => s.editorLineHeight)
   const textFont = useStore((s) => s.textFont)
-  const setView = useStore((s) => s.setView)
 
   const viewRef = useRef<EditorView | null>(null)
   const viewPathRef = useRef<string | null>(null)
@@ -522,13 +522,10 @@ export function PinnedReferencePane(): JSX.Element | null {
               title={isAsset ? `Reveal ${title} in files` : `Reveal ${title} in the sidebar`}
               onClick={() => {
                 if (isAsset) {
-                  setView({ kind: 'assets' })
+                  void useStore.getState().openAssetsView()
                   return
                 }
-                const parts = pinnedRefPath.split('/')
-                const top = parts[0] as 'inbox' | 'quick' | 'archive' | 'trash'
-                const subpath = parts.slice(1, -1).join('/')
-                setView({ kind: 'folder', folder: top, subpath })
+                revealNoteInSidebar(pinnedRefPath)
               }}
               className="flex min-w-0 flex-1 items-center gap-2 truncate text-left text-sm font-semibold text-ink-900 hover:text-ink-700"
             >

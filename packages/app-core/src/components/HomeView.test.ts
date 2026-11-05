@@ -192,4 +192,12 @@ describe('HomeView: Today leaves empty tasks out (#1026)', () => {
     expect(section().textContent).toContain('No open tasks. All clear.')
     expect(section().textContent).not.toContain('overdue')
   })
+
+  it('leaves out the Recent heading while there is nothing recent', () => {
+    useStore.setState({ notes: [] })
+    act(() => root.render(createElement(HomeView, { sidebarOpen: true, onShowSidebar: vi.fn() })))
+    const section = host.querySelector('[data-home-section="recent"]')
+    expect(section?.textContent).not.toContain('Recent')
+    expect(section?.textContent).toContain('New note')
+  })
 })

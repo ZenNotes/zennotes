@@ -20,7 +20,7 @@ import {
   type AreaLabels,
   type SearchCreateDraft
 } from '../lib/search-create'
-import { resolveSystemFolderLabels } from '../lib/system-folder-labels'
+import { noteAreaLabel, resolveSystemFolderLabels } from '../lib/system-folder-labels'
 import { isPrimaryNotesAtRoot, noteFolderLabel } from '../lib/vault-layout'
 import { isPathInTemplateFolder, resolveTemplateFolder } from '@shared/template-folder'
 import { useToastStore } from '../lib/toast'
@@ -334,6 +334,11 @@ export function SearchPalette(): JSX.Element {
               }
               const n = row.note
               const dir = noteFolderLabel(n, vaultSettings)
+              const area = noteAreaLabel(
+                n.folder,
+                isPrimaryNotesAtRoot(vaultSettings),
+                systemFolderLabels
+              )
               return (
                 <button
                   key={row.key}
@@ -364,11 +369,11 @@ export function SearchPalette(): JSX.Element {
                     >
                       {`\u202A${dir}\u202C`}
                     </span>
-                  ) : (
+                  ) : area ? (
                     <span className="ml-auto shrink-0 text-xs uppercase tracking-wide text-ink-400">
-                      {n.folder}
+                      {area}
                     </span>
-                  )}
+                  ) : null}
                 </button>
               )
             })

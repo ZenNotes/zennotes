@@ -41,11 +41,13 @@ import {
   type SystemFolderPaths
 } from '@shared/system-folder-paths'
 import type { DatabaseOps } from '@shared/database-ops'
+import { formDirContaining } from '@shared/databases'
 import type { VaultAssetMeta, VaultBackend, VaultDescription, VaultLayout } from '../cli/backend.js'
 import { RemoteRequestError } from '../main/remote/connection.js'
 import {
   AssetDestinationRefused,
   ATTACHMENTS_DIRS,
+  copyTitle,
   foldersAsListed,
   goesThroughLink,
   sanitizeTitle,
@@ -90,6 +92,12 @@ const ASSETS_DIR = 'assets'
 
 const NO_COPY_NAME = 'This assistant cannot give the note that name.'
 
+const RECORD_PAGE_STAYS_PUT =
+  "This assistant cannot rename, move, copy, archive, trash or delete a database's record page."
+
+/** How many taken names the check of a new note's path goes through. */
+const MAX_LANDING_STEPS = 10000
+
 const notFound = (rel: string): Error => new Error(`Note not found: ${rel}`)
 export const assetNotFound = (rel: string): Error => new Error(`Asset not found: ${rel}`)
 export const deletedAssetNotFound = (token: string): Error =>
@@ -117,12 +125,15 @@ function hintLinkedFolder(kind: string, dir: string): void {
  *  someone who wrote the accent meant that folder, and this is a different one.
  *  Mirrors accentsAgree in ZenNotes/tui. */
 function accentsAgree(entry: string, canonical: string): boolean {
-  const lower = (value: string): string => {
-    let out = ''
-    for (const ch of value.normalize('NFC')) out += ch.toLowerCase()
-    return out
-  }
-  return lower(entry) === lower(canonical) || lower(entry) === foldMcpScopePath(entry)
+  return foldCase(entry) === foldCase(canonical) || foldCase(entry) === foldMcpScopePath(entry)
+}
+
+/** Case and Unicode form only, which a volume can ignore. Accents stay: `Café` and
+ *  `Cafe` are two folders, side by side on any volume. */
+function foldCase(value: string): string {
+  let out = ''
+  for (const ch of value.normalize('NFC')) out += ch.toLowerCase()
+  return out
 }
 
 function joinRel(dir: string, sub: string): string {
@@ -131,21 +142,23 @@ function joinRel(dir: string, sub: string): string {
   return `${dir}/${sub}`
 }
 
-/** The vault's spelling of `p` among known paths: exact, else the one path
- *  equal to it after case and accent folding. */
-function spell(p: string, known: readonly string[]): string | null {
+/** The vault's spelling of `p` among known paths: exact, else the one path equal
+ *  to it after case and Unicode form, else the one equal after accent folding too.
+ *  The order matters beside a look-alike: NFD `Café` means `Café/` and is not left
+ *  undecided by `Cafe/` next to it. */
+export function spell(p: string, known: readonly string[]): string | null {
+  const cased = foldCase(p)
   const folded = foldMcpScopePath(p)
-  let match: string | null = null
-  let count = 0
+  // The lists can name one path twice, which is still one path.
+  const near = new Set<string>()
+  const loose = new Set<string>()
   for (const k of known) {
     if (k === p) return k
-    // The lists can name one path twice, which is still one path.
-    if (foldMcpScopePath(k) === folded && k !== match) {
-      match = k
-      count += 1
-    }
+    if (foldCase(k) === cased) near.add(k)
+    if (foldMcpScopePath(k) === folded) loose.add(k)
   }
-  return count === 1 ? match : null
+  const [only] = near.size > 0 ? near : loose
+  return (near.size > 0 ? near.size : loose.size) === 1 ? only : null
 }
 
 /** A client's path in vault-relative POSIX form, or null: `.` and `..`
@@ -319,12 +332,14 @@ class ScopeView {
   }
 
   /** A path without the system folder it sits in, the same path when it sits in
-   *  none and '' when it names one. In any case, since entries match that way. */
-  private withoutSystemFolder(p: string): string {
-    const folded = foldMcpScopePath(p)
+   *  none and '' when it names one. A real path goes by case and Unicode form, so
+   *  `Ärchive/` next to `archive/` stays the plain folder it is. A deny entry is
+   *  only words and folds accents too, since a near miss there must over-hide. */
+  private withoutSystemFolder(p: string, fold: (value: string) => string = foldCase): string {
+    const folded = fold(p)
     for (const folder of FOLDERS) {
       const dir = this.bucketDir(folder)
-      if (dir && isInsideMcpScopeEntry(folded, foldMcpScopePath(dir))) {
+      if (dir && isInsideMcpScopeEntry(folded, fold(dir))) {
         return p.split('/').slice(dir.split('/').length).join('/')
       }
     }
@@ -337,7 +352,7 @@ class ScopeView {
     const inSystemFolder = this.withoutSystemFolder(p)
     return this.deny.some((entry) => {
       if (isInsideMcpScopeEntryFolded(p, entry)) return true
-      const within = this.withoutSystemFolder(entry)
+      const within = this.withoutSystemFolder(entry, foldMcpScopePath)
       return (
         within !== '' &&
         inSystemFolder !== p &&
@@ -356,7 +371,7 @@ class ScopeView {
       return (
         inSystemFolder !== '' &&
         inSystemFolder !== p &&
-        isInsideMcpScopeEntryFolded(this.withoutSystemFolder(entry), inSystemFolder)
+        isInsideMcpScopeEntryFolded(this.withoutSystemFolder(entry, foldMcpScopePath), inSystemFolder)
       )
     })
   }
@@ -365,18 +380,8 @@ class ScopeView {
   note(raw: string): NoteMeta | null {
     const clean = cleanRequest(raw)
     if (!clean) return null
-    let meta = this.byPath.get(clean) ?? null
-    if (!meta) {
-      const folded = foldMcpScopePath(clean)
-      let count = 0
-      for (const [p, m] of this.byPath) {
-        if (foldMcpScopePath(p) === folded) {
-          meta = m
-          count += 1
-        }
-      }
-      if (count !== 1) return null
-    }
+    const spelled = this.byPath.has(clean) ? clean : spell(clean, [...this.byPath.keys()])
+    const meta = spelled == null ? null : (this.byPath.get(spelled) ?? null)
     return meta && this.visible(meta.path) ? meta : null
   }
 
@@ -425,6 +430,25 @@ class ScopeView {
     }
     if (!bucket) return spelled
     return spelled.slice(bucket.length).replace(/^\//, '')
+  }
+
+  /** Refuses a name that lands on a path a deny entry hides. A folder can be fine
+   *  and one file in it not: `archive/Pub` with a deny entry on `Pub/secret.md`. The
+   *  search for a free name walks what is really there, as the write will, so it
+   *  can step past a taken name and onto a hidden one. */
+  async refuseHiddenLanding(dir: string, title: string, ext = '.md'): Promise<void> {
+    if (this.deny.length === 0) return
+    let candidate = title
+    for (let n = 2; n <= MAX_LANDING_STEPS; n += 1) {
+      const rel = joinRel(dir, `${candidate}${ext}`)
+      if (!(await this.occupied(rel))) {
+        if (this.visible(rel)) return
+        throw this.createRefusal()
+      }
+      candidate = `${title} ${n}`
+    }
+    // No name was checked, so none can be vouched for.
+    throw this.createRefusal()
   }
 
   /** Whether a system folder is one of those, however it is spelled. */
@@ -522,7 +546,14 @@ export class ScopedBackend implements VaultBackend {
     if (!linkedFolders) throw new Error(UNMARKED_LINKS)
     const listed = await this.inner.listNotes()
     const notes = restricted ? listed.filter((note) => !note.symlink) : listed
-    const folders = await this.inner.listFolders()
+    // A server lists a database folder as a folder, for its renderer. To a client with
+    // a path scope it is not one: it could delete the database, or rename it into a
+    // plain folder, with no sight of what else uses it. As on a local vault, a path
+    // can still name it. Mirrors build in ZenNotes/tui.
+    const allFolders = await this.inner.listFolders()
+    const folders = restricted
+      ? allFolders.filter((entry) => !formDirContaining(entry.subpath))
+      : allFolders
     const v = new ScopeView(
       layout.systemFolderPaths,
       layout.primaryNotesLocation === 'root',
@@ -545,6 +576,13 @@ export class ScopedBackend implements VaultBackend {
       known.push(note.path)
     }
     known.push(...v.dirs)
+    // A database folder is there to name, where a folder listing leaves it out, even
+    // with no record page yet. It stays out of v.dirs: it takes no notes and no moves.
+    const databaseDirs = [
+      ...allFolders.filter((entry) => !folders.includes(entry)),
+      ...((await this.inner.listDatabaseDirs?.()) ?? [])
+    ]
+    for (const entry of databaseDirs) known.push(v.folderRel(entry))
 
     // An entry can name an attachment folder or an asset, which the listings
     // above do not show, so those are read only for an entry they did not find.
@@ -625,6 +663,15 @@ export class ScopedBackend implements VaultBackend {
 
   private need(access: McpAccess): void {
     if (!mcpAccessAtLeast(this.scope.access, access)) throw new Error(mcpAccessRefusal(this.scope))
+  }
+
+  /** A client with a path scope may not see the database a page belongs to, whose
+   *  schema names its pages and whose row titles follow them, so it reads and edits a
+   *  page and leaves it where it is. Mirrors keepsRecordPage in ZenNotes/tui. */
+  private keepRecordPage(meta: NoteMeta): void {
+    if (isMcpScopeRestricted(this.scope) && formDirContaining(meta.path)) {
+      throw new Error(RECORD_PAGE_STAYS_PUT)
+    }
   }
 
   /** Loads the view and resolves a note: the first step of every per-note
@@ -874,7 +921,12 @@ export class ScopedBackend implements VaultBackend {
   ): Promise<NoteMeta> => {
     this.need('write')
     const v = await this.load()
-    return await this.inner.createNote(folder, title, await v.destination(folder, subpath), body)
+    const destination = await v.destination(folder, subpath)
+    await v.refuseHiddenLanding(
+      joinRel(v.bucketDir(folder), destination),
+      sanitizeTitle(title ?? 'Untitled')
+    )
+    return await this.inner.createNote(folder, title, destination, body)
   }
 
   appendToNote = async (rel: string, text: string): Promise<NoteMeta> =>
@@ -892,6 +944,7 @@ export class ScopedBackend implements VaultBackend {
    */
   renameNote = async (rel: string, nextTitle: string): Promise<NoteMeta> => {
     const meta = await this.noteFor(rel, 'write')
+    this.keepRecordPage(meta)
     const v = await this.load()
     const next = path.posix.join(path.posix.dirname(meta.path), `${sanitizeTitle(nextTitle)}.md`)
     if (!v.visible(next)) throw new Error('This assistant cannot give the note that name.')
@@ -903,8 +956,17 @@ export class ScopedBackend implements VaultBackend {
 
   moveNote = async (rel: string, folder: NoteFolder, subpath: string): Promise<NoteMeta> => {
     const meta = await this.noteFor(rel, 'write')
+    this.keepRecordPage(meta)
     const v = await this.load()
-    return await this.inner.moveNote(meta.path, folder, await v.destination(folder, subpath))
+    const destination = await v.destination(folder, subpath)
+    const dir = joinRel(v.bucketDir(folder), destination)
+    const from = path.posix.dirname(meta.path)
+    // A note moved to where it already is stays put, under its own name.
+    if (dir !== (from === '.' ? '' : from)) {
+      const ext = path.posix.extname(meta.path)
+      await v.refuseHiddenLanding(dir, path.posix.basename(meta.path, ext), ext)
+    }
+    return await this.inner.moveNote(meta.path, folder, destination)
   }
 
   // Archiving and trashing are lifecycle exits: the note may leave what the
@@ -937,12 +999,14 @@ export class ScopedBackend implements VaultBackend {
 
   archiveNote = async (rel: string): Promise<NoteMeta> => {
     const meta = await this.noteFor(rel, 'write')
+    this.keepRecordPage(meta)
     await this.refuseLinkedExit(meta, 'archive')
     return await this.answerRefusal(() => this.inner.archiveNote(meta.path))
   }
 
   moveToTrash = async (rel: string): Promise<NoteMeta> => {
     const meta = await this.noteFor(rel, 'write')
+    this.keepRecordPage(meta)
     await this.refuseLinkedExit(meta, 'trash')
     return await this.answerRefusal(() => this.inner.moveToTrash(meta.path))
   }
@@ -973,10 +1037,12 @@ export class ScopedBackend implements VaultBackend {
   /** An allow entry can name one note, and its copy would land outside it. */
   duplicateNote = async (rel: string): Promise<NoteMeta> => {
     const meta = await this.noteFor(rel, 'write')
+    this.keepRecordPage(meta)
     const v = await this.load()
     const ext = path.posix.extname(meta.path)
-    const stem = ext ? meta.path.slice(0, -ext.length) : meta.path
-    if (!v.visible(`${stem} copy${ext}`)) throw new Error(NO_COPY_NAME)
+    const dir = path.posix.dirname(meta.path)
+    const name = `${copyTitle(path.posix.basename(meta.path, ext))}${ext}`
+    if (!v.visible(joinRel(dir === '.' ? '' : dir, name))) throw new Error(NO_COPY_NAME)
     const copy = await this.inner.duplicateNote(meta.path)
     // A numbered name can land where the first name would not.
     if (!v.visible(copy.path)) {
@@ -986,8 +1052,11 @@ export class ScopedBackend implements VaultBackend {
     return copy
   }
 
-  deleteNote = async (rel: string): Promise<void> =>
-    await this.inner.deleteNote((await this.noteFor(rel, 'write')).path)
+  deleteNote = async (rel: string): Promise<void> => {
+    const meta = await this.noteFor(rel, 'write')
+    this.keepRecordPage(meta)
+    await this.inner.deleteNote(meta.path)
+  }
 
   emptyTrash = async (): Promise<void> => {
     this.need('write')

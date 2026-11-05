@@ -148,7 +148,7 @@ export function NoteHoverPreview({
   return createPortal(
     <div
       className={[
-        'note-hover-preview fixed z-[85] overflow-hidden rounded-2xl bg-paper-100/98 shadow-float ring-1 ring-paper-300/80 backdrop-blur-md',
+        'note-hover-preview fixed z-[85] overflow-hidden rounded-2xl bg-paper-100 shadow-float ring-1 ring-paper-300/80',
         interactive ? 'pointer-events-auto' : 'pointer-events-none'
       ].join(' ')}
       style={{ left: position.left, top: position.top, width: position.width }}
@@ -159,7 +159,7 @@ export function NoteHoverPreview({
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="text-xs font-medium uppercase tracking-[0.14em] text-ink-400">
-              Hover Preview
+              Preview
             </div>
             <div className="mt-1 truncate text-sm font-semibold text-ink-900">{note.title}</div>
             <div className="mt-0.5 truncate text-xs text-ink-500">{note.path}</div>

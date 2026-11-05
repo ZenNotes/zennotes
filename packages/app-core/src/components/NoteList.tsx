@@ -31,6 +31,7 @@ import {
 import { assetTabPath } from '../lib/asset-tabs'
 import { getScrollTopForVirtualIndex, getVirtualRange } from '../lib/virtual-list'
 import { chromeCarriesWindowDrag } from '../lib/window-chrome'
+import { excerptBesideTitle } from '../lib/note-excerpt'
 
 function formatDate(ms: number): string {
   const d = new Date(ms)
@@ -978,7 +979,7 @@ function NoteRow({
         <span className="shrink-0 text-xs text-ink-500">{formatDate(note.updatedAt)}</span>
       </div>
       <span className={`${compact ? 'line-clamp-1' : 'line-clamp-2'} text-xs text-ink-500`}>
-        {note.excerpt || 'Empty note'}
+        {excerptBesideTitle(note.title, note.excerpt) || 'Empty note'}
       </span>
     </button>
   )

@@ -69,7 +69,7 @@ import {
 import { completionKeymapExtension, completionNavKeymap } from '../lib/cm-completion-nav'
 import { slashCommandRender, templateSlashCommandSource } from '../lib/cm-slash-commands'
 import { calloutTypeSource } from '../lib/cm-callouts'
-import type { NoteMeta } from '@shared/ipc'
+import type { NoteMeta, VaultSettings } from '@shared/ipc'
 import type { VimWrappedLineMotionMode } from '@shared/app-config'
 import {
   DEFAULT_THEME_ID,
@@ -84,6 +84,12 @@ import {
 } from '../lib/note-search'
 import { deriveTitleFromBody, planQuickCaptureSave } from '../lib/quick-capture-save'
 import { applyVimInsertEscape } from '../lib/vim-insert-escape'
+import {
+  noteAreaLabel,
+  normalizeSystemFolderLabels,
+  type SystemFolderLabels
+} from '../lib/system-folder-labels'
+import { isPrimaryNotesAtRoot, noteFolderSubpath } from '../lib/vault-layout'
 import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
 import { isImeComposing } from '../lib/ime'
 import { PinIcon } from './icons'
@@ -110,6 +116,7 @@ interface QuickCapturePrefs {
   interfaceFont: string | null
   textFont: string | null
   monoFont: string | null
+  systemFolderLabels: SystemFolderLabels
 }
 
 function loadPrefs(): QuickCapturePrefs {
@@ -128,7 +135,8 @@ function loadPrefs(): QuickCapturePrefs {
     cursorBlink: true,
     interfaceFont: null,
     textFont: null,
-    monoFont: null
+    monoFont: null,
+    systemFolderLabels: {}
   }
   try {
     const raw = localStorage.getItem(PREFS_KEY)
@@ -143,7 +151,8 @@ function loadPrefs(): QuickCapturePrefs {
       cursorBlink: parsed.cursorBlink !== false,
       themeFamily: (parsed.themeFamily as ThemeFamily) ?? fallback.themeFamily,
       themeMode: (parsed.themeMode as ThemeMode) ?? fallback.themeMode,
-      editorTabSize: normalizeEditorTabSize(parsed.editorTabSize)
+      editorTabSize: normalizeEditorTabSize(parsed.editorTabSize),
+      systemFolderLabels: normalizeSystemFolderLabels(parsed.systemFolderLabels)
     }
   } catch {
     return fallback
@@ -278,6 +287,7 @@ export function QuickCaptureApp(): JSX.Element {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notes, setNotes] = useState<NoteMeta[]>([])
+  const [vaultSettings, setVaultSettings] = useState<VaultSettings | null>(null)
   const [overlay, setOverlay] = useState<'none' | 'search' | 'command'>('none')
   const editorRef = useRef<EditorView | null>(null)
 
@@ -307,6 +317,13 @@ export function QuickCaptureApp(): JSX.Element {
         if (!alive) return
         setNotes(all.filter((n) => n.folder !== 'trash'))
       })
+      // Only names folders on the rows. Without it they read as an Inbox vault.
+      void Promise.resolve()
+        .then(() => window.zen.getVaultSettings())
+        .then((settings) => {
+          if (alive) setVaultSettings(settings)
+        })
+        .catch(() => undefined)
     }
     refresh()
     const off = window.zen.onVaultChange(() => refresh())
@@ -664,6 +681,8 @@ export function QuickCaptureApp(): JSX.Element {
     }
   }, [])
   const modKey = isMacPlatform ? '⌘' : 'Ctrl'
+  const areaLabel = (folder: NoteMeta['folder']): string | null =>
+    noteAreaLabel(folder, isPrimaryNotesAtRoot(vaultSettings), prefs.systemFolderLabels)
 
   // Pin state — when on, the window stays on top of all windows and no longer
   // auto-hides on blur, so it behaves like a floating sticky note.
@@ -720,12 +739,12 @@ export function QuickCaptureApp(): JSX.Element {
         >
           {headerTitle || 'New note'}
         </span>
-        {mode.kind === 'existing' && (
+        {mode.kind === 'existing' && areaLabel(mode.note.folder) && (
           <span
             className="shrink-0 rounded-md bg-paper-200/80 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-ink-500"
             title={mode.note.path}
           >
-            {mode.note.folder}
+            {areaLabel(mode.note.folder)}
           </span>
         )}
         <button
@@ -751,6 +770,8 @@ export function QuickCaptureApp(): JSX.Element {
 
         {overlay === 'search' && (
           <NotePickerOverlay
+            vaultSettings={vaultSettings}
+            areaLabel={areaLabel}
             notes={notes}
             onPick={(note) => void loadNote(note)}
             onCancel={() => {
@@ -848,22 +869,19 @@ function OverlayShell({ children }: OverlayShellProps): JSX.Element {
 
 interface NotePickerOverlayProps {
   notes: NoteMeta[]
+  vaultSettings: VaultSettings | null
+  areaLabel: (folder: NoteMeta['folder']) => string | null
   onPick: (note: NoteMeta) => void
   onCancel: () => void
 }
 
-/** Where a note sits inside its folder, with neither the folder nor the
- *  filename repeated. The row already shows the folder on the left and the
- *  title next to it, so a full path would say the same thing twice and leave
- *  the title nothing but a truncated stub. */
-function noteSubpath(note: Pick<NoteMeta, 'path' | 'folder'>): string {
-  const within = note.path.startsWith(`${note.folder}/`)
-    ? note.path.slice(note.folder.length + 1)
-    : note.path
-  return within.replace(/[^/]+$/, '').replace(/\/+$/, '')
-}
-
-function NotePickerOverlay({ notes, onPick, onCancel }: NotePickerOverlayProps): JSX.Element {
+function NotePickerOverlay({
+  notes,
+  vaultSettings,
+  areaLabel,
+  onPick,
+  onCancel
+}: NotePickerOverlayProps): JSX.Element {
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
   const inputRef = useRef<HTMLInputElement | null>(null)
@@ -945,9 +963,14 @@ function NotePickerOverlay({ notes, onPick, onCancel }: NotePickerOverlayProps):
                   isActive ? 'bg-paper-200 text-ink-900' : 'text-ink-700 hover:bg-paper-200/60'
                 ].join(' ')}
               >
-                <span className="shrink-0 text-2xs uppercase tracking-wide text-ink-400">
-                  {note.folder}
-                </span>
+                {areaLabel(note.folder) && (
+                  <span
+                    data-picker-area
+                    className="shrink-0 text-2xs uppercase tracking-wide text-ink-400"
+                  >
+                    {areaLabel(note.folder)}
+                  </span>
+                )}
                 {/* Same shape as the Open Buffers fix for #635: the title is
                     what the user is picking by, so it takes its natural width
                     and truncates only when it alone overflows. The path gets
@@ -961,7 +984,7 @@ function NotePickerOverlay({ notes, onPick, onCancel }: NotePickerOverlayProps):
                   dir="rtl"
                   className="min-w-0 flex-1 truncate text-right text-2xs text-ink-400"
                 >
-                  {`\u202A${noteSubpath(note)}\u202C`}
+                  {`\u202A${noteFolderSubpath(note, vaultSettings)}\u202C`}
                 </span>
               </button>
             )

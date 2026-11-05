@@ -1,3 +1,4 @@
+import { formatKeyToken } from '../lib/keymaps'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store'
 import { resolveAuto, THEMES, type ThemeFamily, type ThemeMode } from '../lib/themes'
@@ -1042,11 +1043,11 @@ function DoneStep({
 }): JSX.Element {
   const tips = useMemo(
     () => [
-      { keys: '⌘P', label: 'Find a note' },
-      { keys: '⇧⌘P', label: 'Command palette' },
-      { keys: '⇧⌘N', label: 'New quick note' },
-      { keys: '⌘.', label: 'Toggle zen mode' },
-      { keys: '⌘,', label: 'Settings' }
+      { keys: formatKeyToken('Mod+P'), label: 'Find a note' },
+      { keys: formatKeyToken('Shift+Mod+P'), label: 'Command palette' },
+      { keys: formatKeyToken('Shift+Mod+N'), label: 'New quick note' },
+      { keys: formatKeyToken('Mod+.'), label: 'Toggle zen mode' },
+      { keys: formatKeyToken('Mod+,'), label: 'Settings' }
     ],
     []
   )

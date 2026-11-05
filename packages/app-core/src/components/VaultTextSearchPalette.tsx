@@ -5,7 +5,8 @@ import type {
   VaultTextSearchMatch
 } from '@shared/ipc'
 import { useStore } from '../store'
-import { resolveSystemFolderLabels } from '../lib/system-folder-labels'
+import { noteAreaLabel, resolveSystemFolderLabels } from '../lib/system-folder-labels'
+import { isPrimaryNotesAtRoot } from '../lib/vault-layout'
 import { isPathInTemplateFolder, resolveTemplateFolder } from '@shared/template-folder'
 import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
 import { isImeComposing } from '../lib/ime'
@@ -167,6 +168,8 @@ export function VaultTextSearchPalette(): JSX.Element {
   // leave them out themselves (desktop 2.80, server 2.80); this catches an
   // older server and the renderer's own fallback.
   const vaultSettings = useStore((s) => s.vaultSettings)
+  const matchArea = (folder: VaultTextSearchMatch['folder']): string | null =>
+    noteAreaLabel(folder, isPrimaryNotesAtRoot(vaultSettings), systemFolderLabels)
   const templateFolderRef = useRef<string | null>(null)
   templateFolderRef.current = resolveTemplateFolder(vaultSettings)
   const resultRefs = useRef<Array<HTMLButtonElement | null>>([])
@@ -459,9 +462,11 @@ export function VaultTextSearchPalette(): JSX.Element {
                     <span className="truncate text-sm font-medium text-ink-900">
                       {renderHighlightedText(match.title, query)}
                     </span>
-                    <span className="shrink-0 text-2xs uppercase tracking-[0.18em] text-ink-400">
-                      {match.folder}
-                    </span>
+                    {matchArea(match.folder) && (
+                      <span className="shrink-0 text-2xs uppercase tracking-[0.18em] text-ink-400">
+                        {matchArea(match.folder)}
+                      </span>
+                    )}
                     <span className="shrink-0 text-xs text-ink-500">L{match.lineNumber}</span>
                   </div>
                   <div className="truncate text-xs text-ink-500">

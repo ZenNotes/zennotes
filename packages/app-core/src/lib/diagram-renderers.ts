@@ -306,7 +306,7 @@ async function renderTikzBlock(el: HTMLElement): Promise<void> {
   surface.innerHTML =
     '<div class="zen-tikz-loading text-[11px] opacity-60">Rendering TikZ…</div>';
   if (typeof window.zen?.renderTikz !== "function") {
-    surface.innerHTML = `<pre class="zen-diagram-error">TikZ renderer not loaded. Quit (⌘Q) and relaunch the app: the preload script is only attached when a window is first created, so a plain reload isn't enough.</pre>`;
+    surface.innerHTML = `<pre class="zen-diagram-error">TikZ renderer not loaded. Quit and relaunch the app: the preload script is only attached when a window is first created, so a plain reload isn't enough.</pre>`;
     return;
   }
   try {

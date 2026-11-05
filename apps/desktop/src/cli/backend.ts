@@ -154,6 +154,9 @@ export interface VaultBackend {
    *  the tag tools and commands leave its notes out, as the app does. */
   templateFolder(): Promise<string | null>
   listNotes(): Promise<NoteMeta[]>
+  /** Where a folder listing leaves database folders out, names them: a path scope
+   *  can name one even with no record page yet. */
+  listDatabaseDirs?(): Promise<{ folder: NoteFolder; subpath: string }[]>
   listAssets(): Promise<VaultAssetMeta[]>
   /** An attachment's bytes. */
   readAsset(rel: string): Promise<Uint8Array>
@@ -321,6 +324,8 @@ class LocalBackend implements VaultBackend {
   }
   templateFolder = (): Promise<string | null> => readTemplateFolder(this.root)
   listNotes = (): Promise<NoteMeta[]> => listNotes(this.root)
+  listDatabaseDirs = (): Promise<{ folder: NoteFolder; subpath: string }[]> =>
+    listDatabaseDirs(this.root)
   marksLinks = async (): Promise<boolean> => true
   linkedSystemFolders = async (): Promise<string[] | null> => {
     const { primaryNotesLocation, systemFolderPaths } = await this.vaultLayout()
