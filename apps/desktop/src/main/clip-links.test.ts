@@ -258,6 +258,16 @@ describe('createClipLinkHandler', () => {
     expect(h.problems[0].message).toMatch(/did not arrive/)
   })
 
+  it('accepts a clipboard Windows stored with CRLF, filing the text as sent', async () => {
+    const text = '# Page\n\nbody\n'
+    const h = await harness({ clipboard: '# Page\r\n\r\nbody\r\n', window: { id: 3 } })
+    h.handler.start()
+    h.handler.handle(`zennotes://new?file=Page&clipboard=${await clipTextSha256Hex(text)}`)
+    await h.handler.idle()
+    expect(h.problems).toEqual([])
+    expect(h.sent[0].request.text).toBe(text)
+  })
+
   it('says why a malformed link was refused', async () => {
     const h = await harness({ window: { id: 3 } })
     h.handler.start()

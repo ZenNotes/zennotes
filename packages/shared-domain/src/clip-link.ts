@@ -236,6 +236,23 @@ export async function clipTextSha256Hex(text: string): Promise<string> {
   return hex
 }
 
+/**
+ * The note text to file when the clipboard holds `clipboardText` and the link
+ * named `sha256`, or null when they do not match. The bytes the extension
+ * hashed are what normally come back. Windows is the exception: a browser
+ * there can store the text with CRLF line endings, which the extension never
+ * hashed, so the text with CRLF turned back into LF is accepted too, and that
+ * is the text filed. Either way the clipboard is only filed when it holds
+ * what the link vouched for.
+ */
+export async function verifiedClipboardText(clipboardText: string, sha256: string): Promise<string | null> {
+  if (!clipboardText) return null
+  if ((await clipTextSha256Hex(clipboardText)) === sha256) return clipboardText
+  if (!clipboardText.includes('\r\n')) return null
+  const lf = clipboardText.replace(/\r\n/gu, '\n')
+  return (await clipTextSha256Hex(lf)) === sha256 ? lf : null
+}
+
 /** Percent-encode everything except RFC 3986's unreserved characters, which
  *  is stricter than encodeURIComponent (that one leaves `!'()*` bare). */
 export function encodeClipLinkValue(value: string): string {

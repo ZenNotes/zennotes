@@ -62,7 +62,10 @@ Any web page can fire a `zennotes://` link, so the app treats every link as untr
 - **No overwrite.** There is no `overwrite` parameter.
 - **The clipboard is never read blind.** The app files the clipboard only when its SHA-256 matches
   `clipboard=`. Otherwise it writes nothing and says the clip did not arrive. A page therefore
-  cannot make the app file whatever you copied last, such as a password.
+  cannot make the app file whatever you copied last, such as a password. One allowance: a browser
+  on Windows can store the text with CRLF line endings, so a clipboard whose CRLF-to-LF form
+  matches is accepted too, and the LF text is what gets filed. Builders hash the text exactly as
+  they wrote it.
 - **Locations stay inside the notes area.** No `..`, no leading `/`, no drive letter, no folder or
   note name starting with `.` (so never `.zennotes`), and no folder with a character Windows
   refuses (`< > : " | ? *`), because vaults sync between systems. Characters a note title cannot

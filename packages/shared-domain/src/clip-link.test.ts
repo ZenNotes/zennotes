@@ -5,6 +5,7 @@ import {
   clipTextSha256Hex,
   encodeClipLinkValue,
   parseClipLink,
+  verifiedClipboardText,
   type ClipLinkRejection,
   type ClipLinkRequest
 } from './clip-link'
@@ -59,6 +60,25 @@ describe('parseClipLink fixtures', () => {
       expect(await clipTextSha256Hex(h.text)).toBe(h.sha256)
     })
   }
+})
+
+describe('verifiedClipboardText', () => {
+  it('files the clipboard only when it holds what the link vouched for', async () => {
+    const text = 'line one\nline two\n'
+    const hash = await clipTextSha256Hex(text)
+    expect(await verifiedClipboardText(text, hash)).toBe(text)
+    expect(await verifiedClipboardText('a password', hash)).toBeNull()
+    expect(await verifiedClipboardText('', await clipTextSha256Hex(''))).toBeNull()
+  })
+
+  it('accepts a Windows clipboard that stored CRLF, and files the LF text', async () => {
+    const text = 'line one\nline two\n'
+    const hash = await clipTextSha256Hex(text)
+    expect(await verifiedClipboardText('line one\r\nline two\r\n', hash)).toBe(text)
+    // Text the extension really sent with CRLF keeps its bytes.
+    const crlf = 'kept\r\nas sent\r\n'
+    expect(await verifiedClipboardText(crlf, await clipTextSha256Hex(crlf))).toBe(crlf)
+  })
 })
 
 describe('encodeClipLinkValue', () => {

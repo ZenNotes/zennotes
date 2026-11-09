@@ -20,9 +20,9 @@
  */
 import path from 'node:path'
 import {
-  clipTextSha256Hex,
   MAX_CLIP_NOTE_BYTES,
   parseClipLink,
+  verifiedClipboardText,
   type ClipLinkRejection,
   type ClipLinkRequest
 } from '@shared/clip-link'
@@ -142,7 +142,8 @@ async function clipText(
   if (new TextEncoder().encode(text).byteLength > MAX_CLIP_NOTE_BYTES) {
     return { problem: 'That clip is larger than 8 MB, so nothing was saved.' }
   }
-  return (await clipTextSha256Hex(text)) === request.body.clipboard ? { text } : { problem: NOT_ARRIVED }
+  const verified = await verifiedClipboardText(text, request.body.clipboard)
+  return verified === null ? { problem: NOT_ARRIVED } : { text: verified }
 }
 
 export type ClipWriteOutcome = { ok: true; path: string } | { ok: false; message: string }
