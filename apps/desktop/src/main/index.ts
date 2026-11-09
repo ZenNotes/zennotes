@@ -762,7 +762,7 @@ function openAllowedExternalUrl(url: string): void {
 }
 
 function registerAppDeepLinkProtocol(): void {
-  if (!registersDeepLinkSchemeAtLaunch(process.platform)) return;
+  if (!registersDeepLinkSchemeAtLaunch(process.platform, app.isPackaged)) return;
 
   try {
     const defaultApp =

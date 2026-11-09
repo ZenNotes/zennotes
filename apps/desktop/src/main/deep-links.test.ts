@@ -109,15 +109,20 @@ describe('parseCloudAuthDeepLink', () => {
 
 describe('registersDeepLinkSchemeAtLaunch', () => {
   it('registers on Windows, where no installer writes the scheme (#509)', () => {
-    expect(registersDeepLinkSchemeAtLaunch('win32')).toBe(true)
+    expect(registersDeepLinkSchemeAtLaunch('win32', true)).toBe(true)
+    // A dev build passes its own path and app folder, which Windows honors.
+    expect(registersDeepLinkSchemeAtLaunch('win32', false)).toBe(true)
   })
 
-  it('keeps registering on macOS', () => {
-    expect(registersDeepLinkSchemeAtLaunch('darwin')).toBe(true)
+  it('registers a packaged app on macOS, never an unpackaged run', () => {
+    expect(registersDeepLinkSchemeAtLaunch('darwin', true)).toBe(true)
+    // macOS would register the bare Electron.app, which opens no vault.
+    expect(registersDeepLinkSchemeAtLaunch('darwin', false)).toBe(false)
   })
 
   it('leaves Linux to the package desktop file and the user choice', () => {
-    expect(registersDeepLinkSchemeAtLaunch('linux')).toBe(false)
+    expect(registersDeepLinkSchemeAtLaunch('linux', true)).toBe(false)
+    expect(registersDeepLinkSchemeAtLaunch('linux', false)).toBe(false)
   })
 })
 
