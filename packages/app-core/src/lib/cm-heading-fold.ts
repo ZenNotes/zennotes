@@ -16,6 +16,8 @@
  *   - The list item arrows, one beside each foldable item's marker.
  *   - `foldLineBelow`: a line opened below a folded line goes below the
  *     fold, so the fold stays on its own line (#1066).
+ *   - `foldTapCaret`: a tap on a folded line leaves the caret on that line,
+ *     where iOS would put it in the next heading's text.
  *   - No fold gutter: the full-document gutter would show chevrons
  *     next to every foldable range (paragraphs, code blocks,
  *     frontmatter), which clutters the minimalist editor surface.
@@ -55,6 +57,7 @@ import {
 } from './cm-list-fold'
 import { calloutAtLine, enclosingFoldableCallout, foldableCalloutRanges } from './cm-callout-fold'
 import { foldLineBelow } from './cm-fold-line-below'
+import { foldTapCaret } from './cm-fold-tap'
 
 const HEADING_RE = /^(#{1,6})\s+/
 
@@ -513,6 +516,7 @@ export function headingFolding(options: HeadingFoldingOptions = {}): Extension {
   return [
     codeFolding(),
     foldLineBelow(),
+    foldTapCaret(),
     service,
     headingArrowPlugin(showLevelLabels),
     listItemFoldArrows(),
