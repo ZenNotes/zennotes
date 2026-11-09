@@ -3,6 +3,7 @@ import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { ExcalidrawIcon, ImageIcon, ColumnsIcon, LinkIcon, ExternalIcon } from './icons'
 import { useStore } from '../store'
 import { getExcalidrawPreview } from '../lib/excalidraw-preview'
+import { dataUrlBytes, dataUrlMimeType } from '../lib/data-url'
 
 interface MenuState {
   x: number
@@ -15,8 +16,9 @@ async function copyDrawingImage(path: string): Promise<void> {
   try {
     const dataUrl = await getExcalidrawPreview(path)
     if (!dataUrl) return
-    const blob = await (await fetch(dataUrl)).blob()
-    await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
+    const type = dataUrlMimeType(dataUrl, 'image/png')
+    const blob = new Blob([dataUrlBytes(dataUrl)], { type })
+    await navigator.clipboard.write([new ClipboardItem({ [type]: blob })])
   } catch (err) {
     console.error('copy drawing image failed', path, err)
   }

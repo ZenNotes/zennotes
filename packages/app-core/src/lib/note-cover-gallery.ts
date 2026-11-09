@@ -25,6 +25,7 @@ import {
   gradientCoverFileName,
   gradientCoverSvg
 } from '@shared/note-cover-gradients'
+import { dataUrlBytes } from './data-url'
 
 export interface BuiltinCover {
   id: string
@@ -39,17 +40,6 @@ export interface BuiltinCover {
   /** Focal point the picture reads best at. */
   y: number
   bytes: () => Promise<Uint8Array>
-}
-
-function dataUrlBytes(dataUrl: string): Uint8Array {
-  const comma = dataUrl.indexOf(',')
-  const meta = dataUrl.slice(0, comma)
-  const payload = dataUrl.slice(comma + 1)
-  if (!meta.endsWith(';base64')) return new TextEncoder().encode(decodeURIComponent(payload))
-  const binary = atob(payload)
-  const bytes = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-  return bytes
 }
 
 // The specs live in shared-domain: the share viewer redraws a published
