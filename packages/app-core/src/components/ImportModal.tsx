@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type {
+  LogseqDailyNotePlace,
+  LogseqImportScan,
   NotionImportProgress,
   NotionImportStatus,
   ObsidianImportScan
 } from '@zennotes/bridge-contract/notion-import'
+import { dailyNoteLocationForDate, findDailyNoteForDate } from '../lib/vault-layout'
 import { useStore } from '../store'
 import { ArrowLeftIcon, CheckIcon, ChevronRightIcon } from './icons'
-import { VaultGlyph, WorkspaceGlyph } from './ImportGlyphs'
+import { OutlineGlyph, VaultGlyph, WorkspaceGlyph } from './ImportGlyphs'
 import { ImportTree, type ImportTreeItem } from './ImportTree'
 import { Button } from './ui/Button'
 import { Modal } from './ui/Modal'
@@ -90,47 +93,57 @@ function SourceCard({
   )
 }
 
-function ChooseSource({ onChoose }: { onChoose: (source: 'notion' | 'obsidian') => void }): JSX.Element {
+type ImportSource = 'notion' | 'obsidian' | 'logseq'
+const SOURCES: ImportSource[] = ['notion', 'obsidian', 'logseq']
+
+function ChooseSource({ onChoose }: { onChoose: (source: ImportSource) => void }): JSX.Element {
   const vimMode = useStore((s) => s.vimMode)
-  const [active, setActive] = useState<0 | 1>(0)
-  const first = useRef<HTMLButtonElement>(null)
-  const second = useRef<HTMLButtonElement>(null)
+  const [active, setActive] = useState(0)
+  const buttons = useRef<Array<HTMLButtonElement | null>>([])
   useEffect(() => {
-    first.current?.focus()
+    buttons.current[0]?.focus()
   }, [])
-  const move = (next: 0 | 1): void => {
-    setActive(next)
-    ;(next === 0 ? first : second).current?.focus()
+  const move = (next: number): void => {
+    const index = Math.max(0, Math.min(SOURCES.length - 1, next))
+    setActive(index)
+    buttons.current[index]?.focus()
   }
+  const card = (index: number) => ({
+    id: SOURCES[index],
+    active: active === index,
+    buttonRef: (el: HTMLButtonElement | null) => {
+      buttons.current[index] = el
+    },
+    onFocus: () => setActive(index),
+    onChoose: () => onChoose(SOURCES[index])
+  })
   return (
     <div
       className="flex flex-col gap-3"
       onKeyDown={(e) => {
-        if (e.key === 'ArrowDown' || (vimMode && e.key === 'j')) move(1)
-        else if (e.key === 'ArrowUp' || (vimMode && e.key === 'k')) move(0)
+        if (e.key === 'ArrowDown' || (vimMode && e.key === 'j')) move(active + 1)
+        else if (e.key === 'ArrowUp' || (vimMode && e.key === 'k')) move(active - 1)
         else return
         e.preventDefault()
       }}
     >
       <SourceCard
-        id="notion"
+        {...card(0)}
         title="Notion"
         detail="Sign in, then choose pages, databases and files."
         icon={<WorkspaceGlyph width={20} height={20} />}
-        active={active === 0}
-        buttonRef={first}
-        onFocus={() => setActive(0)}
-        onChoose={() => onChoose('notion')}
       />
       <SourceCard
-        id="obsidian"
+        {...card(1)}
         title="Obsidian"
         detail="Copy a vault in, or open it as it is."
         icon={<VaultGlyph width={20} height={20} />}
-        active={active === 1}
-        buttonRef={second}
-        onFocus={() => setActive(1)}
-        onChoose={() => onChoose('obsidian')}
+      />
+      <SourceCard
+        {...card(2)}
+        title="Logseq"
+        detail="Copy a graph in: pages, journals and files."
+        icon={<OutlineGlyph width={20} height={20} />}
       />
     </div>
   )
@@ -183,9 +196,11 @@ function ResultView({
 }): JSX.Element {
   const stats = [
     { label: pagesLabel, value: result.pages },
+    { label: 'Journals', value: result.journals ?? 0 },
     { label: 'Databases', value: result.databases },
     { label: 'Rows', value: result.rows },
-    { label: 'Files', value: result.files }
+    { label: 'Files', value: result.files },
+    { label: 'Kept as written', value: result.kept ?? 0 }
   ].filter((stat) => stat.value > 0 || stat.label === pagesLabel)
   return (
     <div className="flex flex-col gap-4" data-import-result>
@@ -708,9 +723,217 @@ function ObsidianFlow({ renderChrome, onClose, onOpenNote, onImported }: FlowPro
   )
 }
 
+function LogseqFlow({ renderChrome, onClose, onOpenNote, onImported }: FlowProps): JSX.Element {
+  const dailyDirectory = useStore((s) => s.vaultSettings.dailyNotes.directory)
+  const [scan, setScan] = useState<LogseqImportScan | null>(null)
+  const [progress, setProgress] = useState<NotionImportProgress | null>(null)
+  const [folder, setFolder] = useState('Logseq')
+  const [journalsToDaily, setJournalsToDaily] = useState(true)
+  const [bullets, setBullets] = useState(false)
+  const [includeTasks, setIncludeTasks] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [picking, setPicking] = useState(false)
+  const pickRef = useRef<HTMLButtonElement>(null)
+  const folderRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    void window.zen.logseqImportStatus?.().then((status) => {
+      if (status?.progress) setProgress(status.progress)
+    })
+    return window.zen.onLogseqImportProgress?.((update) => {
+      setProgress(update)
+      if (update.phase === 'done' && update.result) onImported(update.result.folder)
+    })
+  }, [onImported])
+
+  const showingPicker = !scan && !isRunning(progress?.phase) && progress?.phase !== 'done'
+  useEffect(() => {
+    if (showingPicker) pickRef.current?.focus()
+  }, [showingPicker])
+  const showingOptions = !!scan && !isRunning(progress?.phase) && progress?.phase !== 'done'
+  useEffect(() => {
+    if (showingOptions) folderRef.current?.focus()
+  }, [showingOptions])
+
+  const pick = async (): Promise<void> => {
+    setPicking(true)
+    setError(null)
+    try {
+      const answer = (await window.zen.logseqImportPick?.()) ?? null
+      if (answer) setScan(answer)
+    } catch (err) {
+      setError(cleanError(err))
+    } finally {
+      setPicking(false)
+    }
+  }
+
+  const start = async (): Promise<void> => {
+    if (!scan || !folder.trim()) return
+    setError(null)
+    // Where each journal's daily note goes, by this vault's own settings, and
+    // whether that day has one already. Main checks every path again.
+    let dailyNotes: Record<string, LogseqDailyNotePlace> | undefined
+    if (journalsToDaily && scan.journalDates.length > 0) {
+      const { vaultSettings, notes } = useStore.getState()
+      dailyNotes = {}
+      for (const iso of scan.journalDates) {
+        const [year, month, day] = iso.split('-').map(Number)
+        const date = new Date(year, month - 1, day)
+        const { subpath, title } = dailyNoteLocationForDate(date, vaultSettings)
+        dailyNotes[iso] = { subpath, title, exists: !!findDailyNoteForDate(notes, vaultSettings, date) }
+      }
+    }
+    setProgress({ phase: 'finding', done: 0, total: 0 })
+    try {
+      await window.zen.logseqImportStart?.({ folder: folder.trim(), dailyNotes, bullets, includeTasks })
+    } catch (err) {
+      setProgress(null)
+      setError(cleanError(err))
+    }
+  }
+
+  const finishClose = (): void => {
+    if (progress?.phase === 'done') void window.zen.logseqImportDismiss?.()
+    onClose()
+  }
+
+  const errorLine = error ? (
+    <p className="text-sm text-danger" role="alert">
+      {error}
+    </p>
+  ) : null
+
+  if (isRunning(progress?.phase)) {
+    return renderChrome(
+      <ProgressView progress={progress} label={progress?.phase === 'writing' ? 'Writing notes' : 'Reading your graph'} />,
+      <>
+        <Button variant="ghost" onClick={finishClose}>
+          Hide
+        </Button>
+        <Button onClick={() => void window.zen.logseqImportStop?.()}>Stop</Button>
+      </>
+    )
+  }
+  if (progress?.phase === 'done' && progress.result) {
+    const result = progress.result
+    return renderChrome(
+      <ResultView result={result} pagesLabel="Pages" />,
+      <>
+        <Button variant="ghost" onClick={finishClose}>
+          Close
+        </Button>
+        <Button
+          variant="primary"
+          onClick={() => {
+            finishClose()
+            onOpenNote(result.reportPath)
+          }}
+        >
+          Open report
+        </Button>
+      </>
+    )
+  }
+  if (!scan) {
+    return renderChrome(
+      <div className="flex flex-col gap-3 text-sm text-ink-700">
+        <p>Choose the folder that holds your graph, the one with pages and journals in it. It isn&apos;t changed by importing.</p>
+        {progress?.phase === 'failed' && <p className="text-danger">{progress.error}</p>}
+        {errorLine}
+      </div>,
+      <Button ref={pickRef} variant="primary" disabled={picking} onClick={() => void pick()} data-import-pick>
+        {picking ? 'Choosing' : 'Choose graph folder'}
+      </Button>
+    )
+  }
+
+  const counts = [
+    plural(scan.pages + scan.orgPages, 'page'),
+    plural(scan.journals, 'journal'),
+    plural(scan.files, 'file')
+  ].join(', ')
+  return renderChrome(
+    <div className="flex flex-col gap-3 text-sm">
+      <p className="min-w-0 truncate" data-import-summary>
+        <span className="font-medium text-ink-900">{scan.name}</span>
+        <span className="text-ink-600">
+          {' · '}
+          {counts}
+        </span>
+      </p>
+      {!scan.isLogseq && (
+        <p className="text-xs text-ink-600" data-import-not-logseq>
+          This folder has no <code>logseq/config.edn</code>, so Logseq&apos;s default formats are used.
+        </p>
+      )}
+      <label className="flex flex-col gap-1.5">
+        <span className="form-label">Import into</span>
+        <input
+          ref={folderRef}
+          value={folder}
+          onChange={(e) => setFolder(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && folder.trim()) {
+              e.preventDefault()
+              void start()
+            }
+          }}
+          aria-label="Folder to import into"
+          spellCheck={false}
+          data-import-folder
+          className="w-full rounded-lg border border-paper-300/70 bg-paper-100/60 px-3 py-2 text-sm text-ink-900 outline-none placeholder:text-ink-400 focus:border-accent/60"
+        />
+        <span className="text-xs text-ink-500">A new folder in your notes. If the name is taken, it gets a number.</span>
+      </label>
+      {scan.journals > 0 && (
+        <label className="flex items-center gap-2 text-xs text-ink-700">
+          <input
+            type="checkbox"
+            checked={journalsToDaily}
+            onChange={(e) => setJournalsToDaily(e.target.checked)}
+            className="accent-[rgb(var(--z-accent))]"
+            data-import-journals-daily
+          />
+          Make journals daily notes, in {dailyDirectory || 'your notes'}
+        </label>
+      )}
+      <label className="flex items-center gap-2 text-xs text-ink-700">
+        <input
+          type="checkbox"
+          checked={bullets}
+          onChange={(e) => setBullets(e.target.checked)}
+          className="accent-[rgb(var(--z-accent))]"
+          data-import-bullets
+        />
+        Keep every block a bullet
+      </label>
+      <label className="flex items-center gap-2 text-xs text-ink-700">
+        <input
+          type="checkbox"
+          checked={includeTasks}
+          onChange={(e) => setIncludeTasks(e.target.checked)}
+          className="accent-[rgb(var(--z-accent))]"
+        />
+        Show imported to-dos in Tasks
+      </label>
+      {progress?.phase === 'failed' && <p className="text-danger">{progress.error}</p>}
+      {errorLine}
+    </div>,
+    <>
+      <Button variant="ghost" onClick={() => void pick()}>
+        Other folder
+      </Button>
+      <Button variant="primary" disabled={!folder.trim()} onClick={() => void start()} data-import-start>
+        Import
+      </Button>
+    </>
+  )
+}
+
 /**
  * The one window for bringing notes in, from the palette, the keyboard or
- * onboarding. It opens on the two sources, or straight on one when asked for
+ * onboarding. It opens on the sources, or straight on one when asked for
  * it by name.
  */
 export function ImportModal(): JSX.Element {
@@ -725,7 +948,13 @@ export function ImportModal(): JSX.Element {
   const back = useCallback(() => setImportDialog('choose'), [setImportDialog])
 
   const title =
-    dialog === 'notion' ? 'Import from Notion' : dialog === 'obsidian' ? 'Import from Obsidian' : 'Import your notes'
+    dialog === 'notion'
+      ? 'Import from Notion'
+      : dialog === 'obsidian'
+        ? 'Import from Obsidian'
+        : dialog === 'logseq'
+          ? 'Import from Logseq'
+          : 'Import your notes'
 
   const renderChrome = (body: JSX.Element, footer: JSX.Element): JSX.Element => (
     <>
@@ -747,6 +976,8 @@ export function ImportModal(): JSX.Element {
         <NotionFlow renderChrome={renderChrome} onClose={close} onOpenNote={onOpenNote} onImported={onImported} />
       ) : dialog === 'obsidian' ? (
         <ObsidianFlow renderChrome={renderChrome} onClose={close} onOpenNote={onOpenNote} onImported={onImported} />
+      ) : dialog === 'logseq' ? (
+        <LogseqFlow renderChrome={renderChrome} onClose={close} onOpenNote={onOpenNote} onImported={onImported} />
       ) : (
         <Modal.Body>
           <ChooseSource onChoose={(source) => setImportDialog(source)} />

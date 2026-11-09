@@ -310,6 +310,7 @@ import { sendUsageCount } from "./usage-count";
 import { unsplash } from "./unsplash";
 import { notionImport } from "./notion-import";
 import { obsidianImport } from "./obsidian-import";
+import { logseqImport } from "./logseq-import";
 import {
   hideTray,
   parseTraySyncStatus,
@@ -3936,6 +3937,28 @@ function registerIpc(): void {
   });
   handle(IPC.OBSIDIAN_IMPORT_DISMISS, () => {
     obsidianImport.dismiss();
+  });
+  handle(IPC.LOGSEQ_IMPORT_STATUS, () => logseqImport.status());
+  handle(IPC.LOGSEQ_IMPORT_PICK, async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const vault = isRemoteWorkspaceActive() ? null : win ? windowVaults.vaultForWindow(win.id) : currentVault;
+    return await logseqImport.pick(win, vault?.root ?? null);
+  });
+  handle(
+    IPC.LOGSEQ_IMPORT_START,
+    async (
+      _e,
+      options: { folder?: unknown; dailyNotes?: unknown; bullets?: unknown; includeTasks?: unknown } | undefined,
+    ) => {
+      if (isRemoteWorkspaceActive()) throw new Error("Imports write to a local vault.");
+      await logseqImport.start(requireVault().root, options ?? {});
+    },
+  );
+  handle(IPC.LOGSEQ_IMPORT_STOP, () => {
+    logseqImport.stop();
+  });
+  handle(IPC.LOGSEQ_IMPORT_DISMISS, () => {
+    logseqImport.dismiss();
   });
   handle(IPC.NOTION_IMPORT_STATUS, async () => {
     const remote = isRemoteWorkspaceActive();

@@ -21,6 +21,8 @@ import type {
   NotionImportStatus,
   NotionImportTokenResult,
   NotionImportTree,
+  LogseqImportScan,
+  LogseqImportStartOptions,
   NotionTreeItem,
   ObsidianImportScan
 } from '@zennotes/bridge-contract/notion-import'
@@ -292,6 +294,18 @@ const api: ZenBridge = {
     const listener = (_: unknown, progress: NotionImportProgress): void => cb(progress)
     ipcRenderer.on(IPC.OBSIDIAN_IMPORT_ON_PROGRESS, listener)
     return () => ipcRenderer.removeListener(IPC.OBSIDIAN_IMPORT_ON_PROGRESS, listener)
+  },
+  logseqImportStatus: (): Promise<{ running: boolean; progress: NotionImportProgress | null }> =>
+    ipcRenderer.invoke(IPC.LOGSEQ_IMPORT_STATUS),
+  logseqImportPick: (): Promise<LogseqImportScan | null> => ipcRenderer.invoke(IPC.LOGSEQ_IMPORT_PICK),
+  logseqImportStart: (options: LogseqImportStartOptions): Promise<void> =>
+    ipcRenderer.invoke(IPC.LOGSEQ_IMPORT_START, options),
+  logseqImportStop: (): Promise<void> => ipcRenderer.invoke(IPC.LOGSEQ_IMPORT_STOP),
+  logseqImportDismiss: (): Promise<void> => ipcRenderer.invoke(IPC.LOGSEQ_IMPORT_DISMISS),
+  onLogseqImportProgress: (cb: (progress: NotionImportProgress) => void): (() => void) => {
+    const listener = (_: unknown, progress: NotionImportProgress): void => cb(progress)
+    ipcRenderer.on(IPC.LOGSEQ_IMPORT_ON_PROGRESS, listener)
+    return () => ipcRenderer.removeListener(IPC.LOGSEQ_IMPORT_ON_PROGRESS, listener)
   },
   notionImportStatus: (): Promise<NotionImportStatus> => ipcRenderer.invoke(IPC.NOTION_IMPORT_STATUS),
   notionImportSaveToken: (token: string): Promise<NotionImportTokenResult> =>

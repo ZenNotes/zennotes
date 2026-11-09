@@ -12,6 +12,9 @@ export interface NotionImportResult {
   files: number
   /** Things the report lists as left out or changed. */
   issues: number
+  /** A Logseq import: journals that came over, and things kept as written. */
+  journals?: number
+  kept?: number
 }
 
 export interface NotionImportProgress {
@@ -69,6 +72,40 @@ export interface ObsidianImportScan {
   notes: number
   files: number
   tree: ObsidianTreeItem[]
+}
+
+/** What a chosen Logseq graph holds, before anything is copied. */
+export interface LogseqImportScan {
+  path: string
+  name: string
+  /** It has `logseq/config.edn`. */
+  isLogseq: boolean
+  pages: number
+  journals: number
+  /** Files under assets/, draws/ and whiteboards/. */
+  files: number
+  /** `.org` pages, which come over as written. */
+  orgPages: number
+  /** Every journal's date (YYYY-MM-DD), so the app can say where each daily note goes. */
+  journalDates: string[]
+}
+
+/** Where the app keeps the daily note for one date, as its settings say. */
+export interface LogseqDailyNotePlace {
+  /** Inside the main notes area, '' for its top. */
+  subpath: string
+  title: string
+  /** The vault already has a daily note for that date. */
+  exists: boolean
+}
+
+export interface LogseqImportStartOptions {
+  /** The folder to make inside the main notes area. */
+  folder: string
+  /** Journals become daily notes at these places; left out, they stay in the folder. */
+  dailyNotes?: Record<string, LogseqDailyNotePlace>
+  bullets: boolean
+  includeTasks: boolean
 }
 
 export type NotionImportTokenResult = { ok: true } | { ok: false; error: string }

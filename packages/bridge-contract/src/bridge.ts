@@ -47,6 +47,8 @@ import type {
   NotionImportStatus,
   NotionImportTokenResult,
   NotionImportTree,
+  LogseqImportScan,
+  LogseqImportStartOptions,
   NotionTreeItem,
   ObsidianImportScan
 } from './notion-import.js'
@@ -211,6 +213,13 @@ export interface ZenBridge {
   obsidianImportStop?(): Promise<void>
   obsidianImportDismiss?(): Promise<void>
   onObsidianImportProgress?(cb: (progress: NotionImportProgress) => void): () => void
+  logseqImportStatus?(): Promise<{ running: boolean; progress: NotionImportProgress | null }>
+  /** Opens the system's folder dialog for a Logseq graph. Null when the person cancels. */
+  logseqImportPick?(): Promise<LogseqImportScan | null>
+  logseqImportStart?(options: LogseqImportStartOptions): Promise<void>
+  logseqImportStop?(): Promise<void>
+  logseqImportDismiss?(): Promise<void>
+  onLogseqImportProgress?(cb: (progress: NotionImportProgress) => void): () => void
   notionImportStatus?(): Promise<NotionImportStatus>
   notionImportSaveToken?(token: string): Promise<NotionImportTokenResult>
   notionImportSignIn?(): Promise<void>

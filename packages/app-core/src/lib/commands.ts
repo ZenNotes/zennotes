@@ -252,7 +252,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'vault.import',
       title: 'Import Notes…',
       category: 'Vault',
-      keywords: 'import migrate bring notes notion obsidian move from',
+      keywords: 'import migrate bring notes notion obsidian logseq move from',
       host: () => window.zen.getCapabilities().supportsImport === true,
       run: () => getState().setImportDialog('choose')
     },
@@ -271,6 +271,14 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       keywords: 'obsidian import migrate vault folder copy',
       host: () => window.zen.getCapabilities().supportsImport === true,
       run: () => getState().setImportDialog('obsidian')
+    },
+    {
+      id: 'vault.import-logseq',
+      title: 'Import from Logseq…',
+      category: 'Vault',
+      keywords: 'logseq import migrate graph outline journals pages folder',
+      host: () => window.zen.getCapabilities().supportsImport === true,
+      run: () => getState().setImportDialog('logseq')
     },
     {
       id: 'database.new',

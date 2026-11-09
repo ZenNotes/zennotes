@@ -9,7 +9,7 @@ import {
   type WorkspaceMode
 } from '@shared/ipc'
 import { normalizeDailyNotesDirectory } from '../lib/vault-layout'
-import { VaultGlyph, WorkspaceGlyph } from './ImportGlyphs'
+import { OutlineGlyph, VaultGlyph, WorkspaceGlyph } from './ImportGlyphs'
 import { Button } from './ui/Button'
 import appIcon from '../assets/zennotes-app-icon.png'
 
@@ -966,7 +966,7 @@ function ImportStep({
         title="Bring your notes"
         subtitle="Coming from another app? Choose what comes over. Nothing changes in the app you're leaving, and you can do this any time from the command palette."
       />
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <ImportSourceCard
           id="notion"
           title="From Notion"
@@ -980,6 +980,13 @@ function ImportStep({
           description="Copy a vault in, or open it as it is."
           icon={<VaultGlyph width={20} height={20} />}
           onClick={() => setImportDialog('obsidian')}
+        />
+        <ImportSourceCard
+          id="logseq"
+          title="From Logseq"
+          description="Copy a graph in: pages, journals and files."
+          icon={<OutlineGlyph width={20} height={20} />}
+          onClick={() => setImportDialog('logseq')}
         />
       </div>
       {lastImportFolder && (

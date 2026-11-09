@@ -38,6 +38,16 @@ export const WorkspaceGlyph = (p: GlyphProps): JSX.Element => (
   </Stroke>
 )
 
+/** An outline of nested bullets, for a graph of blocks. Not Logseq's mark. */
+export const OutlineGlyph = (p: GlyphProps): JSX.Element => (
+  <Stroke {...p}>
+    <circle cx="5" cy="6" r="1.25" />
+    <circle cx="10" cy="12" r="1.25" />
+    <circle cx="10" cy="18" r="1.25" />
+    <path d="M9 6h11M14 12h6M14 18h6M5 8v8.5a1.5 1.5 0 0 0 1.5 1.5H8" />
+  </Stroke>
+)
+
 /** A faceted stone, for a local vault. Not Obsidian's mark. */
 export const VaultGlyph = (p: GlyphProps): JSX.Element => (
   <Stroke {...p}>

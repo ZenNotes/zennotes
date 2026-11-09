@@ -3546,7 +3546,7 @@ interface Store {
   /** "Embed existing drawing" picker visibility. */
   embedDrawingPaletteOpen: boolean
   /** The Import window and what it's showing. A run lives in main and outlasts it. */
-  importDialog: 'choose' | 'notion' | 'obsidian' | null
+  importDialog: 'choose' | 'notion' | 'obsidian' | 'logseq' | null
   /** Where the last import this session landed, for onboarding to say so. */
   lastImportFolder: string | null
   /** The note the cover picker is open for, or null while it is closed. */
@@ -4450,7 +4450,7 @@ interface Store {
   openThisMonthMonthlyNote: (options?: PeriodicNoteOpenOptions) => Promise<void>
   setTemplatePaletteOpen: (open: boolean) => void
   setEmbedDrawingPaletteOpen: (open: boolean) => void
-  setImportDialog: (dialog: 'choose' | 'notion' | 'obsidian' | null) => void
+  setImportDialog: (dialog: 'choose' | 'notion' | 'obsidian' | 'logseq' | null) => void
   setLastImportFolder: (folder: string | null) => void
   setNoteCoverPickerPath: (
     path: string | null,
