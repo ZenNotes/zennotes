@@ -3,7 +3,7 @@
  * `connect-src` to its own host (server 2.83.1), and `fetch` on a `data:` URL
  * counts as a connection there, so the web client cannot read one that way.
  */
-export function dataUrlBytes(dataUrl: string): Uint8Array {
+export function dataUrlBytes(dataUrl: string): Uint8Array<ArrayBuffer> {
   const comma = dataUrl.indexOf(',')
   const meta = dataUrl.slice(0, comma)
   const payload = dataUrl.slice(comma + 1)
