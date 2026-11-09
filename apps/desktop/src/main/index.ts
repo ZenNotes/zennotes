@@ -2,6 +2,7 @@ import {
   app,
   autoUpdater as nativeAutoUpdater,
   BrowserWindow,
+  clipboard,
   dialog,
   globalShortcut,
   ipcMain,
@@ -273,6 +274,11 @@ import {
   writeShareVaults,
 } from "./share-inbox";
 import { resolveShareLocation, shareLocationLabel } from "@shared/share-location";
+import { createClipLinkHandler, type ClipWindow } from "./clip-links";
+import type { ShareTarget } from "./share-inbox";
+import { BUILTIN_TEMPLATES } from "@shared/builtin-templates";
+import { findTemplate, mergeTemplates, parseCustomTemplate } from "@shared/template-files";
+import { renderTemplate } from "@renderer/lib/template-render";
 import { RemoteRequestError, RemoteServerClient } from "./remote/server-client";
 import {
   getMcpClientStatuses,
@@ -835,7 +841,131 @@ async function flushPendingFloatingNoteRequests(): Promise<void> {
   }
 }
 
-type ExternalOpenUrlResult = "none" | "note" | "quick-capture" | "auth";
+// Clip links, `zennotes://new` and `zennotes://daily` (clip-links.ts): the
+// web clipper's handoff. They wait for startup to finish (the first window
+// must know its vault before one can be picked), then go to the window that
+// shows the vault they name, or are written here when no window shows it.
+const liveClipNotifications = new Set<Notification>();
+
+function showClipNotification(body: string, onClick?: () => void): void {
+  if (!Notification.isSupported()) return;
+  const notification = new Notification({ title: "ZenNotes", body });
+  liveClipNotifications.add(notification);
+  const release = (): void => {
+    liveClipNotifications.delete(notification);
+  };
+  notification.on("click", () => {
+    release();
+    onClick?.();
+  });
+  notification.on("close", release);
+  notification.show();
+}
+
+/** The workspace window a clip toast belongs in: the focused one, else the
+ *  main window, else any ready one. */
+function clipNoticeWindow(): BrowserWindow | null {
+  const focused = BrowserWindow.getFocusedWindow();
+  if (focused && !focused.isDestroyed() && isWorkspaceWindow(focused) && readyWindowIds.has(focused.id)) {
+    return focused;
+  }
+  if (mainWindow && !mainWindow.isDestroyed() && readyWindowIds.has(mainWindow.id)) return mainWindow;
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed() && isWorkspaceWindow(win) && readyWindowIds.has(win.id)) return win;
+  }
+  return null;
+}
+
+/** The ready workspace window showing `target`. A window still opening, or
+ *  not yet told its vault, is waited for (a cold start's first window), up to
+ *  20 s; after that the clip is written without it. */
+async function clipWindowFor(target: ShareTarget): Promise<ClipWindow | null> {
+  const deadline = Date.now() + 20_000;
+  for (;;) {
+    let opening = false;
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (win.isDestroyed() || !isWorkspaceWindow(win)) continue;
+      const vault = windowVaults.vaultForWindow(win.id);
+      if (!readyWindowIds.has(win.id) || !vault) {
+        opening = true;
+        continue;
+      }
+      const remote = windowVaults.isRemoteWindow(win.id);
+      if (target.kind === "local" && !remote && path.resolve(vault.root) === path.resolve(target.root)) {
+        return win;
+      }
+      if (target.kind === "remote" && remote && currentRemoteWorkspaceProfileId === target.profileId) {
+        return win;
+      }
+    }
+    if (!opening || Date.now() > deadline) return null;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
+
+function windowById(id: number): BrowserWindow | null {
+  const win = BrowserWindow.fromId(id);
+  return win && !win.isDestroyed() ? win : null;
+}
+
+const clipLinks = createClipLinkHandler({
+  loadConfig,
+  readClipboard: () => clipboard.readText(),
+  windowFor: clipWindowFor,
+  sendClip: (ref, request) => {
+    windowById(ref.id)?.webContents.send(IPC.APP_CLIP_REQUESTED, request);
+  },
+  focus: (ref) => {
+    const win = windowById(ref.id);
+    if (win) {
+      trayHiddenWindowIds.delete(win.id);
+      focusWindow(win);
+    }
+  },
+  io: {
+    createNote: (root, folder, title, subpath) => createNote(root, folder, title, subpath),
+    writeNote,
+    readNote,
+    listNotes,
+    getVaultSettings,
+    // Only the vault's `.zennotes/templates` and the built-ins: a vault no
+    // window shows has no template-folder listing loaded to look in.
+    dailyTemplateBody: async (root, templateId, title, date) => {
+      if (!templateId) return "";
+      try {
+        const custom = (await listCustomTemplates(root)).map((file) =>
+          parseCustomTemplate(file.raw, file.sourcePath),
+        );
+        const template = findTemplate(mergeTemplates(BUILTIN_TEMPLATES, custom), templateId);
+        return template ? renderTemplate(template.body, { title, now: date }).body : "";
+      } catch {
+        return "";
+      }
+    },
+  },
+  openLocal: (root, relPath) => {
+    void (async () => {
+      const win = await createWindow({ initialVaultRoot: root, persistInitialVault: true });
+      focusWindow(win);
+      queueNoteOpenForWindow(win, relPath);
+    })();
+  },
+  notifyProblem: (notice) => {
+    const win = clipNoticeWindow();
+    if (win) win.webContents.send(IPC.APP_CLIP_NOTICE, notice);
+    else showClipNotification(notice.message);
+  },
+  notifyLanded: (message, open) => showClipNotification(message, open),
+  log: (message) => console.log(message),
+});
+
+type ExternalOpenUrlResult =
+  | "none"
+  | "note"
+  | "quick-capture"
+  | "auth"
+  | "clip"
+  | "clip-silent";
 
 function handleExternalOpenUrl(rawUrl: string): ExternalOpenUrlResult {
   const cloudAuthRequest = parseCloudAuthDeepLink(rawUrl);
@@ -847,6 +977,8 @@ function handleExternalOpenUrl(rawUrl: string): ExternalOpenUrlResult {
     void toggleQuickCaptureWindow();
     return "quick-capture";
   }
+  const clip = clipLinks.handle(rawUrl);
+  if (clip !== "none") return clip;
   const request = parseOpenNoteDeepLink(rawUrl);
   if (!request) return "none";
   if (request.target === "window") queueFloatingNoteRequest(request.path);
@@ -6639,6 +6771,7 @@ app.whenReady().then(async () => {
 
   appStartupComplete = true;
   void startShareInbox();
+  clipLinks.start();
   // A second instance that arrived while startup was still running queued its
   // paths (the eager flush stands down until here, #178) and nothing else
   // drains that queue: without this, `zn open` during app launch is silently
@@ -6671,6 +6804,9 @@ app.on("second-instance", (_event, argv) => {
   const deepLinkResult = handleStartupDeepLinks(argv);
   const queued = handleStartupMarkdownArgs(argv, false);
   if (deepLinkResult === "quick-capture") return;
+  // A clip raises the window it lands in itself, and a silent one raises
+  // nothing; the main window is not necessarily the clip's vault.
+  if (deepLinkResult === "clip" || deepLinkResult === "clip-silent") return;
   if (queued > 0) {
     // Every forwarded path opens or focuses a window of its own. Raising the
     // main window on top of that used to resurrect the last vault next to the

@@ -33,6 +33,9 @@ import { CloseIcon } from './components/icons'
 import { ExcalidrawEmbedMenuHost } from './components/ExcalidrawEmbedMenuHost'
 import { resolveQuickNoteTitle } from './lib/quick-note-title'
 import { escapeEmbedFrame } from './lib/embed-renderers'
+import { enqueueClip } from './lib/clip-apply'
+import { useToastStore } from './lib/toast'
+import type { ClipApplyRequest } from '@zennotes/bridge-contract/clip'
 import {
   eventMatchesUserOverride,
   isMacPlatform,
@@ -341,6 +344,7 @@ function App(): JSX.Element {
   const workspaceReadyLoggedRef = useRef(false)
   const searchPaletteWarmupCleanupRef = useRef<(() => void) | null>(null)
   const pendingOpenNoteRequestsRef = useRef<Array<{ path: string; vault: ReturnType<typeof useStore.getState>['vault'] }>>([])
+  const pendingClipRequestsRef = useRef<ClipApplyRequest[]>([])
   const vault = useStore((s) => s.vault)
   const init = useStore((s) => s.init)
   const workspaceRestored = useStore((s) => s.workspaceRestored && !s.workspaceTransitioning)
@@ -516,6 +520,27 @@ function App(): JSX.Element {
     })
   }, [])
 
+  // Web clipper links (`zennotes://new`, `zennotes://daily`) main handed to
+  // this window. Like a note-open request, one that arrives while the vault
+  // is still loading waits for it.
+  useEffect(() => {
+    const offClip = window.zen.onClipRequested?.((request) => {
+      const state = useStore.getState()
+      if (state.vault && state.workspaceRestored && !state.workspaceTransitioning) {
+        enqueueClip(request)
+        return
+      }
+      pendingClipRequestsRef.current.push(request)
+    })
+    const offNotice = window.zen.onClipNotice?.((notice) => {
+      useToastStore.getState().addToast(notice.message, 'error')
+    })
+    return () => {
+      offClip?.()
+      offNotice?.()
+    }
+  }, [])
+
   // Escape inside an embedded video player never reaches the page; desktop
   // main relays it so the note gets its keyboard back.
   useEffect(() => {
@@ -577,6 +602,12 @@ function App(): JSX.Element {
       if (request.vault && request.vault !== vault) continue
       void useStore.getState().openNoteInTab(request.path)
     }
+  }, [vault, workspaceRestored])
+
+  useEffect(() => {
+    if (!vault || !workspaceRestored || pendingClipRequestsRef.current.length === 0) return
+    // applyClip refuses a clip meant for another vault itself.
+    for (const request of pendingClipRequestsRef.current.splice(0)) enqueueClip(request)
   }, [vault, workspaceRestored])
 
   useEffect(() => {

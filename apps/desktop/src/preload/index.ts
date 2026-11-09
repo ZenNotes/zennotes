@@ -10,6 +10,7 @@ import type {
   CustomTemplateFile,
   WriteTemplateInput
 } from '@zennotes/bridge-contract/templates'
+import type { ClipApplyRequest, ClipNotice } from '@zennotes/bridge-contract/clip'
 import type {
   UnsplashKeyCheck,
   UnsplashKeySaveResult,
@@ -780,6 +781,16 @@ const api: ZenBridge = {
     const listener = (_: unknown, relPath: string): void => cb(relPath)
     ipcRenderer.on(IPC.APP_OPEN_NOTE_REQUESTED, listener)
     return () => ipcRenderer.removeListener(IPC.APP_OPEN_NOTE_REQUESTED, listener)
+  },
+  onClipRequested: (cb: (request: ClipApplyRequest) => void): (() => void) => {
+    const listener = (_: unknown, request: ClipApplyRequest): void => cb(request)
+    ipcRenderer.on(IPC.APP_CLIP_REQUESTED, listener)
+    return () => ipcRenderer.removeListener(IPC.APP_CLIP_REQUESTED, listener)
+  },
+  onClipNotice: (cb: (notice: ClipNotice) => void): (() => void) => {
+    const listener = (_: unknown, notice: ClipNotice): void => cb(notice)
+    ipcRenderer.on(IPC.APP_CLIP_NOTICE, listener)
+    return () => ipcRenderer.removeListener(IPC.APP_CLIP_NOTICE, listener)
   },
   onFrameEscape: (cb: () => void): (() => void) => {
     const listener = (): void => cb()

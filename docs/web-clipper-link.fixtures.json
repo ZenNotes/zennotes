@@ -1,0 +1,468 @@
+{
+  "$comment": "Normative cases for the zennotes://new and zennotes://daily links (docs/web-clipper-link.md). Every implementation loads this file. \"canonical\": true means the link is exactly what a builder must produce for \"expect\". A \"link\" given as an object is prefix + repeat x times + suffix.",
+  "version": 1,
+  "accept": [
+    {
+      "name": "bare new is a blank note",
+      "link": "zennotes://new",
+      "expect": {
+        "action": "new",
+        "vault": null,
+        "folder": "",
+        "name": null,
+        "body": null,
+        "position": "create",
+        "silent": false
+      },
+      "canonical": true
+    },
+    {
+      "name": "clip into Clippings through the clipboard",
+      "link": "zennotes://new?vault=Work&file=Clippings%2FMy%20Article&clipboard=ee091955394fab0e886571acb8f9cec6e61b24e066b74e262ac5b2254a17ff6a",
+      "expect": {
+        "action": "new",
+        "vault": "Work",
+        "folder": "Clippings",
+        "name": "My Article",
+        "body": {
+          "clipboard": "ee091955394fab0e886571acb8f9cec6e61b24e066b74e262ac5b2254a17ff6a"
+        },
+        "position": "create",
+        "silent": false
+      },
+      "canonical": true
+    },
+    {
+      "name": "inline content keeps plus signs, emoji and newlines",
+      "link": "zennotes://new?file=Clippings%2FInline&content=a%2Bb%20%3D%20c%20%F0%9F%9A%80%0A%23tag%20%26%20more%20%28yes%29",
+      "expect": {
+        "action": "new",
+        "vault": null,
+        "folder": "Clippings",
+        "name": "Inline",
+        "body": {
+          "content": "a+b = c 🚀\n#tag & more (yes)"
+        },
+        "position": "create",
+        "silent": false
+      },
+      "canonical": true
+    },
+    {
+      "name": "append, silently",
+      "link": "zennotes://new?file=Reading%2FLog&content=-%20new%20line&append&silent",
+      "expect": {
+        "action": "new",
+        "vault": null,
+        "folder": "Reading",
+        "name": "Log",
+        "body": {
+          "content": "- new line"
+        },
+        "position": "append",
+        "silent": true
+      },
+      "canonical": true
+    },
+    {
+      "name": "prepend at the top level of the notes area",
+      "link": "zennotes://new?file=Inbox%20Note&clipboard=ba89f351828c1613368c42ff5c973db8dc69592b985caad55cc0e70f49ed1146&prepend",
+      "expect": {
+        "action": "new",
+        "vault": null,
+        "folder": "",
+        "name": "Inbox Note",
+        "body": {
+          "clipboard": "ba89f351828c1613368c42ff5c973db8dc69592b985caad55cc0e70f49ed1146"
+        },
+        "position": "prepend",
+        "silent": false
+      },
+      "canonical": true
+    },
+    {
+      "name": "no file: the app names the note from its first line",
+      "link": "zennotes://new?clipboard=ee091955394fab0e886571acb8f9cec6e61b24e066b74e262ac5b2254a17ff6a",
+      "expect": {
+        "action": "new",
+        "vault": null,
+        "folder": "",
+        "name": null,
+        "body": {
+          "clipboard": "ee091955394fab0e886571acb8f9cec6e61b24e066b74e262ac5b2254a17ff6a"
+        },
+        "position": "create",
+        "silent": false
+      },
+      "canonical": true
+    },
+    {
+      "name": "an empty note at a path",
+      "link": "zennotes://new?file=Projects%2FIdea",
+      "expect": {
+        "action": "new",
+        "vault": null,
+        "folder": "Projects",
+        "name": "Idea",
+        "body": null,
+        "position": "create",
+        "silent": false
+      },
+      "canonical": true
+    },
+    {
+      "name": "daily note, append from the clipboard",
+      "link": "zennotes://daily?clipboard=ba89f351828c1613368c42ff5c973db8dc69592b985caad55cc0e70f49ed1146&append",
+      "expect": {
+        "action": "daily",
+        "vault": null,
+        "body": {
+          "clipboard": "ba89f351828c1613368c42ff5c973db8dc69592b985caad55cc0e70f49ed1146"
+        },
+        "position": "append",
+        "silent": false
+      },
+      "canonical": true
+    },
+    {
+      "name": "daily note, prepend inline",
+      "link": "zennotes://daily?vault=Personal&content=Morning&prepend",
+      "expect": {
+        "action": "daily",
+        "vault": "Personal",
+        "body": {
+          "content": "Morning"
+        },
+        "position": "prepend",
+        "silent": false
+      },
+      "canonical": true
+    },
+    {
+      "name": "bare daily opens today",
+      "link": "zennotes://daily",
+      "expect": {
+        "action": "daily",
+        "vault": null,
+        "body": null,
+        "position": "append",
+        "silent": false
+      },
+      "canonical": true
+    },
+    {
+      "name": "daily without a position appends",
+      "link": "zennotes://daily?content=x",
+      "expect": {
+        "action": "daily",
+        "vault": null,
+        "body": {
+          "content": "x"
+        },
+        "position": "append",
+        "silent": false
+      },
+      "canonical": false
+    },
+    {
+      "name": "single-slash form",
+      "link": "zennotes:/new?content=x",
+      "expect": {
+        "action": "new",
+        "vault": null,
+        "folder": "",
+        "name": null,
+        "body": {
+          "content": "x"
+        },
+        "position": "create",
+        "silent": false
+      },
+      "canonical": false
+    },
+    {
+      "name": "scheme and action are case-insensitive",
+      "link": "ZENNOTES://New?content=x",
+      "expect": {
+        "action": "new",
+        "vault": null,
+        "folder": "",
+        "name": null,
+        "body": {
+          "content": "x"
+        },
+        "position": "create",
+        "silent": false
+      },
+      "canonical": false
+    },
+    {
+      "name": "a bare plus is a plus, not a space",
+      "link": "zennotes://new?content=1+1",
+      "expect": {
+        "action": "new",
+        "vault": null,
+        "folder": "",
+        "name": null,
+        "body": {
+          "content": "1+1"
+        },
+        "position": "create",
+        "silent": false
+      },
+      "canonical": false
+    },
+    {
+      "name": "a trailing .md is dropped",
+      "link": "zennotes://new?file=Clippings%2FNote.md",
+      "expect": {
+        "action": "new",
+        "vault": null,
+        "folder": "Clippings",
+        "name": "Note",
+        "body": null,
+        "position": "create",
+        "silent": false
+      },
+      "canonical": false
+    },
+    {
+      "name": "readable slashes are accepted",
+      "link": "zennotes://new?file=Clippings/Note",
+      "expect": {
+        "action": "new",
+        "vault": null,
+        "folder": "Clippings",
+        "name": "Note",
+        "body": null,
+        "position": "create",
+        "silent": false
+      },
+      "canonical": false
+    },
+    {
+      "name": "backslashes separate folders",
+      "link": "zennotes://new?file=Clippings%5CNote",
+      "expect": {
+        "action": "new",
+        "vault": null,
+        "folder": "Clippings",
+        "name": "Note",
+        "body": null,
+        "position": "create",
+        "silent": false
+      },
+      "canonical": false
+    },
+    {
+      "name": "empty segments collapse",
+      "link": "zennotes://new?file=a%2F%2Fb%2FNote",
+      "expect": {
+        "action": "new",
+        "vault": null,
+        "folder": "a/b",
+        "name": "Note",
+        "body": null,
+        "position": "create",
+        "silent": false
+      },
+      "canonical": false
+    },
+    {
+      "name": "flags take =true, =1, =false",
+      "link": "zennotes://new?file=Log&content=x&append=false&silent=1",
+      "expect": {
+        "action": "new",
+        "vault": null,
+        "folder": "",
+        "name": "Log",
+        "body": {
+          "content": "x"
+        },
+        "position": "create",
+        "silent": true
+      },
+      "canonical": false
+    },
+    {
+      "name": "unknown parameters are ignored",
+      "link": "zennotes://new?content=x&source=chrome",
+      "expect": {
+        "action": "new",
+        "vault": null,
+        "folder": "",
+        "name": null,
+        "body": {
+          "content": "x"
+        },
+        "position": "create",
+        "silent": false
+      },
+      "canonical": false
+    },
+    {
+      "name": "an empty file means none",
+      "link": "zennotes://new?file=&content=hi",
+      "expect": {
+        "action": "new",
+        "vault": null,
+        "folder": "",
+        "name": null,
+        "body": {
+          "content": "hi"
+        },
+        "position": "create",
+        "silent": false
+      },
+      "canonical": false
+    },
+    {
+      "name": "an uppercase hash is read in lowercase",
+      "link": "zennotes://new?clipboard=EE091955394FAB0E886571ACB8F9CEC6E61B24E066B74E262AC5B2254A17FF6A",
+      "expect": {
+        "action": "new",
+        "vault": null,
+        "folder": "",
+        "name": null,
+        "body": {
+          "clipboard": "ee091955394fab0e886571acb8f9cec6e61b24e066b74e262ac5b2254a17ff6a"
+        },
+        "position": "create",
+        "silent": false
+      },
+      "canonical": false
+    }
+  ],
+  "reject": [
+    {
+      "name": "climbing out of the notes area",
+      "link": "zennotes://new?file=..%2Fsecret&content=x",
+      "reason": "bad-file"
+    },
+    {
+      "name": "an absolute path",
+      "link": "zennotes://new?file=%2Fetc%2Fpasswd&content=x",
+      "reason": "bad-file"
+    },
+    {
+      "name": "a hidden folder",
+      "link": "zennotes://new?file=.zennotes%2Fvault&content=x",
+      "reason": "bad-file"
+    },
+    {
+      "name": "a drive letter",
+      "link": "zennotes://new?file=C%3A%2FNotes%2Fx&content=x",
+      "reason": "bad-file"
+    },
+    {
+      "name": "a hidden note",
+      "link": "zennotes://new?file=Clippings%2F.hidden&content=x",
+      "reason": "bad-file"
+    },
+    {
+      "name": "a folder Windows cannot hold",
+      "link": "zennotes://new?file=Bad%3AName%2FNote&content=x",
+      "reason": "bad-file"
+    },
+    {
+      "name": "a folder with no note name",
+      "link": "zennotes://new?file=Clippings%2F&content=x",
+      "reason": "bad-file"
+    },
+    {
+      "name": "a clipboard flag without a hash",
+      "link": "zennotes://new?file=Note&clipboard",
+      "reason": "bad-hash"
+    },
+    {
+      "name": "a short hash",
+      "link": "zennotes://new?file=Note&clipboard=abc",
+      "reason": "bad-hash"
+    },
+    {
+      "name": "clipboard and content together",
+      "link": "zennotes://new?file=Note&clipboard=ee091955394fab0e886571acb8f9cec6e61b24e066b74e262ac5b2254a17ff6a&content=x",
+      "reason": "two-bodies"
+    },
+    {
+      "name": "empty content",
+      "link": "zennotes://new?file=Note&content=",
+      "reason": "empty-body"
+    },
+    {
+      "name": "append and prepend together",
+      "link": "zennotes://new?file=Note&content=x&append&prepend",
+      "reason": "append-and-prepend"
+    },
+    {
+      "name": "append with no file",
+      "link": "zennotes://new?content=x&append",
+      "reason": "missing-file"
+    },
+    {
+      "name": "append with nothing to add",
+      "link": "zennotes://new?file=Log&append",
+      "reason": "nothing-to-insert"
+    },
+    {
+      "name": "a parameter given twice",
+      "link": "zennotes://new?vault=a&vault=b&content=x",
+      "reason": "duplicate-param"
+    },
+    {
+      "name": "broken percent-encoding",
+      "link": "zennotes://new?content=%E0%A4%A",
+      "reason": "bad-encoding"
+    },
+    {
+      "name": "a vault name with a control character",
+      "link": "zennotes://new?vault=%01&content=x",
+      "reason": "bad-vault"
+    },
+    {
+      "name": "content over 32 KiB",
+      "link": {
+        "prefix": "zennotes://new?file=Note&content=",
+        "repeat": "a",
+        "times": 32769,
+        "suffix": ""
+      },
+      "reason": "content-too-long"
+    },
+    {
+      "name": "a link over 128 KiB",
+      "link": {
+        "prefix": "zennotes://new?pad=",
+        "repeat": "a",
+        "times": 131072,
+        "suffix": ""
+      },
+      "reason": "link-too-long"
+    }
+  ],
+  "notClip": [
+    "zennotes://open?path=inbox%2Fx.md",
+    "zennotes://auth?code=abc&state=def",
+    "zennotes://newer?content=x",
+    "https://new?content=x",
+    "not a url"
+  ],
+  "hashes": [
+    {
+      "text": "---\nsource: \"https://example.com/post\"\ncreated: 2026-11-09\n---\n\n# A Post\n\nBody with a+b and #hash & more.\n",
+      "sha256": "ee091955394fab0e886571acb8f9cec6e61b24e066b74e262ac5b2254a17ff6a"
+    },
+    {
+      "text": "Quoted line from a page\n",
+      "sha256": "ba89f351828c1613368c42ff5c973db8dc69592b985caad55cc0e70f49ed1146"
+    },
+    {
+      "text": "line one\r\nline two",
+      "sha256": "8ec4c37982ffc5a839234595530d36fa868683bc09ea40fe9960cb64c7847e33"
+    },
+    {
+      "text": "a+b = c 🚀\n#tag & more (yes)",
+      "sha256": "ee32d98dda3bd3348a62371e753615d614fd1cfc6b064f3a0b6d5d95600a8c80"
+    }
+  ]
+}

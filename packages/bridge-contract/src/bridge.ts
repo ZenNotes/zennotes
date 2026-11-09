@@ -1,4 +1,5 @@
 import type { ZenPlatform } from './platform.js'
+import type { ClipApplyRequest, ClipNotice } from './clip.js'
 import type {
   AppUpdateState,
   AssetMeta,
@@ -531,6 +532,13 @@ export interface ZenBridge {
   onVaultChange(cb: (ev: VaultChangeEvent) => void): () => void
   onOpenSettings(cb: () => void): () => void
   onOpenNoteRequested(cb: (relPath: string) => void): () => void
+  /** A `zennotes://new` or `zennotes://daily` clip for this window's vault,
+   *  already validated by the host. Desktop-only: the phones read their own
+   *  links, and the web build has no link handler. */
+  onClipRequested?(cb: (request: ClipApplyRequest) => void): () => void
+  /** A clip outcome the host reports itself (a refused link, a missing vault,
+   *  a note it wrote while no window showed that vault). Desktop-only. */
+  onClipNotice?(cb: (notice: ClipNotice) => void): () => void
   /** Escape was pressed while a subframe (an embedded video player) owned the
    *  keyboard. Keys inside a cross-origin frame never reach the page, so the
    *  desktop main process relays this one; the app hands focus back to the
