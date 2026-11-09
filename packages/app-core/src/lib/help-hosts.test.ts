@@ -30,13 +30,21 @@ const titles = (host: HelpHost): string[] => {
 describe('the manual on each host', () => {
   it('is the whole manual on the desktop app, in the same order', () => {
     const manual = helpForHost(DESKTOP)
-    expect(manual.quickStart).toEqual(HELP_QUICK_START)
-    expect(manual.howTo).toEqual(HELP_HOW_TO_GUIDES)
-    expect(manual.concepts).toEqual(HELP_CORE_CONCEPTS)
-    expect(manual.shortcuts).toEqual(HELP_SHORTCUT_SECTIONS)
-    expect(manual.vim).toEqual(HELP_VIM_COMMANDS)
-    expect(manual.settings).toEqual(HELP_SETTINGS)
-    expect(manual.cli).toEqual(HELP_CLI)
+    const named = (list: Array<{ title: string }>): string[] => list.map((entry) => entry.title)
+    expect(named(manual.quickStart)).toEqual(named(HELP_QUICK_START))
+    expect(named(manual.howTo)).toEqual(named(HELP_HOW_TO_GUIDES))
+    expect(named(manual.concepts)).toEqual(named(HELP_CORE_CONCEPTS))
+    expect(manual.shortcuts.map((s) => s.items.map((i) => i.action))).toEqual(
+      HELP_SHORTCUT_SECTIONS.map((s) => s.items.map((i) => i.action))
+    )
+    expect(manual.vim.map((c) => c.command)).toEqual(HELP_VIM_COMMANDS.map((c) => c.command))
+    expect(manual.settings.map((s) => s.items.map((i) => i.label))).toEqual(
+      HELP_SETTINGS.map((s) => s.items.map((i) => i.label))
+    )
+    expect(named(manual.cli)).toEqual(named(HELP_CLI))
+    // An entry written as one string reads exactly as written.
+    const plain = HELP_QUICK_START.find((card) => card.title === 'Pick a vault you control')!
+    expect(manual.quickStart.find((card) => card.title === plain.title)?.body).toBe(plain.body)
   })
 
   it('names a legacy desktop host without a host kind the same way', () => {
@@ -182,6 +190,94 @@ describe('the manual on each host', () => {
   })
 })
 
+describe('host-gated words inside a general entry', () => {
+  const card = (host: HelpHost, title: string): string => {
+    const manual = helpForHost(host)
+    return [...manual.quickStart, ...manual.howTo, ...manual.concepts].find((c) => c.title === title)!.body
+  }
+  const key = (host: HelpHost, action: string): string =>
+    helpForHost(host).shortcuts.flatMap((s) => s.items).find((i) => i.action === action)!.detail
+  const ex = (host: HelpHost, command: string): string =>
+    helpForHost(host).vim.find((c) => c.command === command)!.detail
+  const setting = (host: HelpHost, label: string): string =>
+    helpForHost(host).settings.flatMap((s) => s.items).find((i) => i.label === label)!.detail
+
+  // The wording each host must not see, from the 2.83.0 tablet walks: the tray,
+  // the quick capture window, a window frame, app zoom, Quick Look and Finder,
+  // and (on a phone or tablet) floating windows and the Unsplash tab.
+  const DESKTOP_WORDS = ['tray', 'quick capture window', 'window bounds', 'window frame', 'zoomIn', 'Quick Look', 'Reveal in Finder', 'revealing it in Finder']
+  const TOUCH_WORDS = [...DESKTOP_WORDS, 'floating window', 'Floating Window', 'floating-window', 'OS window', 'Unsplash tab']
+
+  it.each([
+    ['iPad', IPAD, TOUCH_WORDS],
+    ['Android', ANDROID, TOUCH_WORDS],
+    ['the web client', WEB, DESKTOP_WORDS]
+  ])('leaves the desktop app out of what %s reads', (_name, host, words) => {
+    const manual = helpForHost(host)
+    const entries: Array<[string, string]> = [
+      ...[...manual.quickStart, ...manual.howTo, ...manual.concepts, ...manual.cli].map(
+        (c): [string, string] => [c.title, c.body]
+      ),
+      ...manual.shortcuts.flatMap((s) => s.items.map((i): [string, string] => [i.action, i.detail])),
+      ...manual.vim.map((c): [string, string] => [c.command, c.detail]),
+      ...manual.settings.flatMap((s) => s.items.map((i): [string, string] => [i.label, i.detail]))
+    ]
+    for (const [name, body] of entries) {
+      for (const word of words) expect(body, `${name}: ${word}`).not.toContain(word)
+    }
+  })
+
+  it('keeps every one of those words on the desktop app', () => {
+    expect(card(DESKTOP, 'Remind me before a task is due')).toContain(
+      'Reminders fire from the desktop app while it runs, the window hidden in the tray included. ZenNotes quit misses them'
+    )
+    expect(card(DESKTOP, 'Tabs and splits are first-class')).toContain(
+      'Pin Tab, Pin as Reference, Open in Floating Window, and Reveal in Finder stay accessible'
+    )
+    expect(card(DESKTOP, 'Keep supporting material nearby')).toMatch(/^Tabs, splits, floating windows, the reference pane/)
+    expect(key(DESKTOP, 'Close active tab')).toContain('in a floating window or the quick capture window it closes that window')
+    expect(ex(DESKTOP, ':unbind action.id')).toContain('`:unbind global.zoomIn` takes Zoom in off its key')
+    expect(setting(DESKTOP, 'Unbind a key')).toContain('`"global.zoomIn" = ""`')
+  })
+
+  it('says where reminders fire, without the tray or a desktop setting, off the desktop app', () => {
+    for (const host of [IPAD, WEB]) {
+      const body = card(host, 'Remind me before a task is due')
+      expect(body).toContain('the desktop app shows a notification')
+      expect(body).toContain('Reminders fire from the desktop app while it runs. A recurring task')
+      expect(body).not.toContain('Settings → Tasks')
+    }
+  })
+
+  it('names the tab actions each host has', () => {
+    const menu = (host: HelpHost): string => key(host, 'Open active tab menu')
+    expect(menu(DESKTOP)).toContain('Split Down, Pin as Reference, Open in Floating Window, and Reveal in Finder.')
+    expect(menu(WEB)).toContain('Split Down, Pin as Reference, and Open in Floating Window.')
+    expect(menu(IPAD)).toContain('Split Down, and Pin as Reference.')
+    expect(card(IPAD, 'Keep supporting notes visible')).toBe(
+      'Pin a note or PDF as a reference when you want it attached to the current writing context inside ZenNotes.'
+    )
+  })
+
+  it('unbinds an action every host has in the examples off the desktop app', () => {
+    for (const host of [IPAD, ANDROID, WEB]) {
+      expect(ex(host, ':unbind action.id')).toContain('`:unbind global.toggleWordWrap` takes Toggle word wrap off its key')
+      expect(setting(host, 'Unbind a key')).toContain('`"global.toggleWordWrap" = ""`')
+    }
+  })
+
+  it('offers Backspace for the sidebar trash on a phone or tablet keyboard', () => {
+    expect(card(IPAD, 'Trash notes from the sidebar')).toMatch(
+      /^With the sidebar focused \(Focus Sidebar in the command palette\), `Mod\+Backspace`/
+    )
+    expect(card(IPAD, 'Trash notes from the sidebar')).toContain('the Delete or Backspace key does the same')
+    expect(key(ANDROID, 'Move to Trash, Vim on or off')).toContain('and Delete or Backspace here')
+    expect(card(DESKTOP, 'Trash notes from the sidebar')).toMatch(/^With the sidebar focused, `Mod\+Backspace`/)
+    expect(card(DESKTOP, 'Trash notes from the sidebar')).toContain('; the Delete key does the same')
+    expect(card(WEB, 'Trash notes from the sidebar')).not.toContain('Backspace key')
+  })
+})
+
 describe('HelpView on a tablet', () => {
   let host: HTMLElement
   let root: ReturnType<typeof createRoot>
@@ -264,6 +360,24 @@ describe('HelpView on a tablet', () => {
     expect(reference).toContain('Fold Heading or List Item at Cursor')
     expect(reference).toContain('Toggle Checkbox')
     expect(reference).toContain('Open Settings')
+  })
+
+  it.each([
+    ['iPad', 'ios'],
+    ['an Android tablet', 'android']
+  ])('shows keys for a hardware keyboard on %s, not a desktop system', async (_name, hostKind) => {
+    installHost({ runtime: 'web', hostKind })
+    await renderHelp()
+    const rendered = host.textContent ?? ''
+    expect(rendered).toContain('Keys are shown for a hardware keyboard, as you have them bound.')
+    expect(rendered).not.toContain('Keys are shown for Linux')
+    expect(rendered).not.toContain('Keys are shown for macOS')
+  })
+
+  it('names the system on the desktop app', async () => {
+    installHost({ runtime: 'desktop', hostKind: 'desktop' })
+    await renderHelp()
+    expect(host.textContent ?? '').toContain('Keys are shown for macOS, as you have them bound.')
   })
 
   it('lists every command on the desktop app, the tray included while it is off', async () => {

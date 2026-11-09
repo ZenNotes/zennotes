@@ -3,15 +3,7 @@
 import { act, createElement, Fragment, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it } from "vitest";
-import {
-  HELP_CLI,
-  HELP_CORE_CONCEPTS,
-  HELP_HOW_TO_GUIDES,
-  HELP_QUICK_START,
-  HELP_SETTINGS,
-  HELP_SHORTCUT_SECTIONS,
-  HELP_VIM_COMMANDS,
-} from "./help";
+import { HELP_HOW_TO_GUIDES, helpForHost, helpText } from "./help";
 import { helpSearchText, renderHelpRichText } from "./help-rich-text";
 
 (
@@ -91,14 +83,11 @@ describe("the manual's rich text", () => {
   });
 
   it("shows no bold markers anywhere in the manual outside code", () => {
+    // As each host reads it: a host-gated part must not cut a span in two.
     const strings = manualStrings([
-      HELP_QUICK_START,
-      HELP_HOW_TO_GUIDES,
-      HELP_CORE_CONCEPTS,
-      HELP_SHORTCUT_SECTIONS,
-      HELP_VIM_COMMANDS,
-      HELP_SETTINGS,
-      HELP_CLI,
+      helpForHost({ runtime: "desktop", hostKind: "desktop" }),
+      helpForHost({ runtime: "web", hostKind: "browser", supportsWorkflows: true }),
+      helpForHost({ runtime: "web", hostKind: "ios" }),
     ]);
     expect(strings.some((text) => text.includes("**"))).toBe(true);
     for (const text of strings) {
@@ -110,7 +99,7 @@ describe("the manual's rich text", () => {
 
   it("renders the encryption guide as two paragraphs with its four control names in bold", () => {
     const guide = HELP_HOW_TO_GUIDES.find((card) => card.title === "Encrypt a Cloud vault end to end")!;
-    const host = rendered(renderHelpRichText(guide.body, "text-sm"));
+    const host = rendered(renderHelpRichText(helpText(guide.body, { runtime: "desktop" }), "text-sm"));
     expect(paragraphs(host)).toHaveLength(2);
     expect([...host.querySelectorAll("strong")].map((s) => s.textContent)).toEqual([
       "End-to-end encryption",

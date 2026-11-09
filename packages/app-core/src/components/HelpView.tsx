@@ -9,8 +9,8 @@ import {
 } from '../lib/keymaps'
 import {
   helpForHost,
-  HELP_SETTINGS,
-  HELP_SHORTCUT_SECTIONS
+  type HelpSettingsSection,
+  type HelpShortcutSection
 } from '../lib/help'
 import { parseHelpKeys } from '../lib/help-keys'
 import { helpSearchText, renderHelpRichText } from '../lib/help-rich-text'
@@ -271,6 +271,12 @@ export function HelpView(): JSX.Element {
   const deferredQuery = useDeferredValue(query.trim().toLowerCase())
 
   const appInfo = window.zen.getAppInfo()
+  // A phone or tablet shell borrows a desktop system's key names (Android's
+  // read as Linux's), which is not the system in the reader's hands.
+  const keysShownFor =
+    appInfo.hostKind === 'ios' || appInfo.hostKind === 'android'
+      ? 'a hardware keyboard'
+      : platformLabel
   // The reference lists commands whatever is open. The desktop app lists them
   // all, as the manual does; elsewhere it keeps what this host has, by the
   // `host` rule the palette applies.
@@ -333,7 +339,7 @@ export function HelpView(): JSX.Element {
           }
         }
         return null
-      }).filter((section): section is (typeof HELP_SHORTCUT_SECTIONS)[number] => !!section),
+      }).filter((section): section is HelpShortcutSection => !!section),
     [deferredQuery, keymapOverrides, manual]
   )
 
@@ -363,7 +369,7 @@ export function HelpView(): JSX.Element {
           return { ...section, items }
         }
         return null
-      }).filter((section): section is (typeof HELP_SETTINGS)[number] => !!section),
+      }).filter((section): section is HelpSettingsSection => !!section),
     [deferredQuery, manual]
   )
 
@@ -526,7 +532,7 @@ export function HelpView(): JSX.Element {
           <SectionShell
             id="help-shortcuts"
             title="Keyboard Shortcuts"
-            subtitle={`Keys are shown for ${platformLabel}, as you have them bound. Vim keys like Ctrl-w are the same on every system.`}
+            subtitle={`Keys are shown for ${keysShownFor}, as you have them bound. Vim keys like Ctrl-w are the same on every system.`}
           >
             <div className="space-y-10">
               {shortcutSections.map((section) => (

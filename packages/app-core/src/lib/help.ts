@@ -7,38 +7,50 @@
  */
 export type HelpAvailability = 'desktop' | 'computer' | 'workflows'
 
-export interface HelpCard {
+/**
+ * An entry's text, when part of it is not true everywhere the entry is. A part
+ * with `only` reads `text` where that applies and `elsewhere` (or nothing) on
+ * the other hosts. Parts nest, so one list can say what the desktop app, the web
+ * client and a tablet each have. The desktop app reads every `text`, so its
+ * manual is the source text joined up.
+ */
+export type HelpTextPart =
+  | string
+  | { only: HelpAvailability; text: HelpText; elsewhere?: HelpText }
+export type HelpText = string | readonly HelpTextPart[]
+
+export interface HelpCard<T extends HelpText = string> {
   title: string
   only?: HelpAvailability
-  body: string
+  body: T
 }
 
-export interface HelpShortcut {
+export interface HelpShortcut<T extends HelpText = string> {
   keys: string
   only?: HelpAvailability
   action: string
-  detail: string
+  detail: T
 }
 
-export interface HelpShortcutSection {
+export interface HelpShortcutSection<T extends HelpText = string> {
   id: string
   title: string
   only?: HelpAvailability
   description: string
-  items: HelpShortcut[]
+  items: HelpShortcut<T>[]
 }
 
-export interface HelpExCommand {
+export interface HelpExCommand<T extends HelpText = string> {
   command: string
   only?: HelpAvailability
   summary: string
-  detail: string
+  detail: T
 }
 
-export interface HelpSettingsSection {
+export interface HelpSettingsSection<T extends HelpText = string> {
   title: string
   only?: HelpAvailability
-  items: Array<{ label: string; only?: HelpAvailability; detail: string }>
+  items: Array<{ label: string; only?: HelpAvailability; detail: T }>
 }
 
 /** What the manual needs to know about the app it is being read in. */
@@ -56,7 +68,19 @@ export function helpAppliesTo(only: HelpAvailability | undefined, host: HelpHost
   return false
 }
 
-export const HELP_QUICK_START: HelpCard[] = [
+/** An entry's text as this host reads it. */
+export function helpText(text: HelpText, host: HelpHost): string {
+  if (typeof text === 'string') return text
+  return text
+    .map((part) => {
+      if (typeof part === 'string') return part
+      if (helpAppliesTo(part.only, host)) return helpText(part.text, host)
+      return part.elsewhere === undefined ? '' : helpText(part.elsewhere, host)
+    })
+    .join('')
+}
+
+export const HELP_QUICK_START: HelpCard<HelpText>[] = [
   {
     title: 'Pick a vault you control',
     body:
@@ -99,8 +123,11 @@ export const HELP_QUICK_START: HelpCard[] = [
   },
   {
     title: 'Keep supporting material nearby',
-    body:
-      'Tabs, splits, floating windows, the reference pane, and the connections panel are all there to help you keep related material visible while you write instead of forcing constant back-and-forth navigation. The Connections, Outline, Comments, Calendar and Timeline panels stay as you set them while you move between notes. If you would rather each note kept its own, turn off Settings → Editor → Keep panels when switching notes (or run Remember Panels per Note from the command palette): a note then comes back with the panels you left it with, after a restart too (the memory is saved with your tabs and layout, never in the note), and a note you have not opened yet starts with none. With the automatic calendar on, a daily or weekly note whose calendar you closed stays closed when you return to it. The setting travels with your portable config as `keep_panels_across_notes` under `[view]`. The note always keeps a readable width: in a narrow pane (a split, a small window) the panels first shrink, and if they still do not fit, the ones you opened longest ago are tucked into a slim rail at the pane\'s right edge. They stay open; click one in the rail, or press its usual shortcut, to bring it forward.'
+    body: [
+      'Tabs, splits, ',
+      { only: 'computer', text: 'floating windows, ' },
+      'the reference pane, and the connections panel are all there to help you keep related material visible while you write instead of forcing constant back-and-forth navigation. The Connections, Outline, Comments, Calendar and Timeline panels stay as you set them while you move between notes. If you would rather each note kept its own, turn off Settings → Editor → Keep panels when switching notes (or run Remember Panels per Note from the command palette): a note then comes back with the panels you left it with, after a restart too (the memory is saved with your tabs and layout, never in the note), and a note you have not opened yet starts with none. With the automatic calendar on, a daily or weekly note whose calendar you closed stays closed when you return to it. The setting travels with your portable config as `keep_panels_across_notes` under `[view]`. The note always keeps a readable width: in a narrow pane (a split, a small window) the panels first shrink, and if they still do not fit, the ones you opened longest ago are tucked into a slim rail at the pane\'s right edge. They stay open; click one in the rail, or press its usual shortcut, to bring it forward.'
+    ]
   },
   {
     title: 'Use files without leaving ZenNotes',
@@ -109,12 +136,14 @@ export const HELP_QUICK_START: HelpCard[] = [
   },
   {
     title: 'Pick up where you left off',
-    body:
-      'ZenNotes restores open tabs, splits, built-in views, and sidebar layout per vault. It also remembers the main window bounds, so reopening the app feels like returning to a workspace rather than starting over.'
+    body: [
+      'ZenNotes restores open tabs, splits, built-in views, and sidebar layout per vault.',
+      { only: 'desktop', text: ' It also remembers the main window bounds, so reopening the app feels like returning to a workspace rather than starting over.' }
+    ]
   }
 ]
 
-export const HELP_HOW_TO_GUIDES: HelpCard[] = [
+export const HELP_HOW_TO_GUIDES: HelpCard<HelpText>[] = [
   {
     title: 'Capture a quick note',
     body:
@@ -203,8 +232,12 @@ export const HELP_HOW_TO_GUIDES: HelpCard[] = [
   },
   {
     title: 'Give a note a cover image',
-    body:
-      'A cover is a wide banner image across the top of a note. Press `Space l c` in Vim mode, run “Add Cover…” from the command palette, or type `:cover` to open the cover picker. Type to search it, move with the arrow keys and press Enter to pick a gradient, a photograph from the gallery (public-domain works from The Met and NASA), or an image already in the vault. Upload image… takes a file from disk, and an image you paste (⌘V / Ctrl+V) or drop anywhere in the picker becomes the cover; paste an https link into the search field to use a picture from the web, or press Tab for the Unsplash tab and its free photos (see the next guide). Gradients, gallery photos and uploads are copied into the vault’s `assets/` folder like a pasted image, so the cover works offline, on a self-hosted server and through Cloud sync, end-to-end encrypted vaults included. Hover the cover for Change cover, Reposition and Remove, or drop an image straight onto it. Reposition (also “Reposition Cover” in the palette and `:cover reposition`) lets you drag the picture up or down, or move it with ↑/↓ (j/k in Vim mode, Shift for small steps); Enter keeps the new position and Escape puts the old one back. The cover is plain frontmatter, `banner: "![[assets/photo.jpg]]"` with the focal point in `banner_y` (0 is the top edge, 1 the bottom), the keys Obsidian’s banner plugins read, so a shared vault shows the same banner there; a `cover:` image, or one written as a plain `[[link]]`, shows too. In Edit and Split those lines fold into one muted line in the note’s properties, such as `cover · lisbon.jpg` or `cover · Unsplash photo by Jane Doe`, since the cover above already shows the picture; the other properties stay as they are. Move the cursor onto that line (the arrow keys, or `j`/`k` in Vim mode) or click it and the raw lines open for editing; they fold again when the cursor leaves. The file itself never changes, so copying, searching and undo work on the lines as written, and with Live Preview off or covers hidden in Settings they show in full. The Assets view counts a cover image as used, renaming or moving the image updates the note, and `u` (or Undo) takes back a cover change made in the editor. Settings → Typography → Note covers decides whether the cover scrolls away with the text, stays pinned above the editor and Read view, or is hidden. A published note’s public page shows its cover too, and so does Quick Look when you press Space on a note in Finder on macOS: both draw it read-only at the note’s focal point. Quick Look follows the Hidden setting and leaves out a cover from the web, since a preview never goes online.'
+    body: [
+      'A cover is a wide banner image across the top of a note. Press `Space l c` in Vim mode, run “Add Cover…” from the command palette, or type `:cover` to open the cover picker. Type to search it, move with the arrow keys and press Enter to pick a gradient, a photograph from the gallery (public-domain works from The Met and NASA), or an image already in the vault. Upload image… takes a file from disk, and an image you paste (⌘V / Ctrl+V) or drop anywhere in the picker becomes the cover; paste an https link into the search field to use a picture from the web',
+      { only: 'computer', text: ', or press Tab for the Unsplash tab and its free photos (see the next guide)' },
+      '. Gradients, gallery photos and uploads are copied into the vault’s `assets/` folder like a pasted image, so the cover works offline, on a self-hosted server and through Cloud sync, end-to-end encrypted vaults included. Hover the cover for Change cover, Reposition and Remove, or drop an image straight onto it. Reposition (also “Reposition Cover” in the palette and `:cover reposition`) lets you drag the picture up or down, or move it with ↑/↓ (j/k in Vim mode, Shift for small steps); Enter keeps the new position and Escape puts the old one back. The cover is plain frontmatter, `banner: "![[assets/photo.jpg]]"` with the focal point in `banner_y` (0 is the top edge, 1 the bottom), the keys Obsidian’s banner plugins read, so a shared vault shows the same banner there; a `cover:` image, or one written as a plain `[[link]]`, shows too. In Edit and Split those lines fold into one muted line in the note’s properties, such as `cover · lisbon.jpg` or `cover · Unsplash photo by Jane Doe`, since the cover above already shows the picture; the other properties stay as they are. Move the cursor onto that line (the arrow keys, or `j`/`k` in Vim mode) or click it and the raw lines open for editing; they fold again when the cursor leaves. The file itself never changes, so copying, searching and undo work on the lines as written, and with Live Preview off or covers hidden in Settings they show in full. The Assets view counts a cover image as used, renaming or moving the image updates the note, and `u` (or Undo) takes back a cover change made in the editor. Settings → Typography → Note covers decides whether the cover scrolls away with the text, stays pinned above the editor and Read view, or is hidden. A published note’s public page shows its cover too',
+      { only: 'desktop', text: ', and so does Quick Look when you press Space on a note in Finder on macOS: both draw it read-only at the note’s focal point. Quick Look follows the Hidden setting and leaves out a cover from the web, since a preview never goes online.', elsewhere: ', read-only at the note’s focal point.' }
+    ]
   },
   {
     title: 'Use an Unsplash photo as a cover',
@@ -245,8 +278,13 @@ export const HELP_HOW_TO_GUIDES: HelpCard[] = [
   },
   {
     title: 'Trash notes from the sidebar',
-    body:
-      'With the sidebar focused, `Mod+Backspace` (⌘⌫ on macOS, Ctrl+Backspace on Windows and Linux) moves the note under the sidebar cursor to the Trash, after the same confirm Move Note to Trash shows; the Delete key does the same, and in Vim mode so does `x`. When that note is part of a multi-selection, the whole selection goes, with one confirm (“Move 3 notes to Trash?”). Escape on the confirm leaves everything as it was, and after the move the cursor sits on the row that took the note’s place, still in the sidebar. A folder is not trashed this way, since deleting a folder takes everything inside and cannot be undone: delete it from its menu (`m`, or right-click). The palette’s Move Note to Trash and Move Note to Archive, and any key you gave them, follow the sidebar the same way: with the sidebar focused and its cursor on a note, they act on that note (or the selection it is in) rather than the note open in the editor. Rebind the chord as Move sidebar note to Trash (`nav.sidebarTrash`) under Settings → Keymap, or unbind it; `x` is Delete selected result (`nav.delete`).'
+    body: [
+      'With the sidebar focused',
+      { only: 'computer', text: '', elsewhere: ' (Focus Sidebar in the command palette)' },
+      ', `Mod+Backspace` (⌘⌫ on macOS, Ctrl+Backspace on Windows and Linux) moves the note under the sidebar cursor to the Trash, after the same confirm Move Note to Trash shows; ',
+      { only: 'computer', text: 'the Delete key does the same', elsewhere: 'the Delete or Backspace key does the same' },
+      ', and in Vim mode so does `x`. When that note is part of a multi-selection, the whole selection goes, with one confirm (“Move 3 notes to Trash?”). Escape on the confirm leaves everything as it was, and after the move the cursor sits on the row that took the note’s place, still in the sidebar. A folder is not trashed this way, since deleting a folder takes everything inside and cannot be undone: delete it from its menu (`m`, or right-click). The palette’s Move Note to Trash and Move Note to Archive, and any key you gave them, follow the sidebar the same way: with the sidebar focused and its cursor on a note, they act on that note (or the selection it is in) rather than the note open in the editor. Rebind the chord as Move sidebar note to Trash (`nav.sidebarTrash`) under Settings → Keymap, or unbind it; `x` is Delete selected result (`nav.delete`).'
+    ]
   },
   {
     title: 'Ctrl, Alt and Cmd keys in list views',
@@ -275,8 +313,10 @@ export const HELP_HOW_TO_GUIDES: HelpCard[] = [
   },
   {
     title: 'Keep supporting notes visible',
-    body:
-      'Open a note in a floating window when you want it in a separate OS window, or pin a note or PDF as a reference when you want it attached to the current writing context inside ZenNotes.'
+    body: [
+      { only: 'computer', text: 'Open a note in a floating window when you want it in a separate OS window, or pin', elsewhere: 'Pin' },
+      ' a note or PDF as a reference when you want it attached to the current writing context inside ZenNotes.'
+    ]
   },
   {
     title: 'Search from Raycast on macOS',
@@ -360,11 +400,14 @@ export const HELP_HOW_TO_GUIDES: HelpCard[] = [
   }
 ]
 
-export const HELP_CORE_CONCEPTS: HelpCard[] = [
+export const HELP_CORE_CONCEPTS: HelpCard<HelpText>[] = [
   {
     title: 'Notes are real markdown files',
-    body:
-      'ZenNotes edits markdown on disk. Rename, move, archive, restore, and floating-window operations all work on the underlying files, not an internal copy. A note’s creation date is app-owned metadata kept beside it under `.zennotes/note-metadata`, moved, renamed and deleted with the note by the desktop, the CLI and MCP, so it survives syncs and filesystems that drop birth times; keep `.zennotes` with the vault in backups.'
+    body: [
+      'ZenNotes edits markdown on disk. Rename, move, archive, ',
+      { only: 'computer', text: 'restore, and floating-window operations', elsewhere: 'and restore' },
+      ' all work on the underlying files, not an internal copy. A note’s creation date is app-owned metadata kept beside it under `.zennotes/note-metadata`, moved, renamed and deleted with the note by the desktop, the CLI and MCP, so it survives syncs and filesystems that drop birth times; keep `.zennotes` with the vault in backups.'
+    ]
   },
   {
     title: 'System folders are workflow buckets',
@@ -378,8 +421,12 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
   },
   {
     title: 'Tabs and splits are first-class',
-    body:
-      'Each editor pane can hold multiple tabs. Split the current tab right or down, move between panes with pane motions, switch the active note between Edit, Split, and Preview from commands, and, if you hide tabs, use the buffer switcher shortcut or `:buffers`. The active tab also has a full keyboard context menu, so actions like Close Others, Close Tabs to the Right, Pin Tab, Pin as Reference, Open in Floating Window, and Reveal in Finder stay accessible without the mouse. If you disable Vim mode, use the command palette instead. Each note keeps its own undo history while the app is open: switch tabs, or close a note and open it again, and `u` / Mod+Z (and redo) still walk through the edits you made to it. Renaming or moving the note you are editing keeps its caret, scroll position and undo history too. If the note was changed somewhere else in the meantime (another pane, sync, an external editor), it starts a clean history, because the old undo steps would no longer fit the text. The same happens the moment a sync tool, a script or another editor changes the file while you are looking at it: the new text appears in place, the caret stays, and Undo starts over instead of undoing your earlier typing underneath text that arrived from outside. Another pane typing into the same note leaves the history alone. On the desktop app you can also keep undo history after quitting, the way Vim\'s `undofile` does: turn on Settings → Editor → Keep undo history after quitting (or `:set undofile` in Vim mode, or the command palette). It is off by default because the history contains text you deleted; it is stored with the app on this computer, never in your vault, histories nobody returns to expire after 90 days, and turning the setting off erases them all. It travels in `config.toml` as `persist_undo_history` under `[editor]`.'
+    body: [
+      'Each editor pane can hold multiple tabs. Split the current tab right or down, move between panes with pane motions, switch the active note between Edit, Split, and Preview from commands, and, if you hide tabs, use the buffer switcher shortcut or `:buffers`. The active tab also has a full keyboard context menu, so actions like Close Others, Close Tabs to the Right, Pin Tab, ',
+      { only: 'desktop', text: 'Pin as Reference, Open in Floating Window, and Reveal in Finder', elsewhere: [{ only: 'computer', text: 'Pin as Reference, and Open in Floating Window', elsewhere: 'and Pin as Reference' }] },
+      ' stay accessible without the mouse. If you disable Vim mode, use the command palette instead. Each note keeps its own undo history while the app is open: switch tabs, or close a note and open it again, and `u` / Mod+Z (and redo) still walk through the edits you made to it. Renaming or moving the note you are editing keeps its caret, scroll position and undo history too. If the note was changed somewhere else in the meantime (another pane, sync, an external editor), it starts a clean history, because the old undo steps would no longer fit the text. The same happens the moment a sync tool, a script or another editor changes the file while you are looking at it: the new text appears in place, the caret stays, and Undo starts over instead of undoing your earlier typing underneath text that arrived from outside. Another pane typing into the same note leaves the history alone.',
+      { only: 'desktop', text: ' On the desktop app you can also keep undo history after quitting, the way Vim\'s `undofile` does: turn on Settings → Editor → Keep undo history after quitting (or `:set undofile` in Vim mode, or the command palette). It is off by default because the history contains text you deleted; it is stored with the app on this computer, never in your vault, histories nobody returns to expire after 90 days, and turning the setting off erases them all. It travels in `config.toml` as `persist_undo_history` under `[editor]`.' }
+    ]
   },
   {
     title: 'Context menus are part of the keyboard model',
@@ -398,8 +445,12 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
   },
   {
     title: 'Sessions restore on relaunch',
-    body:
-      'Workspace restore is saved per vault, while the window frame restore is global. Reopening ZenNotes brings back your pane layout, open buffers, built-in views, and the last window bounds instead of dropping you into a fresh shell.'
+    body: [
+      { only: 'desktop', text: 'Workspace restore is saved per vault, while the window frame restore is global.', elsewhere: 'Workspace restore is saved per vault.' },
+      ' Reopening ZenNotes brings back your pane layout, open buffers',
+      { only: 'desktop', text: ', built-in views, and the last window bounds', elsewhere: ', and built-in views' },
+      ' instead of dropping you into a fresh shell.'
+    ]
   },
   {
     title: 'Leader mode can teach itself',
@@ -518,8 +569,17 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
   },
   {
     title: 'Remind me before a task is due',
-    body:
-      'Add `@remind:` to a task with a due date and ZenNotes shows a notification: `@remind:9am` (or `930am`, `1730`, `17h30`) at that time on the due date, `@remind:1d` the day before at your reminder time (09:00 unless changed in Settings → Tasks), `@remind:2d-6pm` two days before at 6 PM. A daily note’s tasks remind on the note’s date. Click the notification to open the task. Press `R` in the Tasks views (or Remind… in the right-click menu, or `:remind 9am` in a note) to set or remove it; the Tasks views show a bell and the time. Reminders fire from the desktop app while it runs, the window hidden in the tray included. ZenNotes quit misses them: the next launch shows what came due in the last 24 hours once, as one notification. Turn reminders off under Settings → Tasks → Task reminders. A recurring task carries its reminder to each new occurrence.'
+    body: [
+      'Add `@remind:` to a task with a due date and ',
+      { only: 'desktop', text: 'ZenNotes shows', elsewhere: 'the desktop app shows' },
+      ' a notification: `@remind:9am` (or `930am`, `1730`, `17h30`) at that time on the due date, `@remind:1d` the day before at your reminder time',
+      { only: 'desktop', text: ' (09:00 unless changed in Settings → Tasks)', elsewhere: ' (09:00 unless changed in the desktop app)' },
+      ', `@remind:2d-6pm` two days before at 6 PM. A daily note’s tasks remind on the note’s date. Click the notification to open the task. Press `R` in the Tasks views (or Remind… in the right-click menu, or `:remind 9am` in a note) to set or remove it; the Tasks views show a bell and the time. Reminders fire from the desktop app while it runs',
+      { only: 'desktop', text: ', the window hidden in the tray included' },
+      '.',
+      { only: 'desktop', text: ' ZenNotes quit misses them: the next launch shows what came due in the last 24 hours once, as one notification. Turn reminders off under Settings → Tasks → Task reminders.' },
+      ' A recurring task carries its reminder to each new occurrence.'
+    ]
   },
   {
     title: 'Subtask progress on the parent',
@@ -548,8 +608,11 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
   },
   {
     title: 'Command palette mirrors the important tab actions',
-    body:
-      'You do not need to remember where a tab action lives. The command palette exposes direct entries for closing the current tab, closing sibling tabs, closing tabs to the right, pinning or unpinning the tab, opening the active tab menu, splitting the current tab, pinning the active note as a reference, opening the note in a floating window, and revealing it in Finder.'
+    body: [
+      'You do not need to remember where a tab action lives. The command palette exposes direct entries for closing the current tab, closing sibling tabs, closing tabs to the right, pinning or unpinning the tab, opening the active tab menu, splitting the current tab, ',
+      { only: 'desktop', text: 'pinning the active note as a reference, opening the note in a floating window, and revealing it in Finder', elsewhere: [{ only: 'computer', text: 'pinning the active note as a reference, and opening the note in a floating window', elsewhere: 'and pinning the active note as a reference' }] },
+      '.'
+    ]
   },
   {
     title: 'Slash commands speed up writing',
@@ -699,7 +762,7 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
   }
 ]
 
-export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
+export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection<HelpText>[] = [
   {
     id: 'global-shortcuts',
     title: 'Global shortcuts',
@@ -710,7 +773,7 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
       { keys: 'Enter on a tagged block (in Search notes)', action: 'Open the note at that block', detail: 'With a #tag in the query, notes list their tagged blocks; Enter opens the note at the block’s line, highlighted, and Ctrl+O comes back. Enter on “+N more tagged blocks” opens the rest in the Tags view, your words still filtering.' },
       { keys: 'Shift+Enter (in Search notes)', action: 'Create a note named after your search', detail: 'The last row of the results offers to create the note you typed: Shift+Enter (or Enter on that row) opens a New note form with three fields. Name starts as your search text, selected so you can retype it. Folder starts empty (your Inbox) or as the path you typed, like projects/roadmap; landing in it lists every folder, typing narrows the list, Enter picks the highlighted one and ArrowUp keeps a folder that does not exist yet. Tags starts with any #tag words from your search; type to pick an existing tag or add a new one, Space or comma commits, Backspace on an empty field removes the last one. The line under the fields tells you what will happen. A note with the same name in that folder blocks Create until you change the name, and Shift+↵ opens the existing note instead; the same name elsewhere only warns. Enter in Name, or Ctrl/Cmd+Enter anywhere, creates the note and opens it; Escape goes back to the results.' },
       { keys: 'Mod+F', action: 'Search notes (non-Vim mode)', detail: 'Open the note search palette directly when Vim mode is off.' },
-      { keys: 'Mod+F (in the editor)', action: 'Find and replace in the note', detail: 'In Edit and Split, open the editor’s find-and-replace bar: Tab moves between the Find and Replace fields, with match-case, whole-word, and regex toggles. Esc closes it. With Vim mode off, Mod+F in the main window opens note search instead (the row above); unbind or move Search notes in non-Vim mode under Settings \u2192 Keymap to give Mod+F to the bar, or use F3. With Vim mode on, Linux and Windows keep Ctrl+F as Vim\u2019s page-forward (search with / instead); macOS keeps Cmd+F for the bar. A floating window has no note search, so there Mod+F opens the bar with Vim mode off too.' },
+      { keys: 'Mod+F (in the editor)', action: 'Find and replace in the note', detail: ['In Edit and Split, open the editor’s find-and-replace bar: Tab moves between the Find and Replace fields, with match-case, whole-word, and regex toggles. Esc closes it. With Vim mode off, Mod+F in the main window opens note search instead (the row above); unbind or move Search notes in non-Vim mode under Settings \u2192 Keymap to give Mod+F to the bar, or use F3. With Vim mode on, Linux and Windows keep Ctrl+F as Vim\u2019s page-forward (search with / instead); macOS keeps Cmd+F for the bar.', { only: 'computer', text: ' A floating window has no note search, so there Mod+F opens the bar with Vim mode off too.' }] },
       { keys: 'F3 / Mod+G (in the editor)', action: 'Find the next match in the note', detail: 'With the find bar closed, open it with your last search filled in and selected, ready to retype or to press F3 again; with it open, move to the next match. Shift+F3 or Shift+Mod+G moves to the previous one. The same with Vim mode on or off, in every window.' },
       { keys: 'Shift+Mod+P', action: 'Open commands', detail: 'Open the command palette.' },
       { keys: 'Alt+Enter (in the command palette)', action: 'Give the highlighted command a key', detail: 'Record a key for the command under the cursor without leaving the palette (Option+Enter on macOS). Enter saves, Escape returns to the same row, which then shows its key. Every command can take one; the same keys live in Settings → Keymap → Commands.' },
@@ -730,7 +793,7 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
       { keys: '↑ / ↓ / → / ← / Enter / Esc', action: 'Move inside a focused panel', detail: 'Once a panel has focus (the sidebar, the note list, connections, the outline or comments), the arrows move its row cursor, Enter or → opens the row under the cursor, Esc returns focus to the editor, and ← goes back the way `h` does there: from the note list to the sidebar, from connections, the outline and comments to the editor. Shift+F10 or the Context Menu key opens the row’s menu in the sidebar and the note list. In comments, Enter or → jumps to the comment’s text, and Backspace or Delete deletes it after a confirm. With Vim mode off, Home and End jump to the ends and Page Up / Page Down move a screenful of rows; the single-key motions (j / k, gg / G) and the panels’ letter keys stay Vim-only. The sidebar, reached with Alt+H or Focus Sidebar in the command palette, works like a tree: → opens the row or expands its folder, ← collapses a folder, or from a note folds its folder and lands on it (Esc still returns to the editor).' },
       { keys: 'Enter / Tab / Esc (in a question)', action: 'Answer a confirmation', detail: 'Enter presses the highlighted button. A question that deletes or discards something (Delete permanently, Empty Trash, Discard changes) opens on Cancel, so Enter keeps everything as it was; Tab moves to the button that goes ahead, then Enter confirms. Any other question opens on its confirm button, so Enter confirms. Esc always cancels.' },
       { keys: 'Mod+.', action: 'Toggle Zen mode', detail: 'Hide or restore the app chrome so only the active editor, preview, or split view stays on screen.' },
-      { keys: 'Mod+W', action: 'Close active tab', detail: 'Close the current note or virtual tab. With Settings open it closes Settings instead, and in a floating window or the quick capture window it closes that window, like its close button. While a dialog, palette or menu is open it does nothing, so it never closes the tab behind it; press Esc to dismiss those first. With Vim mode on, Linux and Windows keep Ctrl+W as the pane prefix while a tab is open: close the tab with :q or :bd, from the tab menu, or rebind this.' },
+      { keys: 'Mod+W', action: 'Close active tab', detail: ['Close the current note or virtual tab. With Settings open it closes Settings instead', { only: 'desktop', text: ', and in a floating window or the quick capture window it closes that window, like its close button' }, '. While a dialog, palette or menu is open it does nothing, so it never closes the tab behind it; press Esc to dismiss those first. With Vim mode on, Linux and Windows keep Ctrl+W as the pane prefix while a tab is open: close the tab with :q or :bd, from the tab menu, or rebind this.'] },
       { keys: 'Ctrl+Tab', action: 'Switch to previous note', detail: 'Switch to the most recently used note. Press again to alternate between the last two notes.' },
       { keys: 'Alt+1 … Alt+9', action: 'Go to tab 1 through 9', detail: 'Jump straight to a tab by position, browser-style (Ctrl+1 … Ctrl+9 on macOS, where Option types characters and the ⌘ digits are taken). Tab numbers count across panes in the same order gt cycles; rebindable under Settings → Keymaps. Vim users get the same jump as {count}gt. Heads-up for macOS with multiple Spaces: Mission Control claims Ctrl+digit for Switch to Desktop, so rebind here or free the key under System Settings → Keyboard Shortcuts.' },
       { keys: 'Ctrl+PageDown / Ctrl+PageUp', action: 'Next / previous tab', detail: 'Step through the open tabs, counted across panes in the same order gt and gT cycle, wrapping at either end. Works with Vim mode on or off, and from the command palette as Next Tab and Previous Tab. On macOS the defaults are Cmd+Option+Right and Cmd+Option+Left. Rebindable under Settings → Keymaps, to Ctrl+Tab for example if you would rather have that than Switch to previous note.' },
@@ -841,9 +904,9 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
       { keys: 'h', action: 'Collapse or move left', detail: 'Collapse the current folder or move focus back toward the editor.' },
       { keys: 'o', action: 'Toggle folder', detail: 'Expand or collapse the selected folder in the sidebar.' },
       { keys: '/', action: 'Search notes', detail: 'Open note search directly from keyboard navigation mode.' },
-      { keys: 'm', action: 'Open context menu', detail: 'Open the right-click menu for the selected sidebar or note-list row, including move, archive, trash, floating-window, and reveal actions where they apply.' },
+      { keys: 'm', action: 'Open context menu', detail: ['Open the right-click menu for the selected sidebar or note-list row, including move, archive, ', { only: 'computer', text: 'trash, floating-window, and reveal actions', elsewhere: 'and trash actions' }, ' where they apply.'] },
       { keys: 'x', action: 'Move to Trash', detail: 'Move the note under the cursor to the Trash after a confirm, or the whole multi-selection when that note is part of it. The cursor stays in the sidebar, on the row that took the note’s place. Folders are left alone: delete one from its menu (`m`).' },
-      { keys: 'Mod+Backspace / Delete', action: 'Move to Trash, Vim on or off', detail: 'The same as `x`, with Vim mode on or off: ⌘⌫ on macOS, Ctrl+Backspace on Windows and Linux, and the Delete key everywhere. Rebind the chord or unbind both as Move sidebar note to Trash under Settings → Keymap.' },
+      { keys: 'Mod+Backspace / Delete', action: 'Move to Trash, Vim on or off', detail: ['The same as `x`, with Vim mode on or off: ⌘⌫ on macOS, Ctrl+Backspace on Windows and Linux, ', { only: 'computer', text: 'and the Delete key everywhere', elsewhere: 'and Delete or Backspace here' }, '. Rebind the chord or unbind both as Move sidebar note to Trash under Settings → Keymap.'] },
       { keys: 'Esc', action: 'Return to editor', detail: 'Drop back into the main editor focus path.' }
     ]
   },
@@ -892,7 +955,7 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
       { keys: 'j / k', action: 'Scroll preview', detail: 'Move through rendered preview content line-by-line.' },
       { keys: 'Ctrl-d / Ctrl-u', action: 'Half-page scroll', detail: 'Move preview content by half a viewport.' },
       { keys: 'g g / G', action: 'Jump to top or bottom', detail: 'Go to the start or end of the preview or connections list.' },
-      { keys: 'm / Shift+F10', action: 'Open active tab menu', detail: 'Open the right-click menu for the active tab while you are reading preview content. This exposes Close, Close Others, Close Tabs to the Right, Pin Tab, Split Right, Split Down, Pin as Reference, Open in Floating Window, and Reveal in Finder.' },
+      { keys: 'm / Shift+F10', action: 'Open active tab menu', detail: ['Open the right-click menu for the active tab while you are reading preview content. This exposes Close, Close Others, Close Tabs to the Right, Pin Tab, Split Right, Split Down, ', { only: 'desktop', text: 'Pin as Reference, Open in Floating Window, and Reveal in Finder', elsewhere: [{ only: 'computer', text: 'Pin as Reference, and Open in Floating Window', elsewhere: 'and Pin as Reference' }] }, '.'] },
       { keys: '/', action: 'Search notes', detail: 'Open note search without leaving keyboard navigation.' },
       { keys: 'p', action: 'Peek backlink', detail: 'In the connections panel, open the hover preview for the selected note.' },
       { keys: 'h / Esc', action: 'Back out', detail: 'Return from hover preview to connections, or from connections to the editor.' }
@@ -1023,7 +1086,7 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
   }
 ]
 
-export const HELP_VIM_COMMANDS: HelpExCommand[] = [
+export const HELP_VIM_COMMANDS: HelpExCommand<HelpText>[] = [
   {
     command: ':w',
     summary: 'Save the active note',
@@ -1042,7 +1105,13 @@ export const HELP_VIM_COMMANDS: HelpExCommand[] = [
   {
     command: ':unbind action.id',
     summary: 'Remove an action’s or a command’s key entirely',
-    detail: 'Leave an action with no key at all, instead of parking it on some obscure chord: `:unbind global.zoomIn` takes Zoom in off its key until it is rebound or reset under Settings, Keymaps. `:unbind command note.trash` does the same for a command palette command. A bare id that names no action but does name a command unbinds the command; `nav.back`, both an action (`h`, back out) and the Go Back command, is the action, and `:unbind command nav.back` the command. Bare `:unbind` opens that page, which lists every id. The unbind travels in `config.toml` as `\"global.zoomIn\" = \"\"`.'
+    detail: [
+      'Leave an action with no key at all, instead of parking it on some obscure chord: ',
+      { only: 'desktop', text: '`:unbind global.zoomIn` takes Zoom in off its key', elsewhere: '`:unbind global.toggleWordWrap` takes Toggle word wrap off its key' },
+      ' until it is rebound or reset under Settings, Keymaps. `:unbind command note.trash` does the same for a command palette command. A bare id that names no action but does name a command unbinds the command; `nav.back`, both an action (`h`, back out) and the Go Back command, is the action, and `:unbind command nav.back` the command. Bare `:unbind` opens that page, which lists every id. The unbind travels in `config.toml` as ',
+      { only: 'desktop', text: '`\"global.zoomIn\" = \"\"`', elsewhere: '`\"global.toggleWordWrap\" = \"\"`' },
+      '.'
+    ]
   },
   {
     command: ':bind <keys> command.id',
@@ -1117,7 +1186,11 @@ export const HELP_VIM_COMMANDS: HelpExCommand[] = [
   {
     command: ':cover [image]',
     summary: 'Set the note’s cover image',
-    detail: 'Bare `:cover` (or `:cov`) opens the cover picker. With an argument it sets the cover: an https URL, a vault image by path or unique file name, or a built-in cover by name (`:cover dusk`, `:cover earthrise`). `:cover unsplash fog` opens the picker’s Unsplash tab on that search (Enter picks the first photo), `:cover paste` uses the image on the clipboard, `:cover reposition` enters reposition mode, `:cover 30%` sets the focal point, and `:cover!` (or `:cover remove`) removes the cover.'
+    detail: [
+      'Bare `:cover` (or `:cov`) opens the cover picker. With an argument it sets the cover: an https URL, a vault image by path or unique file name, or a built-in cover by name (`:cover dusk`, `:cover earthrise`). ',
+      { only: 'computer', text: '`:cover unsplash fog` opens the picker’s Unsplash tab on that search (Enter picks the first photo), ' },
+      '`:cover paste` uses the image on the clipboard, `:cover reposition` enters reposition mode, `:cover 30%` sets the focal point, and `:cover!` (or `:cover remove`) removes the cover.'
+    ]
   },
   {
     command: ':tasks',
@@ -1444,7 +1517,7 @@ export const HELP_VIM_COMMANDS: HelpExCommand[] = [
   }
 ]
 
-export const HELP_SETTINGS: HelpSettingsSection[] = [
+export const HELP_SETTINGS: HelpSettingsSection<HelpText>[] = [
   {
     title: 'Appearance',
     items: [
@@ -1496,7 +1569,7 @@ export const HELP_SETTINGS: HelpSettingsSection[] = [
       { label: 'Font size and line height', detail: 'Tune reading density in the editor and preview.' },
       { label: 'Reading width and editor width', detail: 'Cap long lines so wide windows stay readable.' },
       { label: 'Content alignment', detail: 'Center note content in its column or left-align it to the pane edge.' },
-      { label: 'Note covers', detail: 'Where a note’s cover image shows: on top of the text, scrolling away with it (the default); pinned above the editor and Read view so it stays in sight; or hidden. Hidden only stops drawing covers; the `banner` frontmatter stays in the note, the editor shows its lines in full instead of folding them into one `cover` line, and Quick Look on macOS follows it too.' },
+      { label: 'Note covers', detail: ['Where a note’s cover image shows: on top of the text, scrolling away with it (the default); pinned above the editor and Read view so it stays in sight; or hidden. Hidden only stops drawing covers; the `banner` frontmatter stays in the note, the editor shows its lines in full instead of folding them into one `cover` line', { only: 'desktop', text: ', and Quick Look on macOS follows it too' }, '.'] },
       { label: 'Line numbers', detail: 'Switch between off, absolute, and relative gutter numbering.' },
       { label: 'Line number position', detail: 'Keep the gutter next to the centered text or pin it to the editor edge.' }
     ]
@@ -1509,7 +1582,7 @@ export const HELP_SETTINGS: HelpSettingsSection[] = [
       { label: 'Recorded sequences', detail: 'Capture single shortcuts or multi-step sequences such as Leader flows, pane prefixes, `g g`, `g d`, or fold motions without editing raw config files.' },
       { label: 'Conflict detection', detail: 'When you record a global shortcut that another action already uses, the recorder names the clash and disables Save, so two actions can no longer silently share one key. The same goes between commands and actions, both ways: a key another of your bindings holds is refused. A command’s key that lands on a built-in default is allowed, since your key wins, and the recorder and both rows say which default stops answering it. A leader sequence that starts on a built-in leader key is refused, because built-in leader keys always win. Any existing clash shows a badge on the affected rows. Vim, navigation, and view keys that deliberately reuse a key by context are left alone.' },
       { label: 'Context-menu bindings', detail: 'The same keymap table controls the context-menu action used in the sidebar, note list, and preview-side active-tab menu, so mouse-free navigation stays configurable.' },
-      { label: 'Unbind a key', detail: 'Unbind removes an action’s key entirely instead of parking it on some obscure chord: nothing triggers the action until you record a new key or reset it, the row reads “Unbound”, and the which-key hints, the command palette, and this manual stop advertising it. Unbind sits next to Change on every row and inside the recorder; `:unbind <action.id>` (for example `:unbind global.zoomIn`) does the same from the ex line, and in `config.toml` the entry is `"global.zoomIn" = ""`.' },
+      { label: 'Unbind a key', detail: ['Unbind removes an action’s key entirely instead of parking it on some obscure chord: nothing triggers the action until you record a new key or reset it, the row reads “Unbound”, and the which-key hints, the command palette, and this manual stop advertising it. Unbind sits next to Change on every row and inside the recorder; `:unbind <action.id>` (for example ', { only: 'desktop', text: '`:unbind global.zoomIn`', elsewhere: '`:unbind global.toggleWordWrap`' }, ') does the same from the ex line, and in `config.toml` the entry is ', { only: 'desktop', text: '`"global.zoomIn" = ""`', elsewhere: '`"global.toggleWordWrap" = ""`' }, '.'] },
       { label: 'Reset controls', detail: 'Clear an individual override, including an unbind, or reset the entire keymap table back to the shipped defaults; Reset all also takes every command’s key away.' },
       { label: 'Ignored keys', detail: 'Keys the app never sees. Keyboard remappers with tap-hold layers (Kanata, QMK, ZMK) send a harmless extra key with every keystroke, on Linux usually the Katakana/Hiragana key, which reads as KanaMode, and each one used to reset a pending `jk`, `dd`, leader chord or hint. Record the key here (or `:ignorekey KanaMode`, or `ignored_keys = ["KanaMode"]` under `[editor]` in config.toml) and it is swallowed before the editor or any panel reacts.' }
     ]
@@ -1595,7 +1668,7 @@ export const HELP_SETTINGS: HelpSettingsSection[] = [
   }
 ]
 
-export const HELP_CLI: HelpCard[] = [
+export const HELP_CLI: HelpCard<HelpText>[] = [
   {
     title: 'What the CLI is for',
     only: 'computer',
@@ -1712,19 +1785,25 @@ export function helpForHost(host: HelpHost): {
 } {
   const applies = (entry: { only?: HelpAvailability }): boolean =>
     helpAppliesTo(entry.only, host)
+  const cards = (list: HelpCard<HelpText>[]): HelpCard[] =>
+    list.filter(applies).map((card) => ({ ...card, body: helpText(card.body, host) }))
+  const detailed = <E extends { only?: HelpAvailability; detail: HelpText }>(
+    list: E[]
+  ): Array<Omit<E, 'detail'> & { detail: string }> =>
+    list.filter(applies).map((entry) => ({ ...entry, detail: helpText(entry.detail, host) }))
   return {
-    quickStart: HELP_QUICK_START.filter(applies),
-    howTo: HELP_HOW_TO_GUIDES.filter(applies),
-    concepts: HELP_CORE_CONCEPTS.filter(applies),
+    quickStart: cards(HELP_QUICK_START),
+    howTo: cards(HELP_HOW_TO_GUIDES),
+    concepts: cards(HELP_CORE_CONCEPTS),
     shortcuts: HELP_SHORTCUT_SECTIONS.filter(applies).map((section) => ({
       ...section,
-      items: section.items.filter(applies)
+      items: detailed(section.items)
     })),
-    vim: HELP_VIM_COMMANDS.filter(applies),
+    vim: detailed(HELP_VIM_COMMANDS),
     settings: HELP_SETTINGS.filter(applies).map((section) => ({
       ...section,
-      items: section.items.filter(applies)
+      items: detailed(section.items)
     })),
-    cli: HELP_CLI.filter(applies)
+    cli: cards(HELP_CLI)
   }
 }
