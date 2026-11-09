@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { randomInt } from 'node:crypto'
+import { renameWithRetry } from './atomic-write'
 
 const metadataDirectory = '.zennotes/note-metadata'
 const metadataSuffix = '.metadata.json'
@@ -127,7 +128,7 @@ export async function prepareNoteCreation(
     } finally {
       await file.close()
     }
-    await fs.rename(temporary, metadata)
+    await renameWithRetry(temporary, metadata)
   } finally {
     await fs.rm(temporary, { force: true })
   }

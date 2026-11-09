@@ -624,6 +624,8 @@ describe('delete_asset and restore_asset', () => {
 describe('update_task', () => {
   const NOTE = 'inbox/N.md'
 
+  // A dozen round trips to a spawned server: a Windows runner starved for disk
+  // I/O took past the 5 s default once (2.83.0, run 42095441723).
   it('edits only what it was asked', async () => {
     await seed({ [NOTE]: '- [ ] one due:2026-01-01 !low #tag\n- [x] two\n- [>] sent\n' })
     const client = await connect()
@@ -653,7 +655,7 @@ describe('update_task', () => {
     ) as { priority: string }
     expect(renamed.priority).toBe('high')
     expect(await ok(client, 'update_task', { id: `${NOTE}#42`, due: '2026-02-02' })).toBe('null')
-  })
+  }, 30000)
 
   it('refuses a bad value before it touches the note', async () => {
     await seed({ [NOTE]: '- [ ] one\n' })
