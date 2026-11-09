@@ -8,12 +8,15 @@ vi.mock('./note-lifecycle-actions', () => ({
   runEmptyTrash: vi.fn()
 }))
 
-function installZen(platform: NodeJS.Platform = 'darwin'): void {
+function installZen(
+  platform: NodeJS.Platform = 'darwin',
+  appInfo: { runtime: string; hostKind?: string } = { runtime: 'desktop' }
+): void {
   Object.defineProperty(window, 'zen', {
     configurable: true,
     value: {
       platformSync: () => platform,
-      getAppInfo: vi.fn().mockReturnValue({ runtime: 'desktop' }),
+      getAppInfo: vi.fn().mockReturnValue(appInfo),
       getCapabilities: vi.fn().mockReturnValue({
         supportsLocalFilesystemPickers: true,
         supportsRemoteWorkspace: false,
@@ -295,6 +298,61 @@ describe('the sidebar trash chord (#972)', () => {
     const run = vi.fn()
     const state = { ...closedState, keymapOverrides: { 'nav.sidebarTrash': '' } }
     expect(handleSidebarTrashChord(chord({ key: 'Delete', code: 'Delete' }), () => state, run)).toBe(false)
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  // An iPad keyboard's delete key sends Backspace, and the iPad has no Delete.
+  it.each([
+    ['an iPad', 'darwin', 'ios'],
+    ['an Android tablet', 'android', 'android']
+  ] as const)('takes a bare Backspace as Delete on %s, in either mode', async (_name, platform, hostKind) => {
+    installZen(platform as NodeJS.Platform, { runtime: 'web', hostKind })
+    const { handleSidebarTrashChord, isSidebarTrashKey } = await load()
+    const backspace = (init: KeyboardEventInit = {}): KeyboardEvent =>
+      chord({ ...init, key: 'Backspace', code: 'Backspace' })
+    for (const vimMode of [true, false]) {
+      const run = vi.fn()
+      const event = backspace()
+      expect(handleSidebarTrashChord(event, () => ({ ...closedState, vimMode }), run)).toBe(true)
+      expect(event.defaultPrevented).toBe(true)
+      expect(run).toHaveBeenCalledTimes(1)
+      // Held down, it still asks about one note only.
+      expect(handleSidebarTrashChord(backspace({ repeat: true }), () => ({ ...closedState, vimMode }), run)).toBe(true)
+      expect(run).toHaveBeenCalledTimes(1)
+      expect(isSidebarTrashKey(backspace(), {}, vimMode)).toBe(true)
+    }
+    const run = vi.fn()
+    // Shift or Alt with it is not the delete key.
+    expect(handleSidebarTrashChord(backspace({ shiftKey: true }), () => closedState, run)).toBe(false)
+    expect(handleSidebarTrashChord(backspace({ altKey: true }), () => closedState, run)).toBe(false)
+    // Only while the sidebar holds the keyboard, and never in a text field.
+    expect(handleSidebarTrashChord(backspace(), () => ({ ...closedState, focusedPanel: 'editor' }), run)).toBe(false)
+    const input = document.createElement('input')
+    document.body.appendChild(input)
+    const typed = backspace()
+    Object.defineProperty(typed, 'target', { value: input })
+    expect(handleSidebarTrashChord(typed, () => closedState, run)).toBe(false)
+    // Behind a dialog or menu it stands down, as Delete does.
+    document.body.innerHTML = '<div aria-modal="true"></div>'
+    expect(handleSidebarTrashChord(backspace(), () => closedState, run)).toBe(false)
+    document.body.innerHTML = ''
+    // Unbinding the chord takes Backspace with Delete.
+    const unbound = { ...closedState, keymapOverrides: { 'nav.sidebarTrash': '' } }
+    expect(handleSidebarTrashChord(backspace(), () => unbound, run)).toBe(false)
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['the desktop app', { runtime: 'desktop', hostKind: 'desktop' }],
+    ['the web client', { runtime: 'web', hostKind: 'browser' }]
+  ])('leaves a bare Backspace alone on %s', async (_name, appInfo) => {
+    installZen('darwin', appInfo)
+    const { handleSidebarTrashChord, isSidebarTrashKey } = await load()
+    const run = vi.fn()
+    const event = chord({ key: 'Backspace', code: 'Backspace' })
+    expect(handleSidebarTrashChord(event, () => closedState, run)).toBe(false)
+    expect(event.defaultPrevented).toBe(false)
+    expect(isSidebarTrashKey(chord({ key: 'Backspace', code: 'Backspace' }), {}, true)).toBe(false)
     expect(run).not.toHaveBeenCalled()
   })
 

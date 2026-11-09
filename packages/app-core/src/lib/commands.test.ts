@@ -850,6 +850,9 @@ describe('commands a host does not have', () => {
     )
     // What only wants a note keeps its host.
     expect(all.find((c) => c.id === 'fold.heading')!.host).toBeUndefined()
+    // A tap on a sidebar row hands the keyboard to the editor, so this is how a
+    // hardware keyboard reaches the sidebar's keys (its Delete / Backspace).
+    expect(palette).toContain('nav.focus.sidebar')
   })
 
   it('stay where they were on the desktop app', async () => {

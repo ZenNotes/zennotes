@@ -1477,7 +1477,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     group: "view-actions",
     title: "Move sidebar note to Trash",
     description:
-      "With the sidebar focused, move the note under its cursor to the Trash after a confirm, or every selected note when the selection includes that row. Works with Vim mode on or off. The Delete key does the same; unbinding this turns both off.",
+      "With the sidebar focused, move the note under its cursor to the Trash after a confirm, or every selected note when the selection includes that row. Works with Vim mode on or off. The Delete key does the same (Backspace too on a phone or tablet); unbinding this turns them off.",
     defaultBinding: "Mod+Backspace",
   },
   {

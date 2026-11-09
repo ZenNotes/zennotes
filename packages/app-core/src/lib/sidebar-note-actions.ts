@@ -288,19 +288,30 @@ export async function trashSidebarCursorRow(): Promise<boolean> {
 /* Keys                                                                      */
 /* ------------------------------------------------------------------------ */
 
+/** A phone or tablet shell. An iPad keyboard has no forward Delete key: its
+ *  delete key sends Backspace, and so does the one on most Android keyboards. */
+function deleteKeySendsBackspace(): boolean {
+  if (typeof window === 'undefined') return false
+  const kind = window.zen?.getAppInfo?.().hostKind
+  return kind === 'ios' || kind === 'android'
+}
+
 /** Whether the keydown is one of the sidebar's trash keys: Mod+Backspace
  *  (or what it was rebound to) and a bare Delete in either mode, and `x`
  *  (nav.delete) with Vim on, or in either mode when it was rebound to a chord.
  *  Delete is the key a Windows or Linux user reaches for (#1040); it always
- *  asks first, so it is safe with Vim off. Unbinding the chord says "no key
- *  trashes from here", so it takes Delete with it. */
+ *  asks first, so it is safe with Vim off. On a phone or tablet a bare
+ *  Backspace counts as Delete, since that is what the keyboard's delete key
+ *  sends; the desktop app and the web client leave Backspace alone. Unbinding
+ *  the chord says "no key trashes from here", so it takes Delete with it. */
 export function isSidebarTrashKey(
   event: KeyboardEvent,
   overrides: KeymapOverrides | null | undefined,
   vimMode: boolean
 ): boolean {
+  const bare = !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey
   const bareDelete =
-    event.key === 'Delete' && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey
+    bare && (event.key === 'Delete' || (event.key === 'Backspace' && deleteKeySendsBackspace()))
   return (
     (bareDelete && !isUnboundBinding(getKeymapBinding(overrides, 'nav.sidebarTrash'))) ||
     matchesShortcut(event, overrides, 'nav.sidebarTrash') ||
