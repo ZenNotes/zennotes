@@ -3398,6 +3398,37 @@ function tasksSurfaceVisible(state: { paneLayout: PaneLayout }): boolean {
   )
 }
 
+/** True when task reminders are on and the host shows them. The reminder
+ *  schedule is computed from `vaultTasks`, so a task another program writes
+ *  has to reach the index whatever is on screen, or its reminder waits for
+ *  someone to open Tasks (#1065). The web client has no reminder host and
+ *  keeps the surface-only rule. */
+export function remindersNeedTaskIndex(state: {
+  vault: VaultInfo | null
+  taskReminders: boolean
+}): boolean {
+  return (
+    state.vault != null &&
+    state.taskReminders &&
+    typeof window !== 'undefined' &&
+    typeof window.zen?.setTaskReminders === 'function'
+  )
+}
+
+/** True when something reads the shared task cache and a full reload of it is
+ *  worth doing: a task surface on screen, or reminders over an index that has
+ *  been loaded (the reminder reporter loads it the first time). */
+function taskIndexWanted(state: {
+  paneLayout: PaneLayout
+  vault: VaultInfo | null
+  taskReminders: boolean
+  vaultTasks: VaultTask[]
+}): boolean {
+  return (
+    tasksSurfaceVisible(state) || (remindersNeedTaskIndex(state) && state.vaultTasks.length > 0)
+  )
+}
+
 /** True when the active pane's active tab is the vault-wide Tags view. */
 export function isTagsViewActive(state: {
   paneLayout: PaneLayout
@@ -3757,9 +3788,9 @@ interface Store {
   /** Show the ISO week-number column in the calendar. Persisted. */
   calendarShowWeekNumbers: boolean
 
-  /** Vault-wide Tasks view state. Populated lazily when the view is opened
-   *  and kept incrementally fresh via the chokidar watcher while the view
-   *  is visible. */
+  /** Vault-wide Tasks view state. Populated lazily when a task view opens, or
+   *  by the reminder reporter when reminders are on, and kept incrementally
+   *  fresh via the watcher while either needs it. */
   vaultTasks: VaultTask[]
 
   /** User themes parsed from ~/.config/zennotes/themes. Loaded + watched by
@@ -7775,11 +7806,17 @@ export const useStore = create<Store>((set, get) => {
     try {
       const fresh = await window.zen.scanTasksForPath(relPath)
       if (!isCurrent() || folderMutationBlocks(relPath) || version !== folderReadVersion(relPath)) return
-      set((s) => ({
-        vaultTasks: s.vaultTasks
-          .filter((t) => t.sourcePath !== relPath)
-          .concat(withoutTemplateFolderTasks(fresh, s.vaultSettings))
-      }))
+      set((s) => {
+        const next = withoutTemplateFolderTasks(fresh, s.vaultSettings)
+        // Most saves leave a note's tasks as they were (typing prose). With
+        // reminders on this runs on every save, so an unchanged file keeps the
+        // list as it is rather than waking every reader of it.
+        const held = s.vaultTasks.filter((t) => t.sourcePath === relPath)
+        if (held.length === next.length && JSON.stringify(held) === JSON.stringify(next)) return s
+        return {
+          vaultTasks: s.vaultTasks.filter((t) => t.sourcePath !== relPath).concat(next)
+        }
+      })
     } catch (err) {
       console.error('scanTasksForPath failed', err)
     }
@@ -8917,7 +8954,7 @@ export const useStore = create<Store>((set, get) => {
             console.error('resync vault settings failed', err)
           }),
         get().refreshRootContentHidden(),
-        tasksSurfaceVisible(get()) ? get().refreshTasks() : Promise.resolve(),
+        taskIndexWanted(get()) ? get().refreshTasks() : Promise.resolve(),
         // Templates ride the feed too (scope 'templates'), so a gap may have
         // swallowed a template saved on another device.
         get().loadCustomTemplates(),
@@ -9084,7 +9121,7 @@ export const useStore = create<Store>((set, get) => {
               // changes the picker and which checkboxes count as tasks.
               if (resolveTemplateFolder(normalized) !== templateFolderBefore) {
                 void get().loadFolderTemplates()
-                if (tasksSurfaceVisible(get())) void get().refreshTasks()
+                if (taskIndexWanted(get())) void get().refreshTasks()
               }
             })
             .catch((err) => {
@@ -9111,13 +9148,34 @@ export const useStore = create<Store>((set, get) => {
     // doesn't show stale cards) and the calendar panel, whose weekly task list
     // otherwise kept showing a daily note's tasks as they were at the last full
     // scan (stale checked-state, missing newly added tasks).
-    if (tasksSurfaceVisible(state)) {
+    //
+    // Reminders read the same cache with nothing on screen, so with them on a
+    // file another program writes reaches it too (#1065). An index that holds
+    // nothing yet may never have been loaded: splicing one file into it would
+    // pass for the whole vault (Home and the calendar load only an empty list,
+    // and the reminder schedule would drop every other task), so a file with
+    // tasks loads it whole instead. That happens once; later changes splice.
+    const surfaceVisible = tasksSurfaceVisible(state)
+    if (surfaceVisible || remindersNeedTaskIndex(state)) {
       if (ev.kind === 'unlink') {
-        set((s) => ({
-          vaultTasks: s.vaultTasks.filter((t) => t.sourcePath !== ev.path)
-        }))
-      } else {
+        if (state.vaultTasks.some((t) => t.sourcePath === ev.path)) {
+          set((s) => ({
+            vaultTasks: s.vaultTasks.filter((t) => t.sourcePath !== ev.path)
+          }))
+        }
+      } else if (surfaceVisible || state.vaultTasks.length > 0 || state.tasksLoading) {
         await get().rescanTasksForPath(ev.path)
+      } else {
+        const fresh = await window.zen.scanTasksForPath(ev.path).catch(() => [])
+        const after = get()
+        if (
+          after.vault === state.vault &&
+          after.vaultTasks.length === 0 &&
+          !after.tasksLoading &&
+          withoutTemplateFolderTasks(fresh, after.vaultSettings).length > 0
+        ) {
+          void after.refreshTasks()
+        }
       }
     }
 
@@ -13046,7 +13104,7 @@ useCloudSyncStatusStore.subscribe((state, previous) => {
   )
   // Task views always use the local note. A completed decision can replace
   // that note, so refresh even when the filesystem watcher coalesces its write.
-  if (restoredPath && tasksSurfaceVisible(useStore.getState())) {
+  if (restoredPath && taskIndexWanted(useStore.getState())) {
     void useStore.getState().refreshTasks()
   }
 })

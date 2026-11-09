@@ -160,8 +160,8 @@ export function TimelinePanel({
   const notesByPath = useMemo(() => new Map(notes.map((n) => [n.path, n])), [notes])
 
   // The watcher keeps the task list fresh only while a task surface is on
-  // screen (this panel is one), so a panel that has been closed for a while
-  // reads the vault again as it opens.
+  // screen (this panel is one) or reminders need it, so a panel that has been
+  // closed for a while reads the vault again as it opens.
   useEffect(() => {
     const s = useStore.getState()
     const fresh = Date.now() - lastShownAt < RESCAN_AFTER_MS

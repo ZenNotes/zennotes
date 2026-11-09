@@ -29,17 +29,40 @@ export function currentTaskReminders(now = new Date()): TaskReminder[] {
   return computeTaskReminders(dated, { now, defaultTime: s.taskReminderTime })
 }
 
+/** How long after a vault opens the reminders load its task index when no
+ *  task view has: long enough to stay off the first paint and note open. */
+export const REMINDER_INDEX_DELAY_MS = 3000
+
 /**
  * Send the schedule whenever it changes, debounced, and hourly so the
  * week-ahead window moves with the clock. Nothing is sent until the vault's
  * tasks are indexed: an empty schedule at startup would read to the host as
  * "nothing to catch up on".
+ *
+ * With reminders on, the reporter loads the index itself when no task view
+ * has, shortly after the vault opens. Before #1065 only a task view loaded
+ * it, so a launch that restored a note never sent a schedule at all and the
+ * host kept reminding from the last run's tasks. The store keeps the loaded
+ * index fresh from the watcher (`remindersNeedTaskIndex`).
  */
 export function startTaskReminderReporter(): () => void {
   if (!window.zen.setTaskReminders) return () => undefined
   let indexed = useStore.getState().vaultTasks.length > 0
   let last: string | null = null
   let timer: ReturnType<typeof setTimeout> | null = null
+  let loadTimer: ReturnType<typeof setTimeout> | null = null
+
+  const needsLoad = (): boolean => {
+    const s = useStore.getState()
+    return !indexed && s.vault != null && s.taskReminders && !s.tasksLoading
+  }
+  const loadIndexSoon = (): void => {
+    if (loadTimer != null || !needsLoad()) return
+    loadTimer = setTimeout(() => {
+      loadTimer = null
+      if (needsLoad()) void useStore.getState().refreshTasks()
+    }, REMINDER_INDEX_DELAY_MS)
+  }
 
   const send = (): void => {
     timer = null
@@ -60,6 +83,7 @@ export function startTaskReminderReporter(): () => void {
       last = null
     }
     if ((prev.tasksLoading && !s.tasksLoading) || s.vaultTasks.length > 0) indexed = true
+    if (s.vault !== prev.vault || s.taskReminders !== prev.taskReminders) loadIndexSoon()
     if (
       s.vaultTasks !== prev.vaultTasks ||
       s.notes !== prev.notes ||
@@ -74,10 +98,12 @@ export function startTaskReminderReporter(): () => void {
   })
   const hourly = setInterval(schedule, 3_600_000)
   schedule()
+  loadIndexSoon()
   return () => {
     unsubscribe()
     clearInterval(hourly)
     if (timer != null) clearTimeout(timer)
+    if (loadTimer != null) clearTimeout(loadTimer)
   }
 }
 
