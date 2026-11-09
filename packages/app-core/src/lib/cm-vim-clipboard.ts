@@ -20,6 +20,7 @@ import { ViewPlugin, type EditorView } from '@codemirror/view'
 import type { Extension } from '@codemirror/state'
 import { Vim, getCM } from '@replit/codemirror-vim'
 import { editorImagePaste, pasteImageFilesIntoEditor, readSystemClipboard } from './editor-paste-images'
+import { lineBelowAnchor } from './cm-fold-line-below'
 
 interface VimRegister {
   toString(): string
@@ -106,6 +107,37 @@ interface VimEditor {
   cm6?: EditorView
   state?: { vim?: { visualMode?: boolean } }
   replaceSelection(text: string): void
+  setCursor?(pos: { line: number; ch: number }): void
+}
+
+interface LinewiseRegister extends VimRegister {
+  linewise?: boolean
+}
+
+/**
+ * A linewise `p` on a closed fold puts below the fold's last line, as in Vim
+ * (#1066). codemirror-vim puts below the cursor line, which for a folded
+ * heading is between the heading and its hidden section: the fold then came
+ * loose from the heading and hid the section under the pasted lines. Moving
+ * the cursor to the end of the fold's last line first keeps every other part
+ * of Vim's put (counts, indentation, where the cursor lands) as it is; the end
+ * of a fold is outside it, so the move does not open the fold.
+ */
+function moveCursorBelowClosedFold(
+  cm: VimEditor,
+  actionArgs: { after?: boolean },
+  vim: unknown,
+  register: LinewiseRegister
+): void {
+  const view = cm.cm6
+  if (!view || !actionArgs.after || !register.linewise || !cm.setCursor) return
+  if ((vim as { visualMode?: boolean } | null)?.visualMode) return
+  const { state } = view
+  const line = state.doc.lineAt(state.selection.main.head)
+  const anchor = lineBelowAnchor(state, line.number)
+  if (anchor === line.to) return
+  const target = state.doc.lineAt(anchor)
+  cm.setCursor({ line: target.number - 1, ch: anchor - target.from })
 }
 
 interface VimPasteActions {
@@ -153,6 +185,7 @@ export function installSystemClipboardRegisters(): void {
     const register = registerController()?.getRegister?.(name)
     if (!register) return
     if (!name || !SYSTEM_CLIPBOARD_REGISTERS.has(name)) {
+      moveCursorBelowClosedFold(cm, actionArgs, vim, register)
       this.continuePaste(cm, actionArgs, vim, register.toString(), register)
       return
     }
@@ -160,6 +193,7 @@ export function installSystemClipboardRegisters(): void {
       if (putClipboardImages(cm, images, actionArgs.after === true)) return
       // Linewise when the text ends in a newline, as the unnamed-register `p` reads it.
       register.setText?.(text, /\n$/.test(text))
+      moveCursorBelowClosedFold(cm, actionArgs, vim, register)
       this.continuePaste(cm, actionArgs, vim, text, register)
     })
   } as unknown as VimActionFn)

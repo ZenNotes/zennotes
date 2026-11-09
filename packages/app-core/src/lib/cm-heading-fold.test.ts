@@ -412,13 +412,34 @@ describe('heading arrows', () => {
     done()
   })
 
-  it('keeps the arrow open for a fold that is not exactly its section', () => {
+  it('marks a heading folded for a fold from its line that covers part of its section (#1066)', () => {
+    // What a line opened below a folded section leaves: the fold stays on the
+    // heading, the new line joins the section below it.
     const { view, done } = mount(doc)
     const line = (n: number) => view.state.doc.line(n)
-    // Starts where the section of line 6 starts but ends early.
     view.dispatch({ effects: foldEffect.of({ from: line(6).to, to: line(8).to }) })
+    expect(headingRows(view)).toContain('6 H2 ▸')
+    // The arrow opens it, and opens it completely.
+    arrowOn(view, 6).click()
+    expect(foldedLines(view)).toEqual([])
     expect(headingRows(view)).toContain('6 H2 ▾')
-    view.dispatch({ effects: unfoldEffect.of({ from: line(6).to, to: line(8).to }) })
+    // Folding again from the arrow takes the whole section.
+    arrowOn(view, 6).click()
+    expect(foldedLines(view)).toEqual([[7, 14]])
+    arrowOn(view, 6).click()
+    // zc on the heading replaces a partial fold with the whole section.
+    view.dispatch({
+      effects: foldEffect.of({ from: line(6).to, to: line(8).to }),
+      selection: { anchor: line(6).from }
+    })
+    expect(foldAtCursor(view)).toBe(true)
+    expect(foldedLines(view)).toEqual([[7, 14]])
+    done()
+  })
+
+  it('keeps the arrow open for a fold that starts below the heading line', () => {
+    const { view, done } = mount(doc)
+    const line = (n: number) => view.state.doc.line(n)
     // Ends where the section of line 6 ends but starts later.
     view.dispatch({ effects: foldEffect.of({ from: line(7).to, to: line(14).to }) })
     expect(headingRows(view)).toContain('6 H2 ▾')

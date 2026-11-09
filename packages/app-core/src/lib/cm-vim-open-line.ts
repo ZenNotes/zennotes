@@ -4,6 +4,7 @@ import type { EditorView } from '@codemirror/view'
 import type { SyntaxNode } from '@lezer/common'
 import { Vim } from '@replit/codemirror-vim'
 import { insertNewlineContinueFencedCodeIndent } from './cm-code-fence-indent'
+import { lineBelowAnchor } from './cm-fold-line-below'
 import { insertNewlineContinueMarkupTight } from './cm-tight-list-enter'
 import { listContinuationPrefix } from './list-continuation'
 
@@ -89,6 +90,21 @@ function zenOpenLineContinuingList(
     view && line
       ? (quotedOpenLinePrefix(view.state, line.number) ?? listContinuationPrefix(line.text))
       : null
+  // On a closed fold, `o` opens below the fold's last line, as in Vim (#1066):
+  // a folded heading keeps its section, and a folded item gets its next
+  // sibling after its children.
+  const below = view && line && actionArgs.after ? lineBelowAnchor(view.state, line.number) : null
+  if (view && line && below !== null && below !== line.to) {
+    vim.insertMode = true
+    const insert = `\n${prefix ?? ''}`
+    view.dispatch({
+      changes: { from: below, insert },
+      selection: { anchor: below + insert.length },
+      scrollIntoView: true
+    })
+    this.enterInsertMode(cm, { repeat: actionArgs.repeat }, vim)
+    return
+  }
   if (!view || !line || prefix == null) {
     this.newLineAndEnterInsertMode(cm, actionArgs, vim)
     return
@@ -115,8 +131,9 @@ let openLineRegistered = false
  * on a list item bullets repeat, ordered numbers advance (the renumber pass
  * fixes the exact value for both `o` and `O`), indentation is preserved, and a
  * checkbox continues as a fresh unchecked box; inside a quote or callout the
- * new line keeps its `>` (see `quotedOpenLinePrefix`). Other lines fall back
- * to Vim's built-in open-line. Idempotent, so it is safe on HMR.
+ * new line keeps its `>` (see `quotedOpenLinePrefix`). `o` on a closed fold
+ * opens below the fold. Other lines fall back to Vim's built-in open-line.
+ * Idempotent, so it is safe on HMR.
  */
 export function registerOpenLineContinuation(): void {
   if (openLineRegistered) return

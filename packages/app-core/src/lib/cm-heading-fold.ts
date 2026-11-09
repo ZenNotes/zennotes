@@ -7,13 +7,15 @@
  * with indented children folds the same way (lib/cm-list-fold, #848), and
  * so does a callout below its title line (lib/cm-callout-fold, #853).
  *
- * The exported extension bundles four pieces:
+ * The exported extension bundles five pieces:
  *   - `foldService`: the semantic range calculator so CodeMirror's
  *     fold commands (our vim `zc` / `zo` mappings, the `:fold`
  *     ex command) know what to collapse.
  *   - A `ViewPlugin` that adds an inline ▾ arrow to each heading's
  *     line start and a line-decoration class marking the cursor line.
  *   - The list item arrows, one beside each foldable item's marker.
+ *   - `foldLineBelow`: a line opened below a folded line goes below the
+ *     fold, so the fold stays on its own line (#1066).
  *   - No fold gutter: the full-document gutter would show chevrons
  *     next to every foldable range (paragraphs, code blocks,
  *     frontmatter), which clutters the minimalist editor surface.
@@ -52,6 +54,7 @@ import {
   type FoldRange
 } from './cm-list-fold'
 import { calloutAtLine, enclosingFoldableCallout, foldableCalloutRanges } from './cm-callout-fold'
+import { foldLineBelow } from './cm-fold-line-below'
 
 const HEADING_RE = /^(#{1,6})\s+/
 
@@ -181,6 +184,17 @@ function exactFoldAtRange(
   return foldedExactly(state, range)
 }
 
+/** Folds that start where `range` starts but end elsewhere. A line opened
+ *  below a folded section joins that section, so the fold that stays on the
+ *  heading then covers only part of it (#1066). */
+function foldsSharingStart(state: EditorState, range: FoldRange): FoldRange[] {
+  const out: FoldRange[] = []
+  foldedRanges(state).between(range.from, range.from, (from, to) => {
+    if (from === range.from && to !== range.to) out.push({ from, to })
+  })
+  return out
+}
+
 /**
  * Fold what the cursor is on: the heading or list item its line starts,
  * else anything CodeMirror folds from that line (a code block, a table),
@@ -214,8 +228,11 @@ export function foldAtCursor(view: EditorView): boolean {
     }
   }
   if (!range || exactFoldAtRange(state, range)) return false
+  // A fold already hanging off this line that covers part of the range gives
+  // way to the whole one, rather than stacking under it.
+  const partial = foldsSharingStart(state, range).map((r) => unfoldEffect.of(r))
   view.dispatch({
-    effects: foldEffect.of(range),
+    effects: [...partial, foldEffect.of(range)],
     ...(caret !== null ? { selection: { anchor: caret } } : {})
   })
   return true
@@ -343,9 +360,15 @@ function toggleHeadingFold(view: EditorView, lineNumber: number): void {
   if (level === null) return
   const range = rangeForHeading(state, lineNumber, level)
   if (!range) return
-  const existing = exactFoldAtRange(state, range)
+  // Open shows as open only when nothing below the heading is folded from its
+  // line, so opening clears every fold that starts there.
+  const existing = [
+    ...(exactFoldAtRange(state, range) ? [range] : []),
+    ...foldsSharingStart(state, range).filter((r) => r.to <= range.to)
+  ]
   view.dispatch({
-    effects: existing ? unfoldEffect.of(existing) : foldEffect.of(range)
+    effects:
+      existing.length > 0 ? existing.map((r) => unfoldEffect.of(r)) : foldEffect.of(range)
   })
 }
 
@@ -362,16 +385,17 @@ function buildDecorations(view: EditorView, showLevelLabels: boolean): Decoratio
       if (level === null || !headingHasSection(state, n, level)) continue
       const line = state.doc.line(n)
 
-      // Check whether this exact heading range is currently folded. The
-      // section end is a scan to the next heading of the same or a higher
-      // level, the whole note for a top H1, and this runs on every cursor
-      // move, so it is found only when a fold starts at the line's end.
+      // Check whether the heading's section is folded from its line: all of
+      // it, or the part a fold kept covering after a line was opened below it
+      // (#1066). The section end is a scan to the next heading of the same or
+      // a higher level, the whole note for a top H1, and this runs on every
+      // cursor move, so it is found only when a fold starts at the line's end.
       let isFolded = false
       let range: { from: number; to: number } | null | undefined
       folded.between(line.to, line.to, (rf, rt) => {
         if (rf !== line.to) return undefined
         if (range === undefined) range = rangeForHeading(state, n, level)
-        if (range && rt === range.to) {
+        if (range && rt <= range.to) {
           isFolded = true
           return false
         }
@@ -488,6 +512,7 @@ export function headingFolding(options: HeadingFoldingOptions = {}): Extension {
   const showLevelLabels = options.showLevelLabels ?? false
   return [
     codeFolding(),
+    foldLineBelow(),
     service,
     headingArrowPlugin(showLevelLabels),
     listItemFoldArrows(),
