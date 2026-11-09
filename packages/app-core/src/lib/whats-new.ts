@@ -40,6 +40,23 @@ export const CLOUD_ANNOUNCEMENT = {
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    version: '2.84.0',
+    highlights: [
+      {
+        title: 'Import from Logseq',
+        body: 'Run Import from Logseq… from the palette and pick your graph. Pages become notes, journals become daily notes, and tasks, links and assets come with them.'
+      },
+      {
+        title: 'Reminders see every change',
+        body: 'A task written by a script or a sync tool now reminds you on time, even when no Tasks view is open.'
+      },
+      {
+        title: 'Folded headings stay folded',
+        body: 'Pasting, pressing Enter or Vim’s o and p below a folded heading puts the new lines under its section, and the fold stays where it was.'
+      }
+    ]
+  },
+  {
     version: '2.83.0',
     highlights: [
       {
