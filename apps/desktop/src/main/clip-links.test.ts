@@ -142,22 +142,26 @@ describe('writeClipLocally', () => {
 })
 
 describe('matchClipVaults', () => {
+  // Vault roots are resolved, so on Windows '/v/Work' comes back as
+  // 'D:\v\Work'. The fixture uses this platform's absolute form.
+  const WORK = path.resolve('/v/Work')
+  const NOTES = path.resolve('/v/notes')
   const cfg: ShareConfig = {
     workspaceMode: 'local',
-    vaultRoot: '/v/Work',
+    vaultRoot: WORK,
     localVaults: [
-      { root: '/v/Work', name: 'Work', lastOpenedAt: 1 },
-      { root: '/v/notes', name: 'Personal', lastOpenedAt: 1 },
-      { root: '/w/Personal', name: 'Old', lastOpenedAt: 1 }
+      { root: WORK, name: 'Work', lastOpenedAt: 1 },
+      { root: NOTES, name: 'Personal', lastOpenedAt: 1 },
+      { root: path.resolve('/w/Personal'), name: 'Old', lastOpenedAt: 1 }
     ],
     remoteWorkspaceProfileId: null,
     remoteWorkspaceProfiles: [{ id: 'p1', name: 'Home Server', baseUrl: 'https://h.example', lastConnectedAt: null }]
   }
 
   it('matches a name or a folder name, ignoring case, never a path', () => {
-    expect(matchClipVaults('work', cfg)).toEqual([{ kind: 'local', key: 'local:/v/Work', root: '/v/Work' }])
-    expect(matchClipVaults('NOTES', cfg)).toEqual([{ kind: 'local', key: 'local:/v/notes', root: '/v/notes' }])
-    expect(matchClipVaults('/v/Work', cfg)).toEqual([])
+    expect(matchClipVaults('work', cfg)).toEqual([{ kind: 'local', key: `local:${WORK}`, root: WORK }])
+    expect(matchClipVaults('NOTES', cfg)).toEqual([{ kind: 'local', key: `local:${NOTES}`, root: NOTES }])
+    expect(matchClipVaults(WORK, cfg)).toEqual([])
     expect(matchClipVaults('home server', cfg)).toEqual([{ kind: 'remote', key: 'remote:p1', profileId: 'p1' }])
   })
 
