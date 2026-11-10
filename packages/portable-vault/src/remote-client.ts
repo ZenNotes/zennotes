@@ -106,11 +106,8 @@ export class RemoteRequestError extends Error {
 }
 
 /**
- * Transport-level failure message. iOS drops connections to local-network
- * hosts until the user grants the Local Network permission (the app declares
- * NSLocalNetworkUsageDescription so the prompt appears on first use), and a
- * denied prompt looks exactly like a server that is down, so the message says
- * where to turn it back on.
+ * Transport-level failure message, ending with the host's hint for what on
+ * its platform stops a connection (HostShell.remoteConnectionHint).
  */
 export function connectionErrorMessage(baseUrl: string, error: unknown): string {
   const detail =
@@ -118,9 +115,36 @@ export function connectionErrorMessage(baseUrl: string, error: unknown): string 
   return (
     `Could not connect to the ZenNotes server at ${baseUrl}. ` +
     `Make sure the server is running and the URL is correct.${detail}` +
-    ` If the server is on your local network (e.g. your Mac), check that ZenNotes` +
-    ` is allowed under Settings → Privacy & Security → Local Network.`
+    (portableHost().shell.remoteConnectionHint?.(baseUrl) ?? '')
   )
+}
+
+/**
+ * The iPhone's hint. iOS drops connections to local-network hosts until the
+ * user grants the Local Network permission (the app declares
+ * NSLocalNetworkUsageDescription so the prompt appears on first use), and a
+ * denied prompt looks exactly like a server that is down, so the message says
+ * where to turn it back on.
+ */
+export function localNetworkConnectionHint(): string {
+  return ` If the server is on your local network (e.g. your Mac), check that ZenNotes` +
+    ` is allowed under Settings → Privacy & Security → Local Network.`
+}
+
+/**
+ * Android's hint. Android has no Local Network permission to point at (the
+ * text above was once carried over from the iPhone app). What does stop an
+ * Android connection that a browser on the same phone makes is an HTTPS
+ * server whose certificate comes from the user's own certificate authority:
+ * since zennotesandroid#141 the app trusts certificates installed in the user
+ * store, so say where to install one.
+ */
+export function userCertificateConnectionHint(baseUrl: string): string {
+  return /^https:/i.test(baseUrl)
+    ? ` If the server uses a certificate from your own certificate authority, install that` +
+      ` authority's certificate under Settings → Security → Encryption & credentials →` +
+      ` Install a certificate.`
+    : ''
 }
 
 export function normalizeBaseUrl(value: string): string {

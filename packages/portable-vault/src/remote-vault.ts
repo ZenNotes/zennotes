@@ -52,6 +52,9 @@ export class RemoteVault {
   /** What this server said it can do, from the connect handshake. Null when
    *  the server predates /capabilities entirely. */
   private readonly capabilities: ServerCapabilities | null
+  /** The last listing poll() compared against: each note's mtime, size and folder. */
+  private lastSeen = new Map<string, { updatedAt: number; size: number; folder: NoteFolder }>()
+  private hasLastSeenSnapshot = false
 
   /** Minimal stand-in for MobileVault.fs, the database layer reads raw vault
    *  files through it (/api/notes/read accepts any vault path, same as the
@@ -115,8 +118,14 @@ export class RemoteVault {
 
   // ---- notes ----------------------------------------------------------
 
-  listNotes(): Promise<NoteMeta[]> {
-    return this.client.listNotes()
+  async listNotes(): Promise<NoteMeta[]> {
+    const notes = await this.client.listNotes()
+    // The first listing is the baseline the live-update poll compares with.
+    if (!this.hasLastSeenSnapshot) {
+      this.lastSeen = this.snapshot(notes)
+      this.hasLastSeenSnapshot = true
+    }
+    return notes
   }
 
   listFolders(): Promise<FolderEntry[]> {
@@ -431,5 +440,48 @@ export class RemoteVault {
     // WebView WebSocket), so a remote vault gets no live events at all and
     // every other client's writes land silently.
     emitVaultChange({ kind: 'change', path: '', folder: 'inbox', scope: 'resync' })
+  }
+
+  /**
+   * The live-update poll (remote-workspace.ts runs it every few seconds while
+   * the app is visible): diff a fresh listing against the last one and emit
+   * an event for each note added, changed or gone, the events the server's
+   * watcher would have sent. A rescan's one 'resync' on every tick would make
+   * app-core re-pull everything every few seconds; an unchanged listing emits
+   * nothing. The first poll only takes the baseline.
+   */
+  async poll(): Promise<void> {
+    const before = this.lastSeen
+    const hadSnapshot = this.hasLastSeenSnapshot
+    const notes = await this.client.listNotes()
+    this.lastSeen = this.snapshot(notes)
+    this.hasLastSeenSnapshot = true
+    if (!hadSnapshot) return
+
+    const seen = new Set(notes.map((n) => n.path))
+    for (const note of notes) {
+      const prev = before.get(note.path)
+      if (!prev) {
+        emitVaultChange({ kind: 'add', path: note.path, folder: note.folder, scope: 'content' })
+      } else if (prev.updatedAt !== note.updatedAt || prev.size !== (note.size ?? 0)) {
+        emitVaultChange({ kind: 'change', path: note.path, folder: note.folder, scope: 'content' })
+      }
+    }
+    for (const [path, prev] of before) {
+      if (!seen.has(path)) {
+        emitVaultChange({ kind: 'unlink', path, folder: prev.folder, scope: 'content' })
+      }
+    }
+  }
+
+  private snapshot(
+    notes: NoteMeta[]
+  ): Map<string, { updatedAt: number; size: number; folder: NoteFolder }> {
+    return new Map(
+      notes.map((note) => [
+        note.path,
+        { updatedAt: note.updatedAt, size: note.size ?? 0, folder: note.folder }
+      ])
+    )
   }
 }

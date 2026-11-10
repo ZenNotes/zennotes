@@ -296,6 +296,10 @@ export interface HostShell {
   updatesMessage: string
   /** Ends "zen.x is not available …", e.g. "on iPhone". */
   unavailableWhere: string
+  /** The last sentence of "Could not connect to the ZenNotes server at …":
+   *  what on this platform most often stops a connection a browser on the
+   *  same device makes (remote-client.ts has the iPhone's and Android's). */
+  remoteConnectionHint?(baseUrl: string): string
   /** Whether a drawing opens view-only (no editing chrome). Asked on every read. */
   drawingsViewOnly(): boolean
   writeClipboard(text: string): Promise<void>

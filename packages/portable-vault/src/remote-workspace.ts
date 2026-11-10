@@ -56,6 +56,75 @@ export function activeRemote(): ActiveRemote | null {
   return active
 }
 
+// --- Live updates -----------------------------------------------------------
+// The server streams vault changes over a WebSocket (/api/watch) that the
+// desktop and web clients subscribe to, but a WebView WebSocket can neither
+// send the Bearer header nor pass the server's Origin check (an Android
+// report: web and Mac edits never reached the phone). So the shell polls:
+// while a remote workspace is connected and the app is visible, the vault's
+// poll() diffs a listNotes snapshot and emits the same change events the
+// watcher would. A native WebSocket plugin (OkHttp / URLSessionWebSocketTask
+// can set both headers) is the instant-update upgrade path. Android's, now
+// both phones'.
+export const REMOTE_POLL_MS = 4000
+// Ticks skipped after a failed poll, so an unreachable server costs one
+// request every ~20s instead of hammering timeouts every tick.
+const POLL_FAILURE_BACKOFF_TICKS = 5
+let pollTimer: ReturnType<typeof setInterval> | null = null
+let pollInFlight = false
+let pollSkipTicks = 0
+let pollGeneration = 0
+let visibilityHandler: (() => void) | null = null
+
+function pollRemote(generation: number): void {
+  if (generation !== pollGeneration || !active || pollInFlight) return
+  if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
+  if (pollSkipTicks > 0) {
+    pollSkipTicks--
+    return
+  }
+
+  const remote = active
+  pollInFlight = true
+  remote.vault
+    .poll()
+    .then(() => {
+      if (generation === pollGeneration) pollSkipTicks = 0
+    })
+    .catch(() => {
+      if (generation === pollGeneration) pollSkipTicks = POLL_FAILURE_BACKOFF_TICKS
+    })
+    .finally(() => {
+      if (generation === pollGeneration) pollInFlight = false
+    })
+}
+
+function startRemotePolling(): void {
+  stopRemotePolling()
+  const generation = pollGeneration
+  pollTimer = setInterval(() => pollRemote(generation), REMOTE_POLL_MS)
+  pollRemote(generation)
+
+  if (typeof document !== 'undefined') {
+    visibilityHandler = () => pollRemote(generation)
+    document.addEventListener('visibilitychange', visibilityHandler)
+  }
+}
+
+function stopRemotePolling(): void {
+  pollGeneration++
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+  if (visibilityHandler && typeof document !== 'undefined') {
+    document.removeEventListener('visibilitychange', visibilityHandler)
+    visibilityHandler = null
+  }
+  pollInFlight = false
+  pollSkipTicks = 0
+}
+
 export function remoteWorkspaceInfo(): RemoteWorkspaceInfo | null {
   if (!active) return null
   return {
@@ -175,6 +244,7 @@ export async function connectRemote(
     vault: new RemoteVault(client, serverVault, remoteStateKey(client.baseUrl, serverVault), capabilities)
   }
   await writeMode({ mode: 'remote', profileId })
+  startRemotePolling()
   if (profileId) {
     const profiles = await readProfiles()
     await writeProfiles(
@@ -196,6 +266,7 @@ export async function connectRemoteProfile(
 }
 
 export async function disconnectRemote(): Promise<void> {
+  stopRemotePolling()
   active = null
   await writeMode({ mode: 'local', profileId: null })
 }
