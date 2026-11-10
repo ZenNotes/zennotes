@@ -8,7 +8,11 @@ import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
-const packageNames = ['bridge-contract', 'shared-domain']
+// One version suffix for all three (the shared-core scheme): a phone vendors
+// them together, and the suffix moves when any of their sources does.
+const packageNames = ['bridge-contract', 'shared-domain', 'portable-vault']
+// The portable vault iterates FormData and Headers, which DOM.Iterable types.
+const packageLibs = { 'portable-vault': ['ES2022', 'DOM', 'DOM.Iterable'] }
 
 // tsc reads include and exclude as glob patterns, and globs only understand
 // forward slashes, so a Windows path.join result matches nothing (TS18003).
@@ -48,6 +52,7 @@ async function candidateSuffix() {
     const root = join(repoRoot, 'packages', name)
     inputs.push(join(root, 'package.json'), join(root, 'tsconfig.json'), ...await filesIn(join(root, 'src')))
     if (name === 'bridge-contract') inputs.push(...await filesIn(join(root, 'fixtures')))
+    if (name === 'portable-vault') inputs.push(...await filesIn(join(root, 'assets')))
   }
   const hash = createHash('sha256')
   hash.update(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot }))
@@ -109,7 +114,7 @@ export async function packSharedPackage(name, candidateVersion) {
     const config = {
       extends: tsconfigPath(join(packageRoot, 'tsconfig.json')),
       compilerOptions: {
-        composite: false, declaration: true, types: [], lib: ['ES2022', 'DOM'],
+        composite: false, declaration: true, types: [], lib: packageLibs[name] ?? ['ES2022', 'DOM'],
         rootDir: tsconfigPath(join(packageRoot, 'src')), outDir: tsconfigPath(join(stage, 'dist'))
       },
       include: [tsconfigPath(join(packageRoot, 'src/**/*.ts'))],
@@ -121,11 +126,13 @@ export async function packSharedPackage(name, candidateVersion) {
     })
     await resolvePublishedImports(join(stage, 'dist'), require('typescript'))
     const exports = Object.fromEntries(Object.entries(source.exports).map(([key, path]) => {
+      // Files that ship as they are (the portable vault's TikZJax engine).
+      if (!path.startsWith('./src/')) return [key, path]
       const entry = path.replace('./src/', './dist/').replace(/\.ts$/, '')
       return [key, { types: `${entry}.d.ts`, import: `${entry}.js`, default: `${entry}.js` }]
     }))
     for (const [key, targets] of Object.entries(exports)) {
-      if (key.includes('*')) continue
+      if (key.includes('*') || typeof targets === 'string') continue
       for (const target of new Set(Object.values(targets))) {
         if (!await isFile(join(stage, target))) throw new Error(`Missing export target ${key}: ${target}`)
       }
@@ -137,6 +144,10 @@ export async function packSharedPackage(name, candidateVersion) {
     if (name === 'bridge-contract') {
       await cp(join(packageRoot, 'fixtures'), join(stage, 'fixtures'), { recursive: true })
       files.push('fixtures')
+    }
+    if (name === 'portable-vault') {
+      await cp(join(packageRoot, 'assets'), join(stage, 'assets'), { recursive: true })
+      files.push('assets')
     }
     await cp(join(repoRoot, 'LICENSE'), join(stage, 'LICENSE'))
     await writeFile(join(stage, 'package.json'), JSON.stringify({
