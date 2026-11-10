@@ -35,15 +35,17 @@ function isBlockedHost(hostname: string): boolean {
   return false
 }
 
+/** &amp; goes last: decoded first, "&amp;lt;" (text that reads "&lt;") would
+ *  come out as "<". */
 function decodeEntities(value: string): string {
   return value
-    .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&#0?39;|&apos;/g, "'")
     .replace(/&#x2F;/gi, '/')
     .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
 }
 
 /** Read a `<meta property=".." content="..">` (or `name=`), order-agnostic. */
