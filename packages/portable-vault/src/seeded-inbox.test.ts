@@ -147,6 +147,6 @@ test('a folder the inbox was remapped to is never touched', async () => {
 test('the tablet Welcome counts as untouched, and names no circle', async () => {
   assert.equal(isUntouchedInboxWelcome('Welcome to ZenNotes.md', await sha256OfText(WELCOME_NOTE_TABLET_BODY)), true)
   assert.doesNotMatch(WELCOME_NOTE_TABLET_BODY, /circle/i)
-  assert.equal(welcomeNoteBody(true), WELCOME_NOTE_BODY)
-  assert.equal(welcomeNoteBody(false), WELCOME_NOTE_TABLET_BODY)
+  assert.equal(welcomeNoteBody(true, 'ios'), WELCOME_NOTE_BODY)
+  assert.equal(welcomeNoteBody(false, 'ios'), WELCOME_NOTE_TABLET_BODY)
 })

@@ -1,5 +1,5 @@
 /**
- * The note a brand-new vault is seeded with on mobile. The desktop demo tour
+ * The note a brand-new vault is seeded with on the phones. The desktop demo tour
  * (16 numbered notes about reference panes and keymaps) overwhelmed and
  * confused first-time phone users: its recency-sorted tail even hid
  * the "Start Here" note from the Home screen. One warm, phone-focused note that
@@ -165,7 +165,122 @@ ZenNotes also does math, diagrams, tables, tasks with due dates, and daily notes
 Happy writing.
 `
 
-/** The Welcome note for the layout this device opens in. */
-export function welcomeNoteBody(phoneLayout: boolean): string {
+/**
+ * Android's Welcome, phone and tablet. It says where an Android vault lives
+ * (no iCloud), shows the math a Welcome there has always shown, and points a
+ * tablet's keyboard at Ctrl+Shift+P instead of the iPad's Commands row. Both
+ * shells' seeds share WELCOME_NOTE_SEED_SHA256, so a vault seeded on either
+ * is held back from its first Cloud link the same way.
+ */
+export const WELCOME_NOTE_ANDROID_BODY = `# Welcome to ZenNotes
+
+This is your first note. It is yours: edit it, add to it, or delete it once you have found your feet.
+
+## The circle
+
+The small circle in the bottom corner is how you get around. Tap it:
+
+- **Quick**, **Note**, or **Task**: start one with a single tap
+- **New…**: everything you can create, templates and folders included
+- **Search**: find anything, instantly
+- **Browse**: your folders, tasks, and tags
+- **More**: everything else, including Settings
+
+## Try it now
+
+- [ ] Tap this checkbox to tick it off
+- [ ] Tap the circle, then **Note**, and write down a thought
+- [ ] Tap the circle, then **Task**, and add something to do
+- [ ] Tap the circle, then **Browse**, to see your folders
+
+## Just plain text
+
+Every note is a plain Markdown file: **bold**, *italic*, lists, and checkboxes are all simple text. No database, no lock-in. Your notes stay readable anywhere, forever.
+
+## Organize with tags and folders
+
+Type \`#\` in any note to tag it, like #ideas on this one. Tags appear under **Browse → Tags** the moment you write them.
+
+Folders work the way you expect: create one in **Browse → New folder**, start a note inside the folder you are in with **New note** just above it, and move any note with the circle → **More** → **Move to…**.
+
+## Math that renders live
+
+KaTeX equations, straight from plain markdown. Inline math like $e^{i\\pi} + 1 = 0$ or $A = \\pi r^2$ renders as you write, and display blocks get room to breathe:
+
+$$
+\\int_{-\\infty}^{\\infty} e^{-x^2}\\, dx = \\sqrt{\\pi}
+$$
+
+## Capture from anywhere
+
+Reading something worth keeping? Share it from any app and choose **ZenNotes**. It lands in your notes, ready when you are.
+
+## Where your notes live
+
+Your notes are plain files stored privately on this device. To keep several vaults and switch between them, or to connect a self-hosted ZenNotes server, tap the circle → **More** → **Settings** → **Vault**.
+
+## When you want more
+
+ZenNotes also does diagrams, tables, tasks with due dates, and daily notes. For a folder of example notes showing everything, tap the circle → **More** → **All commands…** and run **Generate demo tour**.
+
+Happy writing.
+`
+
+export const WELCOME_NOTE_ANDROID_TABLET_BODY = `# Welcome to ZenNotes
+
+This is your first note. It is yours: edit it, add to it, or delete it once you have found your feet.
+
+## The sidebar
+
+The sidebar on the left is how you get around:
+
+- **Search**: find anything, instantly
+- The buttons beside Search: a new note or a new folder
+- **Tasks**, **Quick Notes**, your folders, and your tags
+- **Settings** and **Help**, at the bottom
+
+## Try it now
+
+- [ ] Tap this checkbox to tick it off
+- [ ] Tap **New note** on the Home screen and write down a thought
+- [ ] Type \`- [ ]\` and a few words on a new line to add a task, then open **Tasks** in the sidebar
+- [ ] Tap **Search** and type "welcome" to find this note again
+
+## Just plain text
+
+Every note is a plain Markdown file: **bold**, *italic*, lists, and checkboxes are all simple text. No database, no lock-in. Your notes stay readable anywhere, forever.
+
+## Organize with tags and folders
+
+Type \`#\` in any note to tag it, like #ideas on this one. Tags appear in the sidebar the moment you write them.
+
+Folders work the way you expect: create one with the new folder button beside **Search**.
+
+## Math that renders live
+
+KaTeX equations, straight from plain markdown. Inline math like $e^{i\\pi} + 1 = 0$ or $A = \\pi r^2$ renders as you write, and display blocks get room to breathe:
+
+$$
+\\int_{-\\infty}^{\\infty} e^{-x^2}\\, dx = \\sqrt{\\pi}
+$$
+
+## Capture from anywhere
+
+Reading something worth keeping? Share it from any app and choose **ZenNotes**. It lands in your notes, ready when you are.
+
+## Where your notes live
+
+Your notes are plain files stored privately on this device. To keep several vaults and switch between them, or to connect a self-hosted ZenNotes server, open **Settings** at the bottom of the sidebar → **Vault**.
+
+## When you want more
+
+ZenNotes also does diagrams, tables, tasks with due dates, and daily notes. For a folder of example notes showing everything, press Ctrl+Shift+P on a keyboard and run **Generate Demo Tour Notes**.
+
+Happy writing.
+`
+
+/** The Welcome note for this platform and the layout the device opens in. */
+export function welcomeNoteBody(phoneLayout: boolean, platform: 'ios' | 'android'): string {
+  if (platform === 'android') return phoneLayout ? WELCOME_NOTE_ANDROID_BODY : WELCOME_NOTE_ANDROID_TABLET_BODY
   return phoneLayout ? WELCOME_NOTE_BODY : WELCOME_NOTE_TABLET_BODY
 }
