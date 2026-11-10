@@ -20,6 +20,7 @@ import path from 'node:path'
 import os from 'node:os'
 import { parse as parseToml } from 'smol-toml'
 import { retitleLeadingHeading } from '@shared/note-heading-sync'
+import { appendToBody, prependToBody } from '@shared/note-body-insert'
 import { rewriteAssetReferences } from '@shared/asset-link-rename'
 import { foldMcpScopePath } from '@shared/mcp-scope'
 import { noteTurn } from './note-turns'
@@ -2861,24 +2862,13 @@ export function toggleTaskInBody(body: string, targetIndex: number): string | nu
 
 /* ---------- Convenience edits ---------------------------------------- */
 
-function trimTrailingNewlines(s: string): string {
-  return s.replace(/\n+$/g, '')
-}
-
-/* The body transforms below are exported as pure functions so the `zn` CLI's
- * remote backend can apply the identical edit to a body it fetched over HTTP
- * (#493). A remote note is read and written through the server's API, but the
- * edit in between has to be the same one a local note gets, or `zn append`
- * would mean two different things depending on where the vault lives. */
-
-/** The note body with `text` added after a blank line. */
-export function appendToBody(body: string, text: string): string {
-  const normalized = body.replace(/\r\n/g, '\n')
-  const sep = normalized.endsWith('\n') || normalized.length === 0 ? '' : '\n'
-  return (
-    normalized + sep + (normalized.length > 0 ? '\n' : '') + trimTrailingNewlines(text) + '\n'
-  )
-}
+/* The body transforms are pure functions so the `zn` CLI's remote backend can
+ * apply the identical edit to a body it fetched over HTTP (#493). A remote
+ * note is read and written through the server's API, but the edit in between
+ * has to be the same one a local note gets, or `zn append` would mean two
+ * different things depending on where the vault lives. They live in
+ * shared-domain, where the clip links compose the same bytes. */
+export { appendToBody, prependToBody }
 
 export async function appendToNote(root: string, rel: string, text: string): Promise<NoteMeta> {
   const { abs, folder } = await resolveNote(root, rel)
@@ -2886,15 +2876,6 @@ export async function appendToNote(root: string, rel: string, text: string): Pro
   await prepareNoteCreation(root, toPosix(path.relative(root, abs)))
   await fs.writeFile(abs, appendToBody(body, text), 'utf8')
   return await readMeta(root, abs, folder)
-}
-
-/** The note body with `text` inserted at the top, below any frontmatter. */
-export function prependToBody(body: string, text: string): string {
-  const normalized = body.replace(/\r\n/g, '\n')
-  const fm = normalized.match(FRONTMATTER_RE)
-  const snippet = trimTrailingNewlines(text) + '\n\n'
-  if (fm) return fm[0] + snippet + normalized.slice(fm[0].length)
-  return snippet + normalized
 }
 
 export async function prependToNote(root: string, rel: string, text: string): Promise<NoteMeta> {

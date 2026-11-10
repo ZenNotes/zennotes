@@ -63,6 +63,7 @@ import {
 } from '@shared/ipc'
 import { currentDemoTourPath, DEMO_TOUR_DIR, demoTourNestedDirs } from '@shared/demo-tour'
 import { normalizeNoteComments } from '@shared/note-comments'
+import { sanitizeNoteFileTitle } from '@shared/note-file-title'
 import { normalizeShareLocation } from '@shared/share-location'
 import { FRONTMATTER_BLOCK_RE, frontmatterTags } from '@shared/frontmatter'
 import { rewriteAssetReferences } from '@shared/asset-link-rename'
@@ -3590,20 +3591,8 @@ function pastedImageBuffer(data: PastedImageInput['data']): Buffer {
   throw new Error('Clipboard image data is invalid.')
 }
 
-/**
- * Make a title safe to use as a filename on macOS, Windows, and Linux:
- * strip path separators, control chars, and reserved characters so a title
- * like "RFC / Design Doc" cannot escape into a nonexistent subdirectory.
- */
-export function sanitizeNoteTitle(raw: string | undefined): string {
-  return (
-    (raw ?? '')
-      .replace(/[\\/:\u0000-\u001f*?"<>|]/g, '-')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 200) || 'Untitled'
-  )
-}
+/** See `@shared/note-file-title`: the renderer finds notes by the same rule. */
+export const sanitizeNoteTitle = sanitizeNoteFileTitle
 
 export async function createNote(
   root: string,

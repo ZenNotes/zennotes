@@ -28,7 +28,7 @@ import { unsplashCoverUrl, unsplashPhotoCredit } from '@shared/unsplash'
 import type { UnsplashPhoto } from '@zennotes/bridge-contract/unsplash'
 import { useStore } from '../store'
 import { useToastStore } from './toast'
-import { minimalTextChange } from './minimal-text-change'
+import { editOpenNote } from './open-note-edit'
 import { isClipboardImageFile, readSystemClipboard } from './editor-paste-images'
 import type { BuiltinCover } from './note-cover-gallery'
 import { unsplashSearchAvailable } from './unsplash-search'
@@ -92,24 +92,7 @@ export function activeNoteCover(): NoteCover | null {
 
 /** Apply `edit` to the note's body. Resolves true when the text changed. */
 export async function editNoteCover(path: string, edit: (body: string) => string): Promise<boolean> {
-  const state = useStore.getState()
-  const content = state.noteContents[path]
-  if (!content) return false
-  const next = edit(content.body)
-  if (next === content.body) return false
-  const view = state.editorViewRef
-  const viaEditor =
-    !!view && state.selectedPath === path && !view.state.readOnly && view.state.doc.toString() === content.body
-  if (view && viaEditor) {
-    const change = minimalTextChange(content.body, next)
-    if (change) view.dispatch({ changes: change, userEvent: 'input.cover' })
-  } else {
-    state.updateNoteBody(path, next)
-  }
-  // The editor's update listener has already handed the body to the store.
-  if (useStore.getState().noteContents[path]?.body !== next) return false
-  await useStore.getState().persistNote(path)
-  return true
+  return editOpenNote(path, edit, 'input.cover')
 }
 
 export async function setCoverTarget(path: string, target: NoteCoverTarget, y?: number): Promise<boolean> {

@@ -105,6 +105,10 @@ export const IPC = {
   APP_OPEN_SETTINGS: 'app:open-settings',
   APP_OPEN_EXTERNAL_URL: 'app:open-external-url',
   APP_OPEN_NOTE_REQUESTED: 'app:open-note-requested',
+  /** A clip link for this window's vault (main -> renderer). */
+  APP_CLIP_REQUESTED: 'app:clip-requested',
+  /** A clip outcome main reports itself (main -> renderer). */
+  APP_CLIP_NOTICE: 'app:clip-notice',
   APP_FRAME_ESCAPE: 'app:frame-escape',
   APP_RENDERER_READY: 'app:renderer-ready',
   APP_ZOOM_IN: 'app:zoom-in',

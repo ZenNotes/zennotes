@@ -102,9 +102,18 @@ export function buildOpenNoteDeepLink(relPath: string): string {
  *  Registering per user at launch also covers the zip, wherever it was
  *  unpacked. Linux stays with the package's .desktop file, which already
  *  declares the scheme; setting the default there would override the user's
- *  own xdg-mime choice. */
-export function registersDeepLinkSchemeAtLaunch(platform: NodeJS.Platform): boolean {
-  return platform === 'darwin' || platform === 'win32'
+ *  own xdg-mime choice.
+ *
+ *  On macOS only a packaged app registers. macOS registers whatever bundle is
+ *  running and ignores the app path Electron passes, so an unpackaged run (a
+ *  dev build, the CDP harnesses) made the bare Electron.app the handler: every
+ *  zennotes:// link, from the web clipper or a note link, then opened an empty
+ *  Electron window instead of ZenNotes until ZenNotes was launched again. On
+ *  Windows the path and arguments are honored, so a dev build there still
+ *  registers itself correctly. */
+export function registersDeepLinkSchemeAtLaunch(platform: NodeJS.Platform, packaged: boolean): boolean {
+  if (platform === 'darwin') return packaged
+  return platform === 'win32'
 }
 
 /** Whether a Cloud sign-in returns to the app through a one-time page on
