@@ -429,6 +429,24 @@ describe('native Cloud staging for end-to-end encrypted vaults', () => {
     assert.deepEqual(h.leftovers(), [])
   })
 
+  // Plaintext only ever lands in a fresh staging path. Android's native-fs
+  // refused an existing destination; the iPhone's left it to native code. The
+  // staging layer checks it now, for every host.
+  it('refuses to decrypt onto a staging path that already holds a file', async () => {
+    const h = await encryptedHarness()
+    const plaintext = Buffer.alloc(1_000, 4)
+    const sealed = await h.seal(plaintext)
+    const ref = h.reference('item', 7, plaintext, sealed)
+    h.objects.set(url, sealed)
+    const download = h.native.download
+    h.native.download = async (options: Parameters<typeof download>[0]) => {
+      await download(options)
+      h.files.set(options.to.replace(/\.sealed$/, ''), Buffer.from('already here'))
+    }
+    await assert.rejects(h.staging.stage(h.source(ref, url)), /destination already exists/)
+    assert.deepEqual(h.opened, [], 'nothing was decrypted')
+  })
+
   it('refuses an encrypted reference without its key before downloading anything', async () => {
     const h = await encryptedHarness()
     const sealed = await h.seal(Buffer.from('secret'))

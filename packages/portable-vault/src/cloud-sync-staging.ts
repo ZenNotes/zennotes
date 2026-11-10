@@ -135,6 +135,11 @@ export class NativeCloudStaging {
     const native = this.native
     if (!hasNativeDecryption(native)) throw new Error('This device cannot open end-to-end encrypted Cloud files.')
     return async (from: string, to: string, reference: CloudSyncContentReference): Promise<void> => {
+      // Plaintext only ever lands in a fresh staging path: never over the
+      // sealed download itself, never over a file already there (Android's
+      // native-fs refused both; the iPhone's left it to native code).
+      if (from === to) throw new Error('Cloud decryption needs a separate destination.')
+      if (await native.statVerified(to) !== null) throw new Error('Cloud decryption destination already exists.')
       const keys = await decryptor.openContentHeader(fromBase64(await native.readHeader(from, ZNE1_HEADER_BYTES)))
       const opened = await native.decryptFile({
         from, to, header: toBase64(keys.header), objectKey: toBase64(keys.objectKey), aad: toBase64(keys.aad)

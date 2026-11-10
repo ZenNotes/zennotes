@@ -261,14 +261,27 @@ export interface HttpTransport {
   /** PUTs a file by its native URI to a signed object-storage URL, streamed
    *  and verified against `sha256` by native code. Present where the sync
    *  fast path is (its fingerprints hand out those URIs); rejects when no
-   *  answer came, resolves with the status otherwise. */
+   *  answer came, resolves with the status otherwise. With
+   *  `putsInMemoryBodies`, it also takes in-memory bodies as `base64`. */
   putFile?(options: {
     url: string
     headers: Record<string, string>
-    uri: string
-    sha256: string
     byteLength: number
-  }): Promise<{ status: number }>
+  } & ({ uri: string; sha256: string; base64?: never } | { base64: string; sha256?: string; uri?: never })): Promise<{ status: number }>
+  /** Android's native PUT sends every object-storage body, in-memory ones
+   *  included; the iPhone's takes only files and sends in-memory bodies
+   *  through `request` (dataType 'file'). */
+  putsInMemoryBodies?: boolean
+  /**
+   * The connect and read timeouts for one Cloud API request. The platforms
+   * time out differently: iOS applies connectTimeout to the whole URLRequest
+   * and bytes going out never restart it, so the default gives both the time
+   * the body takes on a slow uplink plus the stall bound
+   * (cloudSendTimeoutMs); Android's read timeout starts over with every byte
+   * that arrives, so it is how long a request may go silent (Android passes
+   * its own: a short connect, then the stall bound or the request's own).
+   */
+  cloudTimeouts?(request: { timeoutMs?: number; bodyBytes: number }): { connectTimeout: number; readTimeout: number }
 }
 
 // ---------------------------------------------------------------------------

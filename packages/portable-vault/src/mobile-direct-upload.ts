@@ -276,8 +276,22 @@ async function prepareSealedUpload(
   cipher: MobileUploadCipher
 ): Promise<PreparedDirectUpload> {
   const registered = uploadSources.get(mutation.content)
-  if (!registered) {
-    const sealed = await cipher.sealContent(mutation.content)
+  // A scanned large file carries no bytes in `data`; only the native sealer
+  // that registered it can read it. Without one, say so rather than seal an
+  // empty body (which reads as a damaged file) or report a changed one
+  // (which repeats every sync).
+  const fileBacked = mutation.content.data === '' && mutation.content.byte_length > 0
+  if (!registered && !fileBacked) {
+    let sealed: CloudSyncContent
+    try {
+      sealed = await cipher.sealContent(mutation.content)
+    } catch (error) {
+      // The cipher checks the bytes against the hash sync planned with; a
+      // file edited since reads as `tampered` there, which is a local change
+      // the next sync uploads, not damage (Android's mapping).
+      if ((error as { code?: unknown } | null)?.code === 'tampered') throw directUploadSizeMismatch()
+      throw error
+    }
     return {
       request: await sealedUploadRequest(mutation, cipher, sealed),
       source: { base64: sealed.data },
@@ -286,7 +300,7 @@ async function prepareSealedUpload(
       cleanup: async () => {}
     }
   }
-  if (!registered.seal) throw new Error('This device cannot seal large files for an end-to-end encrypted vault.')
+  if (!registered?.seal) throw new Error('This device cannot seal large files for an end-to-end encrypted vault.')
   const keys = await cipher.beginContentEncryption()
   const sealed = await registered.seal({
     header: toBase64(keys.header), objectKey: toBase64(keys.objectKey), aad: toBase64(keys.aad)

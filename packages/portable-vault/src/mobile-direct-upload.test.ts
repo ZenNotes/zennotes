@@ -503,6 +503,47 @@ describe('direct uploads for end-to-end encrypted vaults', () => {
     assert.equal(inline.length, 1)
   })
 
+  // The cipher checks the bytes against the hash sync planned with, and a
+  // file edited since reads as `tampered` there. That is a local change the
+  // next sync uploads (Android's mapping), not the damaged-file message the
+  // iPhone showed.
+  it('reports an encrypted in-memory file that changed since the scan as DIRECT_UPLOAD_SIZE_MISMATCH', async () => {
+    const cipher = await vaultCipher()
+    const plaintext = Buffer.alloc(CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES - 100, 6)
+    const content: CloudSyncContent = {
+      encoding: 'base64', data: plaintext.toString('base64'), sha256: sha256(Buffer.alloc(plaintext.length, 9)),
+      byte_length: plaintext.length, media_type: 'image/png'
+    }
+    const h = encryptedHarness(cipher, { mutate: async () => assert.fail('nothing goes inline') })
+    await assert.rejects(
+      mutateWithMobileDirectUploads(h.api, 'vault-1', { mutations: [encryptedUpsert(content)] }, h.uploadObject),
+      { code: 'DIRECT_UPLOAD_SIZE_MISMATCH' }
+    )
+    assert.deepEqual(h.calls, [])
+  })
+
+  // A scanned large file has no bytes in `data`; only its native sealer can
+  // read it. Without one the iPhone said so; Android reported a changed file,
+  // which repeated every sync.
+  it('refuses a large encrypted file with no native sealer with the cannot-seal message, before initiating', async () => {
+    const cipher = await vaultCipher()
+    const plaintext = Buffer.alloc(CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES + 1, 5)
+    const registered = rememberMobileUploadSource({
+      encoding: 'base64', data: '', sha256: sha256(plaintext), byte_length: plaintext.length, media_type: 'image/png'
+    }, 'file:///vault/assets/photo.png')
+    const unregistered: CloudSyncContent = {
+      encoding: 'base64', data: '', sha256: sha256(plaintext), byte_length: plaintext.length, media_type: 'image/png'
+    }
+    for (const content of [registered, unregistered]) {
+      const h = encryptedHarness(cipher, { mutate: async () => assert.fail('nothing goes inline') })
+      await assert.rejects(
+        mutateWithMobileDirectUploads(h.api, 'vault-1', { mutations: [encryptedUpsert(content)] }, h.uploadObject),
+        /cannot seal large files for an end-to-end encrypted vault/
+      )
+      assert.deepEqual(h.calls, [])
+    }
+  })
+
   it('reports a conflict under the real path its sealed metadata names', async () => {
     const cipher = await vaultCipher()
     const plaintext = Buffer.alloc(CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES + 1, 8)

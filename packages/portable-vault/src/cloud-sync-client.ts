@@ -77,13 +77,17 @@ export function createCloudSyncClient(baseUrl: string, token: string, options: {
   const transport: CloudSyncHttpTransport = {
     async request<Response>(request: CloudSyncHttpRequest): Promise<Response> {
       const multipart = request.body instanceof FormData
-      // URLSession starts this timeout over whenever data arrives, so a big
-      // page on a slow link keeps going as long as bytes move. Bytes going out
-      // do not restart it: a body also gets the time it takes on a slow
-      // uplink (cloud-sync-stall.ts). A request that waits on the service's
-      // own work (a publication) says so in timeoutMs.
-      const timeoutMs = request.timeoutMs ?? cloudSendTimeoutMs(bodyBytes(request.body))
-      const response = await portableHost().http.request({
+      // The host sizes the timeouts its transport applies (HttpTransport.cloudTimeouts);
+      // the default is the iPhone's. URLSession starts this timeout over
+      // whenever data arrives, so a big page on a slow link keeps going as
+      // long as bytes move. Bytes going out do not restart it: a body also
+      // gets the time it takes on a slow uplink (cloud-sync-stall.ts). A
+      // request that waits on the service's own work (a publication) says so
+      // in timeoutMs.
+      const http = portableHost().http
+      const timeouts = http.cloudTimeouts?.({ timeoutMs: request.timeoutMs, bodyBytes: bodyBytes(request.body) }) ??
+        sendWindow(request.timeoutMs ?? cloudSendTimeoutMs(bodyBytes(request.body)))
+      const response = await http.request({
         method: request.method,
         url: `${normalizedBaseUrl}${request.path}`,
         headers: {
@@ -102,10 +106,7 @@ export function createCloudSyncClient(baseUrl: string, token: string, options: {
           ? await serializeFormData(request.body)
           : request.body,
         ...(multipart ? { dataType: 'formData' as const } : {}),
-        // Capacitor iOS uses connectTimeout ahead of readTimeout for the
-        // entire request. Keep them equal so long publications can finish.
-        connectTimeout: timeoutMs,
-        readTimeout: timeoutMs
+        ...timeouts
       }).catch((error: unknown) => { throw unanswered(error) })
 
       if (response.status < 200 || response.status >= 300) {
@@ -214,11 +215,21 @@ class MobileCloudSyncApiClient extends CloudSyncApiClient {
 
 export const uploadObject: MobileObjectUpload = async (request) => {
   const http = portableHost().http
+  const unreachable = () => {
+    throw new MobileDirectUploadError('ZenNotes could not reach Cloud object storage. Check your connection and try again.', 0, 'DIRECT_UPLOAD_FAILED')
+  }
   // Large scanned files never had their bytes in JS; stream them natively.
+  // A host whose native PUT also takes in-memory bodies (Android) sends
+  // every one that way; the iPhone sends those through its HTTP transport.
   const response = request.uri !== undefined
     ? await fileUploader(http)({ url: request.url, headers: request.headers, uri: request.uri, sha256: request.sha256, byteLength: request.byteLength })
-        .catch(() => { throw new MobileDirectUploadError('ZenNotes could not reach Cloud object storage. Check your connection and try again.', 0, 'DIRECT_UPLOAD_FAILED') })
-    : await http.request(mobileObjectUploadOptions(request)).catch((error: unknown) => { throw unanswered(error) })
+        .catch(unreachable)
+    : http.putsInMemoryBodies && http.putFile
+      ? await http.putFile({
+          url: request.url, headers: request.headers, base64: request.base64, byteLength: request.byteLength,
+          ...(request.sha256 ? { sha256: request.sha256 } : {})
+        }).catch(unreachable)
+      : await http.request(mobileObjectUploadOptions(request)).catch((error: unknown) => { throw unanswered(error) })
   if (response.status < 200 || response.status >= 300) {
     throw new MobileDirectUploadError(
       `ZenNotes Cloud object upload failed (${response.status}).`,
@@ -235,18 +246,25 @@ function fileUploader(http: ReturnType<typeof portableHost>['http']): NonNullabl
   return http.putFile.bind(http)
 }
 
+/** The iPhone's timeouts: connect and read equal, the whole send window. */
+function sendWindow(timeoutMs: number): { connectTimeout: number; readTimeout: number } {
+  return { connectTimeout: timeoutMs, readTimeout: timeoutMs }
+}
+
 /**
- * CapacitorHttp resolves any HTTP answer, error statuses included, so a
+ * The host's HTTP resolves any answer, error statuses included, so a
  * rejection means none came: the request went silent past its timeout, the
- * connection dropped, or it never opened. iOS reports only the error domain,
- * so a stall is known by URLSession's own words for it.
+ * connection dropped, or it never opened. A stall is known by each
+ * platform's own words for it: iOS reports only the error domain, so
+ * URLSession's message; Android names the Java exception in `code`.
  */
 function unanswered(error: unknown): CloudSyncTransportError {
   const { message, code } = (error ?? {}) as { message?: unknown; code?: unknown }
   const text = typeof message === 'string' && message ? message : 'ZenNotes Cloud did not answer.'
+  const name = typeof code === 'string' && code ? code : null
   return new CloudSyncTransportError(text, {
-    code: typeof code === 'string' && code ? code : null,
-    stalled: /timed out/i.test(text),
+    code: name,
+    stalled: /timed out/i.test(text) || name === 'SocketTimeoutException',
     cause: error
   })
 }

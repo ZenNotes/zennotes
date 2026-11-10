@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { afterEach, it, vi } from 'vitest'
+import { afterEach, describe, it, vi } from 'vitest'
 import type { CloudSyncMutationRequest } from '@zennotes/bridge-contract/cloud-sync'
 import { generateCloudE2eeKey, toBase64 } from '@zennotes/shared-domain/cloud-e2ee'
 import { CloudE2eeKeyring } from '@zennotes/shared-domain/cloud-e2ee-account'
@@ -8,7 +8,8 @@ import { CloudVaultCipher } from '@zennotes/shared-domain/cloud-e2ee-vault'
 import { CLOUD_TIMEOUT_MESSAGE, describeCloudError } from '@zennotes/shared-domain/cloud-error-copy'
 import { cloudSyncPathRefusal } from '@zennotes/shared-domain/cloud-sync-refusal'
 import { installTestHost, RecordingHttp } from '../test/test-host'
-import { createCloudSyncClient, type CloudServiceRequestError } from './cloud-sync-client'
+import { createCloudSyncClient, uploadObject, type CloudServiceRequestError } from './cloud-sync-client'
+import type { MobileDirectUploadError } from './mobile-direct-upload'
 import { resetPortableHost, type HttpTransportRequest } from './host'
 
 afterEach(() => {
@@ -200,4 +201,83 @@ it('keeps which fields a 422 refused, so sync sets one path aside instead of sto
   assert.equal(error.message, refused)
   assert.deepEqual(error.details, { errors: { 'mutations.1.path': [refused] } })
   assert.deepEqual(cloudSyncPathRefusal(error, body)?.indices, [1])
+})
+
+// The platforms time a request out differently (HttpTransport.cloudTimeouts), and
+// name a stall differently: iOS by URLSession's message, Android by the Java
+// exception in `code`. Each copy knew only its own; the package knows both.
+it('uses the host\'s timeout policy when it has one, as Android does', async () => {
+  const http = Object.assign(new RecordingHttp(async () => ({ status: 200, headers: {}, data: { data: [] } })), {
+    cloudTimeouts: ({ timeoutMs }: { timeoutMs?: number }) => ({ connectTimeout: 15_000, readTimeout: timeoutMs ?? 30_000 })
+  })
+  installTestHost({ http })
+  const client = createCloudSyncClient('https://example.test', 'test-only', { accountId: 'android-timeouts' })
+  await client.listVaults()
+  assert.equal(http.requests[0]!.connectTimeout, 15_000)
+  assert.equal(http.requests[0]!.readTimeout, 30_000)
+})
+
+it('knows an Android read that went silent as a stall', async () => {
+  let calls = 0
+  installTestHost({
+    http: new RecordingHttp(async () => {
+      calls++
+      throw Object.assign(new Error('timeout'), { code: 'SocketTimeoutException' })
+    })
+  })
+  const client = createCloudSyncClient('https://example.test', 'test-only', { accountId: 'android-stall' })
+  const error = await client.createVault('New vault').catch((failure: unknown) => failure)
+  assert.equal(calls, 1)
+  assert.equal((error as { stalled?: boolean }).stalled, true)
+  assert.equal(describeCloudError(error).message, CLOUD_TIMEOUT_MESSAGE)
+})
+
+it('does not call a connection that never opened a stall', async () => {
+  installTestHost({
+    http: new RecordingHttp(async () => {
+      throw Object.assign(new Error('Unable to resolve host "example.test"'), { code: 'UnknownHostException' })
+    })
+  })
+  const client = createCloudSyncClient('https://example.test', 'test-only', { accountId: 'android-offline' })
+  const error = await client.createVault('New vault').catch((failure: unknown) => failure)
+  assert.equal((error as Error).name, 'CloudSyncTransportError')
+  assert.equal((error as { stalled?: boolean }).stalled, false)
+})
+
+describe('object-storage PUTs', () => {
+  const upload = { url: 'https://objects.example.test/put', method: 'PUT' as const, headers: {}, byteLength: 3 }
+
+  it('sends an in-memory body through the host\'s HTTP, as a base64 file body, by default (the iPhone)', async () => {
+    const http = new RecordingHttp(async () => ({ status: 200, headers: {}, data: '' }))
+    installTestHost({ http })
+    await uploadObject({ ...upload, base64: 'AQID' })
+    assert.equal(http.uploads.length, 0)
+    assert.equal(http.requests[0]!.dataType, 'file')
+    assert.equal(http.requests[0]!.data, 'AQID')
+  })
+
+  it('sends every body through the native PUT on a host that says so (Android)', async () => {
+    const http = Object.assign(new RecordingHttp(async () => assert.fail('no request goes through the HTTP transport')), {
+      putsInMemoryBodies: true
+    })
+    installTestHost({ http })
+    await uploadObject({ ...upload, base64: 'AQID', sha256: 'abc' })
+    assert.deepEqual(http.uploads, [{ url: upload.url, headers: {}, base64: 'AQID', byteLength: 3, sha256: 'abc' }])
+  })
+
+  it('streams a scanned file by its native URI, and calls a native PUT with no answer unreachable', async () => {
+    const http = new RecordingHttp(undefined, async () => { throw new Error('lost') })
+    installTestHost({ http })
+    const error = await uploadObject({ ...upload, uri: 'file:///vault/scan.pdf', sha256: 'abc' }).catch((failure: unknown) => failure)
+    assert.equal(http.uploads[0]!.uri, 'file:///vault/scan.pdf')
+    assert.equal((error as MobileDirectUploadError).status, 0)
+    assert.equal((error as MobileDirectUploadError).code, 'DIRECT_UPLOAD_FAILED')
+  })
+
+  it('refuses a file-backed upload on a host with no native PUT', async () => {
+    const http = new RecordingHttp()
+    installTestHost({ http: Object.assign(http, { putFile: undefined }) })
+    await assert.rejects(uploadObject({ ...upload, uri: 'file:///vault/scan.pdf', sha256: 'abc' }), /native file uploader/)
+    assert.equal(http.requests.length, 0)
+  })
 })
