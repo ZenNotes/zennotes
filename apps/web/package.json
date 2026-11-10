@@ -7,10 +7,15 @@
   "homepage": "https://zennotes.org",
   "scripts": {
     "dev": "vite",
+    "dev:cloud": "vite --config vite.cloud.config.ts",
     "build": "tsc --noEmit && vite build",
     "build:nocheck": "vite build",
+    "build:cloud": "tsc --noEmit && vite build --config vite.cloud.config.ts",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "preview:cloud": "vite preview --config vite.cloud.config.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest",
+    "test:run": "vitest run"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.18.3",
@@ -31,9 +36,11 @@
     "@xyflow/react": "^12.11.2",
     "@zennotes/app-core": "*",
     "@zennotes/bridge-contract": "*",
+    "@zennotes/portable-vault": "*",
     "@zennotes/shared-domain": "*",
     "codemirror": "^6.0.1",
     "dompurify": "^3.3.4",
+    "fflate": "^0.8.3",
     "function-plot": "^1.25.3",
     "gray-matter": "^4.0.3",
     "harper.js": "^2.7.0",
@@ -65,9 +72,11 @@
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
+    "fake-indexeddb": "^6.2.8",
     "postcss": "^8.5.10",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.7.2",
-    "vite": "^6.4.3"
+    "vite": "^6.4.3",
+    "vitest": "^3.2.6"
   }
 }

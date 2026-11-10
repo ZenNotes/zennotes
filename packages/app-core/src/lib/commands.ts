@@ -68,7 +68,14 @@ import {
 } from './database-view-commands'
 import { viewHasPicks } from './database-cells'
 import { canRenameVault, renameVaultWithPrompt } from './rename-vault'
-import { canOpenCurrentVaultFolder, canOpenVaultFolders, openVaultFolder } from './vault-folder'
+import {
+  canDownloadCurrentVault,
+  canDownloadVaultArchive,
+  canOpenCurrentVaultFolder,
+  canOpenVaultFolders,
+  downloadVaultArchive,
+  openVaultFolder
+} from './vault-folder'
 import { promptImageWidth } from './image-resize'
 import { copyLinkAtCursor } from './link-copy'
 import { getKeymapDisplay, getLeaderChordDisplay, type KeymapId } from './keymaps'
@@ -2628,6 +2635,18 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       host: canOpenVaultFolders,
       when: () => canOpenCurrentVaultFolder(getState()),
       run: () => openVaultFolder(getState().vault!.root)
+    },
+    {
+      // The browser's vault lives in the origin's private storage, with no
+      // folder to show, so this takes the open-folder key there.
+      id: 'vault.download-folder',
+      title: 'Download Vault as a Folder',
+      category: 'Vault',
+      keywords: 'vault download zip export folder save backup copy markdown files',
+      shortcut: getState().vimMode ? leaderShortcut('vim.leaderOpenVaultFolder') : undefined,
+      host: canDownloadVaultArchive,
+      when: () => canDownloadCurrentVault(getState()),
+      run: () => downloadVaultArchive()
     },
     {
       id: 'cli.check-updates',

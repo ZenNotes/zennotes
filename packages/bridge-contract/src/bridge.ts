@@ -522,6 +522,11 @@ export interface ZenBridge {
    *  which vault: the host refuses anything but a vault it already knows.
    *  Desktop-only, a host without local folders leaves it out. */
   openVaultInFileManager?(root: string): Promise<void>
+  /** Save the open vault as a zip of its plain files (a folder once
+   *  unzipped). A host whose vault has no folder the user can reach (the
+   *  browser, where it lives in the origin's private storage) offers this in
+   *  place of openVaultInFileManager; others leave it out. */
+  downloadVaultArchive?(): Promise<void>
   getPathForFile(file: File): string | null
   /** Open a folder as a temporary session (drag a folder onto the app to read
    *  it without turning it into a vault). Desktop-only. */

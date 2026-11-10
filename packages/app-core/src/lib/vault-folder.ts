@@ -29,6 +29,31 @@ export function canOpenCurrentVaultFolder(state: {
   return !!state.vault && state.workspaceMode !== 'remote' && canOpenVaultFolders()
 }
 
+/** Whether this host saves the open vault as a download instead of showing a
+ *  folder (the browser, whose vault lives in the origin's private storage).
+ *  It takes the open-folder key there: Leader F reaches the vault's files in
+ *  each host. */
+export function canDownloadVaultArchive(): boolean {
+  return typeof window.zen.downloadVaultArchive === 'function'
+}
+
+export function canDownloadCurrentVault(state: {
+  vault: VaultInfo | null
+  workspaceMode: WorkspaceMode
+}): boolean {
+  return !!state.vault && state.workspaceMode !== 'remote' && canDownloadVaultArchive()
+}
+
+export async function downloadVaultArchive(): Promise<void> {
+  try {
+    await window.zen.downloadVaultArchive?.()
+  } catch (err) {
+    useToastStore
+      .getState()
+      .addToast(humanIpcError(err, 'Could not download the vault.'), 'error')
+  }
+}
+
 /** Open a vault's folder in the file manager. A listed vault's folder can be
  *  gone (moved, or on a drive that is not mounted), and the switcher offers it
  *  anyway, so the answer has to reach the screen. */

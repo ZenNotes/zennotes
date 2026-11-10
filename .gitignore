@@ -4,6 +4,8 @@ dist
 .turbo
 apps/*/.turbo
 apps/web/dist
+# ZenNotes in your browser (vite.cloud.config.ts).
+apps/web/dist-cloud
 # Staging/retired trees and the lock from tooling/scripts/sync-web-dist.mjs.
 # The bare `dist` above does not cover these suffixed names.
 dist.stage-*
