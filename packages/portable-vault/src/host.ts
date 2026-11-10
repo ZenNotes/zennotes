@@ -283,6 +283,11 @@ export interface HostCloudConfig {
    *  builds), allowed over plain http and used as the default base URL. */
   developmentBaseUrl?: string
   allowInsecureLoopback: boolean
+  /** How this host names an account's unlocked E2EE key in SecretStorage:
+   *  'labeled' (`cloud-e2ee:<base url>#<email>`, the iPhone's, the default)
+   *  or 'hashed' (`e2ee-account-key.<sha256>`, Android's). A host keeps the
+   *  scheme it shipped, or every unlocked device asks for its passphrase. */
+  accountKeyScheme?: 'labeled' | 'hashed'
 }
 
 export interface HostShell {

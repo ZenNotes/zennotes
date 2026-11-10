@@ -39,7 +39,11 @@ function defaultCloudBaseUrl(): string {
 }
 const PENDING_AUTH_KEY = 'pending-auth'
 const CREDENTIAL_KEY = 'credential'
-const ACCOUNT_KEY_PREFIX = 'cloud-e2ee:'
+/** The two ways the phones name an account's unlocked key: the iPhone by its
+ *  account (`cloud-e2ee:<base url>#<email>`), Android by a fingerprint of it.
+ *  Keys a device already holds live under its own scheme, so the host keeps
+ *  choosing it (HostCloudConfig.accountKeyScheme); every sweep matches both. */
+const ACCOUNT_KEY_PREFIXES = { labeled: 'cloud-e2ee:', hashed: 'e2ee-account-key.' } as const
 const accountListeners = new Set<(status: CloudAccountStatus) => void>()
 
 /**
@@ -110,9 +114,11 @@ const storage: CloudAuthStorage = {
     assertNativeCloudAuth()
     await secureStorageReady()
     const canonicalCredential = migrateLegacyCloudCredential(credential).value as CloudAuthCredential
-    // Another account's encryption key never outlives a switch; signing the
-    // same account in again keeps this device unlocked.
-    await clearAccountKeys(accountKeyName(canonicalCredential.account))
+    // Another account's encryption key does not outlive a switch to this one;
+    // signing in again to the same account keeps this device unlocked. Each
+    // entry belongs to one account and can never unlock another, so a failed
+    // sweep must not block signing in; signing out sweeps again and must work.
+    await clearAccountKeys(await accountKeyName(canonicalCredential)).catch(() => {})
     await secrets().set(CREDENTIAL_KEY, JSON.stringify(canonicalCredential))
     if (appActive) resumeMobileCloudRequests()
   },
@@ -121,66 +127,100 @@ const storage: CloudAuthStorage = {
     forgetKeyring()
     if (!secrets().available()) return
     await secureStorageReady()
-    await secrets().remove(CREDENTIAL_KEY)
-    // Signing out forgets this device's encryption keys too; the passphrase
-    // or the recovery key unlocks the account again.
+    // Signing out also forgets this device's encryption keys; the passphrase
+    // or the recovery key unlocks the account again. Keys go first, so a
+    // sweep that fails leaves the person signed in to try again rather than a
+    // key outliving its credential.
     await clearAccountKeys()
+    await secrets().remove(CREDENTIAL_KEY)
   }
 }
 
 /**
- * One account's unlocked end-to-end encryption key, in the Keychain with
- * the store's whenUnlockedThisDeviceOnly default and no iCloud sync. It is a
- * cache: the passphrase or the recovery key can always unlock it again.
+ * One account's unlocked end-to-end encryption key, in the host's secure
+ * store (the phones' Keychain and Keystore, whenUnlockedThisDeviceOnly and no
+ * iCloud sync on the iPhone). It is a cache: the passphrase or the recovery
+ * key can always unlock it again. So a missing or unreadable entry reads as
+ * locked: an Android install restored from a backup gets the stored value
+ * back without the Keystore key that decrypts it, and a Keychain item can be
+ * out of reach while the device is locked during background work. Either
+ * must ask for the passphrase again rather than fail every read.
  */
-export function mobileCloudAccountKeyStore(account: CloudAuthCredential['account']): CloudAccountKeyStore {
-  const name = accountKeyName(account)
+export function mobileCloudAccountKeyStore(
+  credential: Pick<CloudAuthCredential, 'base_url' | 'account'>
+): CloudAccountKeyStore {
   return {
     async load(): Promise<StoredCloudAccountKey | null> {
       if (!secrets().available()) return null
-      await secureStorageReady()
-      const value = parseStoredJson(await secrets().get(name))
-      return isRecord(value) && value.format === 1 && typeof value.key === 'string' && Number.isInteger(value.version)
-        ? value as unknown as StoredCloudAccountKey
-        : null
+      try {
+        await secureStorageReady()
+        return parseStoredAccountKey(await secrets().get(await accountKeyName(credential)))
+      } catch {
+        return null
+      }
     },
     async save(value: StoredCloudAccountKey): Promise<void> {
       assertNativeCloudAuth()
       await secureStorageReady()
-      await secrets().set(name, JSON.stringify(value))
+      await secrets().set(await accountKeyName(credential), JSON.stringify(value))
     },
     async clear(): Promise<void> {
       if (!secrets().available()) return
       await secureStorageReady()
-      await secrets().remove(name)
+      await secrets().remove(await accountKeyName(credential))
     }
   }
 }
 
-function accountKeyName(account: CloudAuthCredential['account']): string {
-  return `${ACCOUNT_KEY_PREFIX}${account.base_url.trim()}#${account.user.email.trim().toLowerCase()}`
+function parseStoredAccountKey(raw: string | null): StoredCloudAccountKey | null {
+  if (raw === null) return null
+  try {
+    const value = JSON.parse(raw) as Partial<StoredCloudAccountKey> | null
+    // A 32-byte key is 44 base64 characters; anything else could never open a vault.
+    return value?.format === 1 && typeof value.key === 'string' && /^[A-Za-z0-9+/]{43}=$/.test(value.key) &&
+      typeof value.version === 'number' && Number.isInteger(value.version) && value.version >= 0
+      ? { format: 1, key: value.key, version: value.version }
+      : null
+  } catch {
+    return null
+  }
 }
 
-/** Every stored account key but `keep`. Callers have awaited the ready gate. */
+async function accountKeyName(credential: Pick<CloudAuthCredential, 'base_url' | 'account'>): Promise<string> {
+  const email = credential.account.user.email.trim().toLowerCase()
+  if ((portableHost().shell.cloud.accountKeyScheme ?? 'labeled') === 'labeled') {
+    return `${ACCOUNT_KEY_PREFIXES.labeled}${credential.account.base_url.trim()}#${email}`
+  }
+  const scope = `${credential.base_url.trim().replace(/\/+$/, '')}\n${email}`
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(scope))
+  return ACCOUNT_KEY_PREFIXES.hashed + [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
+}
+
+/** Every stored account key but `keep`, under either scheme. Callers have
+ *  awaited the ready gate. */
 async function clearAccountKeys(keep: string | null = null): Promise<void> {
+  const prefixes = Object.values(ACCOUNT_KEY_PREFIXES)
   for (const name of await secrets().keys()) {
-    if (name.startsWith(ACCOUNT_KEY_PREFIX) && name !== keep) await secrets().remove(name)
+    if (prefixes.some((prefix) => name.startsWith(prefix)) && name !== keep) await secrets().remove(name)
   }
 }
 
-// One keyring per signed-in credential, so the answers to "is this vault
-// encrypted" and the opened ciphers last across calls but never across
-// accounts or sign-ins.
-let activeKeyring: { credential: CloudAuthCredential; keyring: CloudE2eeKeyring } | null = null
+let keyringCache: { scope: string; keyring: CloudE2eeKeyring } | null = null
 
-function keyringFor(credential: CloudAuthCredential): CloudE2eeKeyring {
-  const current = activeKeyring?.credential
-  if (
-    activeKeyring && current && current.base_url === credential.base_url &&
-    current.token === credential.token && current.account.user.email === credential.account.user.email
-  ) {
-    return activeKeyring.keyring
-  }
+/** Which signed-in credential this is: the account, and the token that signs
+ *  in as it. An email that differs only in letter case is the same account. */
+export function mobileCloudCredentialScope(credential: CloudAuthCredential): string {
+  return JSON.stringify([credential.base_url, credential.account.user.email.toLowerCase(), credential.token])
+}
+
+/**
+ * One keyring per signed-in credential, so the answers to "is this vault
+ * encrypted" and the opened ciphers last across calls but never across
+ * accounts or sign-ins.
+ */
+export function mobileCloudKeyring(credential: CloudAuthCredential): CloudE2eeKeyring {
+  const scope = mobileCloudCredentialScope(credential)
+  if (keyringCache?.scope === scope) return keyringCache.keyring
   forgetKeyring()
   const keyring = new CloudE2eeKeyring({
     // A plain client: the keyring needs only each vault's encryption fields.
@@ -188,15 +228,15 @@ function keyringFor(credential: CloudAuthCredential): CloudE2eeKeyring {
       accountId: credential.account.user.email,
       signal: mobileCloudRequestSignal()
     }).listVaults()).data,
-    store: mobileCloudAccountKeyStore(credential.account)
+    store: mobileCloudAccountKeyStore(credential)
   })
-  activeKeyring = { credential, keyring }
+  keyringCache = { scope, keyring }
   return keyring
 }
 
 function forgetKeyring(): void {
-  activeKeyring?.keyring.forget()
-  activeKeyring = null
+  keyringCache?.keyring.forget()
+  keyringCache = null
 }
 
 export async function configureMobileCloudAuth(appVersion: string): Promise<void> {
@@ -316,7 +356,7 @@ export async function mobileCloudConnection() {
   const signal = mobileCloudRequestSignal()
   const credential = await authenticatedCredential()
   if (signal.aborted) throw new DOMException('Cloud account changed while loading credentials.', 'AbortError')
-  const keyring = MOBILE_END_TO_END_ENCRYPTION ? keyringFor(credential) : undefined
+  const keyring = MOBILE_END_TO_END_ENCRYPTION ? mobileCloudKeyring(credential) : undefined
   return {
     credential,
     client: createCloudSyncClient(credential.base_url, credential.token, {
@@ -325,7 +365,7 @@ export async function mobileCloudConnection() {
       ...(keyring ? { keyring } : {})
     }),
     keyring,
-    keyStore: mobileCloudAccountKeyStore(credential.account)
+    keyStore: mobileCloudAccountKeyStore(credential)
   }
 }
 

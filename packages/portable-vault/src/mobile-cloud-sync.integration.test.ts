@@ -251,14 +251,22 @@ async function fixture(initial: Record<string, string> = { 'note.md': 'Original'
   // Each fixture loads a fresh adapter, as the phone's per-fixture bundle did:
   // the host service and its per-vault refresh state start empty.
   vi.resetModules()
+  // The real encryption module runs over this account. A readable-vault
+  // account's keyring answers null for every vault, so no encrypted path runs;
+  // setKeyring swaps in one that opens (or refuses, locked) a vault.
+  const readable = { forVault: async () => null }
+  const credential = {
+    base_url: 'https://sync.example.test', token: 'test-only',
+    account: { base_url: 'https://sync.example.test', user: { email: 'test@example.test' } }
+  }
   vi.doMock('./mobile-cloud-auth', () => ({
+    MOBILE_END_TO_END_ENCRYPTION: true,
     authenticatedClient: async () => remote,
-    // A readable-vault account: no keyring, so no encrypted path runs.
-    mobileCloudConnection: async () => ({
-      credential: { base_url: 'https://sync.example.test', token: 'test-only' }, client: remote,
-      ...(keyring ? { keyring } : {})
-    }),
-    getMobileCloudAccountStatus: async () => accountStatus
+    authenticatedCredential: async () => credential,
+    getMobileCloudAccountStatus: async () => accountStatus,
+    mobileCloudAccountKeyStore: () => ({ load: async () => null, save: async () => {}, clear: async () => {} }),
+    mobileCloudCredentialScope: () => 'test-scope',
+    mobileCloudKeyring: () => ({ remember() {}, forget() {}, ...(keyring ?? readable) })
   }))
   const host = createTestHost()
   // The fresh modules read the fresh host module, so install into that one.

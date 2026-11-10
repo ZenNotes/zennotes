@@ -198,12 +198,15 @@ it('keeps one encryption key per account, then revokes this device and forgets e
     requests.push(options)
     return { status: 401, headers: {}, data: {} }
   })
-  const store = api.mobileCloudAccountKeyStore(account)
+  const store = api.mobileCloudAccountKeyStore({ base_url: account.base_url, account })
   assert.equal(await store.load(), null)
   await store.save(storedKey(7))
   assert.deepEqual(await store.load(), storedKey(7))
   assert.equal(saved.get(keyName('test@example.test')), JSON.stringify(storedKey(7)))
-  const shouting = api.mobileCloudAccountKeyStore({ ...account, user: { ...account.user, email: 'TEST@Example.test' } })
+  const shouting = api.mobileCloudAccountKeyStore({
+    base_url: account.base_url,
+    account: { ...account, user: { ...account.user, email: 'TEST@Example.test' } }
+  })
   assert.deepEqual(await shouting.load(), storedKey(7), 'an email in other letter case is the same account')
   saved.set(keyName('test@example.test'), 'not a key')
   assert.equal(await store.load(), null, 'an unreadable entry is no key')

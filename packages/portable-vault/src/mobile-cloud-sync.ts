@@ -30,17 +30,23 @@ import {
   type PortableCloudSyncFileSystem
 } from '@zennotes/shared-domain/cloud-sync-portable-filesystem'
 import type { CloudSyncState } from '@zennotes/shared-domain/cloud-sync-engine'
-import { fromBase64 } from '@zennotes/shared-domain/cloud-e2ee'
 import { CLOUD_E2EE_HEADER, CLOUD_E2EE_HEADER_VALUE } from '@zennotes/shared-domain/cloud-e2ee-vault'
 import { CachedCloudSyncRepository, type ScanCache } from './cloud-sync-repository'
 import type { PortableVault } from './vault-fs'
 import { hasSyncFastPath, portableHost } from './host'
 import { trackCloudSyncChanges } from './cloud-sync-refresh'
 import {
+  MOBILE_END_TO_END_ENCRYPTION,
   authenticatedClient,
-  getMobileCloudAccountStatus,
-  mobileCloudConnection
+  authenticatedCredential,
+  getMobileCloudAccountStatus
 } from './mobile-cloud-auth'
+import {
+  ENCRYPTED_VAULT_BACKUP_DOWNLOAD_MESSAGE,
+  assertMobileCloudVaultCanLink,
+  createMobileEncryptedCloudVault,
+  isMobileCloudVaultEncrypted
+} from './mobile-cloud-encryption'
 import { randomUUID } from './uuid'
 
 const STORAGE_ROOT = 'zennotes-cloud-sync'
@@ -91,8 +97,7 @@ export async function linkMobileCloudVault(
 ): Promise<CloudVaultLink> {
   // An encrypted vault's name and content need the account key, so linking
   // a locked device stops here instead of at the first sync.
-  const { keyring } = await mobileCloudConnection()
-  await keyring?.forVault(vaultId)
+  await assertMobileCloudVaultCanLink(vaultId)
   return service.link(hostVault(vault), vaultId)
 }
 
@@ -102,17 +107,9 @@ export async function createAndLinkMobileCloudVault(
   options: { encrypted?: boolean } = {}
 ): Promise<CloudVaultLink> {
   if (!options.encrypted) return service.createAndLink(hostVault(vault), name)
-  const normalizedName = name.trim()
-  if (!normalizedName) throw new Error('Cloud vault name is required.')
-  const { client, keyStore, keyring } = await mobileCloudConnection()
-  if (!keyring) throw new Error('End-to-end encryption is not available in this build.')
-  const stored = await keyStore.load()
-  if (!stored) throw new Error('Unlock end-to-end encryption on this device first.')
-  const created = (await client.createEncryptedVault(normalizedName, fromBase64(stored.key), stored.version)).data
-  keyring.remember(created)
   // The service stores a placeholder name; the shared link step reads the
   // listing, which shows this unlocked device the real one.
-  return service.link(hostVault(vault), created.id)
+  return service.link(hostVault(vault), await createMobileEncryptedCloudVault(name))
 }
 
 export async function unlinkMobileCloudVault(vault: PortableVault): Promise<void> {
@@ -267,8 +264,7 @@ export async function createMobileCloudBackup(
 ): Promise<CloudBackupSnapshot> {
   // A typed label would reach ZenNotes Cloud readable, so encrypted vaults
   // keep their backups unlabeled.
-  const unlabeled = label !== undefined &&
-    await linksEncryptedVault(await service.linkedVault(hostVault(vault)), await mobileCloudConnection())
+  const unlabeled = label !== undefined && await linksEncryptedVault(await service.linkedVault(hostVault(vault)))
   return service.createBackup(hostVault(vault), unlabeled ? undefined : label)
 }
 
@@ -285,16 +281,13 @@ export async function downloadMobileCloudBackup(
 ): Promise<void> {
   const link = await service.linkedVault(hostVault(vault))
   if (!link) throw new Error('Link this local vault to a ZenNotes Cloud vault first.')
-  const connection = await mobileCloudConnection()
-  const { credential, keyring } = connection
+  const credential = await authenticatedCredential()
   if (link.base_url !== credential.base_url) {
     throw new Error('This vault is linked to a different ZenNotes Cloud account.')
   }
   // The phone shares the service's archive as it is, and an encrypted
   // vault's holds ciphertext under path ids; the desktop app decrypts it.
-  if (await linksEncryptedVault(link, connection)) {
-    throw new Error('Download backups of encrypted vaults from the ZenNotes desktop app.')
-  }
+  if (await linksEncryptedVault(link)) throw new Error(ENCRYPTED_VAULT_BACKUP_DOWNLOAD_MESSAGE)
 
   const safeBackupId = backupId.replace(/[^a-zA-Z0-9-]/g, '')
   if (!safeBackupId) throw new Error('That backup identifier is invalid.')
@@ -308,7 +301,9 @@ export async function downloadMobileCloudBackup(
     headers: {
       Accept: 'application/gzip',
       Authorization: `Bearer ${credential.token}`,
-      ...(keyring ? { [CLOUD_E2EE_HEADER]: CLOUD_E2EE_HEADER_VALUE } : {})
+      // Every request from a client that opens encrypted vaults says so, this
+      // one too (Android's copy had dropped it).
+      ...(MOBILE_END_TO_END_ENCRYPTION ? { [CLOUD_E2EE_HEADER]: CLOUD_E2EE_HEADER_VALUE } : {})
     },
     connectTimeout: 30_000,
     readTimeout: 120_000
@@ -331,18 +326,10 @@ export async function restoreMobileCloudBackupNote(
 }
 
 /** Whether a link names an end-to-end encrypted vault; a locked device knows too. */
-async function linksEncryptedVault(
-  link: CloudVaultLink | null,
-  { credential, keyring }: Awaited<ReturnType<typeof mobileCloudConnection>>
-): Promise<boolean> {
+async function linksEncryptedVault(link: CloudVaultLink | null): Promise<boolean> {
   // Another account's link fails in the shared service with its own message.
-  if (!link || !keyring || link.base_url !== credential.base_url) return false
-  try {
-    return (await keyring.forVault(link.vault_id)) !== null
-  } catch (error) {
-    if ((error as { code?: unknown } | null)?.code === 'E2EE_LOCKED') return true
-    throw error
-  }
+  if (!link || link.base_url !== (await authenticatedCredential()).base_url) return false
+  return isMobileCloudVaultEncrypted(link.vault_id)
 }
 
 function hostVault(vault: PortableVault, cacheScan = false): CloudSyncHostVault {
