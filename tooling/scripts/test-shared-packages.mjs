@@ -9,7 +9,7 @@ import { runNpm } from './pack-shared-package.mjs'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const require = createRequire(join(repoRoot, 'packages/bridge-contract/package.json'))
-const consumer = await mkdtemp(join(tmpdir(), 'zennotes contract & domain consumer '))
+const consumer = await mkdtemp(join(tmpdir(), 'zennotes contract, domain & vault consumer '))
 
 try {
   const packed = JSON.parse(execFileSync(process.execPath, [
@@ -18,13 +18,16 @@ try {
   const domain = JSON.parse(execFileSync(process.execPath, [
     join(repoRoot, 'tooling/scripts/pack-shared-package.mjs'), 'shared-domain'
   ], { cwd: repoRoot, encoding: 'utf8' }))
+  const vault = JSON.parse(execFileSync(process.execPath, [
+    join(repoRoot, 'tooling/scripts/pack-shared-package.mjs'), 'portable-vault'
+  ], { cwd: repoRoot, encoding: 'utf8' }))
   await writeFile(join(consumer, 'package.json'), JSON.stringify({
     name: 'contract-consumer', private: true, type: 'module'
   }))
   // npm ci caches tarballs but never the registry metadata that resolving a
   // dependency range needs, so a fully offline install fails on a fresh CI cache.
   runNpm([
-    'install', packed.archive, domain.archive, '--ignore-scripts', '--prefer-offline', '--no-audit', '--no-fund'
+    'install', packed.archive, domain.archive, vault.archive, '--ignore-scripts', '--prefer-offline', '--no-audit', '--no-fund'
   ], { cwd: consumer, stdio: 'inherit' })
   const installedRoot = join(consumer, 'node_modules/@zennotes/bridge-contract')
   const installed = JSON.parse(await readFile(join(installedRoot, 'package.json'), 'utf8'))
@@ -35,7 +38,27 @@ try {
 
   const domainRoot = join(consumer, 'node_modules/@zennotes/shared-domain/dist')
   const modules = (await readdir(domainRoot, { recursive: true })).filter((path) => path.endsWith('.js'))
-  const imports = [...bridgeImports, ...modules.map((path) => `@zennotes/shared-domain/${path.replace(/\\/g, '/').slice(0, -3)}`)]
+  const vaultRoot = join(consumer, 'node_modules/@zennotes/portable-vault')
+  const vaultPackage = JSON.parse(await readFile(join(vaultRoot, 'package.json'), 'utf8'))
+  assert.equal(vaultPackage.version, vault.version)
+  // One suffix for the three: the vault pins exactly the contract and domain
+  // it was packed with, and nothing else.
+  assert.deepEqual(vaultPackage.dependencies, {
+    '@zennotes/bridge-contract': packed.version,
+    '@zennotes/shared-domain': domain.version
+  })
+  const vaultImports = Object.entries(vaultPackage.exports)
+    .filter(([, target]) => typeof target === 'object')
+    .map(([path]) => `${vaultPackage.name}/${path.slice(2)}`)
+  // The TikZJax engine ships as package files a host serves as they are.
+  for (const asset of ['tikzjax.js', 'fonts.css']) {
+    assert.ok((await readFile(join(vaultRoot, 'assets/tikzjax', asset))).byteLength > 1024, `tikzjax/${asset} ships`)
+  }
+  const imports = [
+    ...bridgeImports,
+    ...modules.map((path) => `@zennotes/shared-domain/${path.replace(/\\/g, '/').slice(0, -3)}`),
+    ...vaultImports
+  ]
   await writeFile(join(consumer, 'runtime.mjs'), `
 import assert from 'node:assert/strict'
 import { PORTABLE_PREF_KEYS } from '@zennotes/bridge-contract/app-config'
@@ -59,14 +82,14 @@ ${imports.map((name, index) => `import * as module${index} from '${name}'`).join
   await writeFile(join(consumer, 'tsconfig.json'), JSON.stringify({
     compilerOptions: {
       target: 'ES2022', module: 'NodeNext', moduleResolution: 'NodeNext',
-      strict: true, types: [], lib: ['ES2022', 'DOM'], noEmit: true
+      strict: true, types: [], lib: ['ES2022', 'DOM', 'DOM.Iterable'], noEmit: true
     },
     include: ['consumer.ts']
   }))
   execFileSync(process.execPath, [require.resolve('typescript/bin/tsc'), '-p', 'tsconfig.json'], {
     cwd: consumer, stdio: 'inherit'
   })
-  process.stdout.write('Contract and domain packages install, import, and typecheck without workspace source.\n')
+  process.stdout.write('Contract, domain and portable vault packages install, import, and typecheck without workspace source.\n')
 } finally {
   await rm(consumer, { recursive: true, force: true })
 }

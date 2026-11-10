@@ -15,6 +15,9 @@ const require = createRequire(join(packageRoot, 'package.json'))
 export async function packAppCore() {
   const contract = await packSharedPackage('bridge-contract')
   const domain = await packSharedPackage('shared-domain')
+  // Not an app-core dependency: the phones vendor it beside app-core (their
+  // adopt-core.mjs and check-core-boundary.mjs walk this manifest's list).
+  const portableVault = await packSharedPackage('portable-vault')
   const source = JSON.parse(await readFile(join(packageRoot, 'package.json'), 'utf8'))
   const stage = await mkdtemp(join(tmpdir(), 'zennotes-app-core-package-'))
   try {
@@ -112,7 +115,7 @@ export async function packAppCore() {
       workingTreeDirty: execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' }).trim().length > 0,
       sourceLockSha256: createHash('sha256').update(await readFile(join(root, 'package-lock.json'))).digest('hex'),
       toolchain: { node: process.version, typescript: require('typescript/package.json').version, tailwind: require('tailwindcss/package.json').version },
-      dependencies: [contract, domain]
+      dependencies: [contract, domain, portableVault]
     }
     await writeFile(`${archive}.json`, JSON.stringify(manifest, null, 2) + '\n')
     return manifest

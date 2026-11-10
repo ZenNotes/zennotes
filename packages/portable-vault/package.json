@@ -1,0 +1,50 @@
+{
+  "name": "@zennotes/portable-vault",
+  "private": true,
+  "version": "2.84.0",
+  "type": "module",
+  "exports": {
+    "./host": "./src/host.ts",
+    "./bridge": "./src/portable-bridge.ts",
+    "./vault": "./src/vault-fs.ts",
+    "./vault-fs-contract": "./src/vault-fs-contract.ts",
+    "./vault-core": "./src/vault-core.ts",
+    "./events": "./src/events.ts",
+    "./welcome-note": "./src/welcome-note.ts",
+    "./database-open": "./src/database-open.ts",
+    "./link-metadata": "./src/link-metadata.ts",
+    "./imported-assets": "./src/imported-assets.ts",
+    "./uuid": "./src/uuid.ts",
+    "./base64": "./src/base64.ts",
+    "./tikz": "./src/tikz.ts",
+    "./tikzjax/*": "./assets/tikzjax/*",
+    "./cloud-sync": "./src/mobile-cloud-sync.ts",
+    "./cloud-sync-client": "./src/cloud-sync-client.ts",
+    "./cloud-sync-repository": "./src/cloud-sync-repository.ts",
+    "./cloud-sync-staging": "./src/cloud-sync-staging.ts",
+    "./cloud-sync-refresh": "./src/cloud-sync-refresh.ts",
+    "./cloud-sync-work": "./src/cloud-sync-work.ts",
+    "./cloud-auth": "./src/mobile-cloud-auth.ts",
+    "./cloud-encryption": "./src/mobile-cloud-encryption.ts",
+    "./direct-upload": "./src/mobile-direct-upload.ts",
+    "./publish-assets": "./src/mobile-publish-assets.ts",
+    "./remote-client": "./src/remote-client.ts",
+    "./remote-vault": "./src/remote-vault.ts",
+    "./remote-workspace": "./src/remote-workspace.ts",
+    "./memory-fs": "./src/memory-fs.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json && node ../../tooling/scripts/check-portable-vault-boundary.mjs",
+    "build": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest",
+    "test:run": "vitest run"
+  },
+  "dependencies": {
+    "@zennotes/bridge-contract": "*",
+    "@zennotes/shared-domain": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vitest": "^3.2.6"
+  }
+}
