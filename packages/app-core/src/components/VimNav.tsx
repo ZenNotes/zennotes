@@ -26,7 +26,9 @@ import {
 } from '../lib/vim-nav'
 import { isCalendarToggleAvailable } from '../lib/vault-layout'
 import {
+  canDownloadCurrentVault,
   canOpenCurrentVaultFolder,
+  downloadVaultArchive,
   fileManagerName,
   openVaultFolder
 } from '../lib/vault-folder'
@@ -272,6 +274,7 @@ export function VimNav(): JSX.Element | null {
     (window.zen.getCapabilities().supportsLocalFilesystemPickers ||
       window.zen.getCapabilities().supportsRemoteWorkspace)
   const canOpenFolder = useStore(canOpenCurrentVaultFolder)
+  const canDownloadVault = useStore(canDownloadCurrentVault)
   const resetLeader = useCallback(() => {
     leaderPending.current = null
     commandLeaderPrefix.current = []
@@ -449,6 +452,15 @@ export function VimNav(): JSX.Element | null {
               keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderOpenVaultFolder'),
               label: 'Open vault folder',
               detail: `Open this vault’s folder in ${fileManagerName()}.`
+            }
+          ]
+        : []),
+      ...(canDownloadVault && !canOpenFolder
+        ? [
+            {
+              keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderOpenVaultFolder'),
+              label: 'Download vault',
+              detail: 'Save this vault as a folder of plain files (a zip).'
             }
           ]
         : []),
@@ -1205,6 +1217,16 @@ export function VimNav(): JSX.Element | null {
           e.stopImmediatePropagation()
           resetLeader()
           void openVaultFolder(state.vault!.root)
+          return
+        }
+        if (
+          canDownloadCurrentVault(state) &&
+          matchesSequenceToken(e, overrides, 'vim.leaderOpenVaultFolder')
+        ) {
+          e.preventDefault()
+          e.stopImmediatePropagation()
+          resetLeader()
+          void downloadVaultArchive()
           return
         }
         if (matchesSequenceToken(e, overrides, 'vim.leaderNoteActions') && editorNormalMode) {
