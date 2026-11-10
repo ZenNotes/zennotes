@@ -28,6 +28,12 @@ scope.onmessage = (event: MessageEvent<OpfsRequest>) => {
       scope.postMessage(response, [bytes.buffer])
       return
     }
+    // A fingerprint carries a small file's bytes along.
+    const inline = response.ok ? (response.value as { inline?: unknown } | null)?.inline : undefined
+    if (inline instanceof Uint8Array) {
+      scope.postMessage(response, [inline.buffer])
+      return
+    }
     scope.postMessage(response)
   })
 }

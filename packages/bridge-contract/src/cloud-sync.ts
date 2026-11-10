@@ -436,8 +436,12 @@ export interface CloudAccountUser {
 export interface CloudAccountDevice {
   id: string;
   name: string;
-  platform: "desktop" | "ios" | "android";
+  /** `web` is ZenNotes in the browser (app.zennotes.org). */
+  platform: "desktop" | "ios" | "android" | "web";
   app_version?: string | null;
+  /** A browser signed in as a shared computer (its sign-in ends after 12
+   *  hours unused). Only the service's web devices carry it. */
+  shared?: boolean;
 }
 
 export interface CloudAccount {

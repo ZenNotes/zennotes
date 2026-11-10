@@ -23,6 +23,8 @@
     "./cloud-sync-client": "./src/cloud-sync-client.ts",
     "./cloud-sync-repository": "./src/cloud-sync-repository.ts",
     "./cloud-sync-staging": "./src/cloud-sync-staging.ts",
+    "./cloud-sync-stubs": "./src/cloud-sync-stubs.ts",
+    "./cloud-stub-format": "./src/cloud-stub-format.ts",
     "./cloud-sync-refresh": "./src/cloud-sync-refresh.ts",
     "./cloud-sync-work": "./src/cloud-sync-work.ts",
     "./cloud-layout": "./src/cloud-layout.ts",

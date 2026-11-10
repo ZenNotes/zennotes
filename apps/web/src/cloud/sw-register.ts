@@ -129,3 +129,56 @@ export function watchForUpdates(prompt: UpdatePrompt, canReload: () => Promise<b
 export function warmServiceWorkerCache(): void {
   navigator.serviceWorker?.controller?.postMessage({ type: 'warm' })
 }
+
+/**
+ * This tab owns `vaultKey` (it holds its lock): the worker sends it the
+ * stubs it meets under `/_vault/<vaultKey>/` to hydrate, and tells it which
+ * attachments were shown. Every other tab answers "not the owner" at once,
+ * so the worker moves on. Returns a function that hands the vault back.
+ */
+export function serveVaultToWorker(
+  vaultKey: string,
+  handlers: { hydrate(path: string): Promise<boolean>; opened(path: string): void }
+): () => void {
+  if (!('serviceWorker' in navigator)) return () => {}
+  const announce = (): void => {
+    navigator.serviceWorker.controller?.postMessage({ type: 'vault-owner', vaultKey })
+  }
+  const onMessage = (event: MessageEvent): void => {
+    const data = event.data as { type?: unknown; vaultKey?: unknown; path?: unknown } | null
+    if (data?.type === 'opened' && data.vaultKey === vaultKey && typeof data.path === 'string') {
+      handlers.opened(data.path)
+      return
+    }
+    const port = event.ports[0]
+    if (data?.type === 'vault-owner?') {
+      port?.postMessage({ owner: data.vaultKey === vaultKey })
+      return
+    }
+    if (data?.type !== 'hydrate') return
+    if (!port) return
+    if (data.vaultKey !== vaultKey || typeof data.path !== 'string') {
+      port.postMessage({ ok: false, owner: false })
+      return
+    }
+    handlers.hydrate(data.path).then(
+      (ok) => port.postMessage({ ok, owner: true }),
+      (error: unknown) => port.postMessage({ ok: false, owner: true, error: error instanceof Error ? error.message : String(error) })
+    )
+  }
+  // A worker that was stopped while idle forgets; telling it again on return
+  // saves it the round of questions.
+  const onVisible = (): void => {
+    if (document.visibilityState === 'visible') announce()
+  }
+  navigator.serviceWorker.addEventListener('message', onMessage)
+  navigator.serviceWorker.addEventListener('controllerchange', announce)
+  document.addEventListener('visibilitychange', onVisible)
+  announce()
+  return () => {
+    navigator.serviceWorker.removeEventListener('message', onMessage)
+    navigator.serviceWorker.removeEventListener('controllerchange', announce)
+    document.removeEventListener('visibilitychange', onVisible)
+    navigator.serviceWorker.controller?.postMessage({ type: 'vault-released', vaultKey })
+  }
+}

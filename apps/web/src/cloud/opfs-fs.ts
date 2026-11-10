@@ -14,13 +14,44 @@
  *
  * `fileSrc` hands out `/_vault/<vaultKey>/<path>`, which the service worker
  * answers from OPFS (sw.ts).
+ *
+ * It is also the package's SyncFastPath, in JavaScript: the worker hashes
+ * files in slices, streams signed downloads into staging and checks them, and
+ * hands a verified File to an upload, so large files never sit whole in the
+ * page. That gives the browser the phones' scan cache, content references and
+ * staged publishing (CachedCloudSyncRepository).
+ *
+ * Attachments on open: the Cloud layer writes large binary attachments as
+ * stubs (portable-vault cloud-sync-stubs.ts). Every read of a file's bytes
+ * here (readBase64, readBytes, copy) hydrates a stub first through the
+ * hydrator the host installs, so export, publish, duplicate and copy never
+ * see one. Notes are never stubs.
  */
 import { base64ToBytes, bytesToBase64 } from '@zennotes/portable-vault/base64'
-import type { PortableVaultFiles, VaultDirEntry, VaultStat } from '@zennotes/portable-vault/host'
+import { CLOUD_STUB_MAX_BYTES, decodeCloudStub, type CloudStubRecord } from '@zennotes/portable-vault/cloud-stub-format'
+import { CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES } from '@zennotes/portable-vault/direct-upload'
+import type {
+  CloudDownloadToFile,
+  CloudFileFingerprint,
+  PortableVaultFiles,
+  SyncFastPath,
+  VaultDirEntry,
+  VaultStat,
+  Zne1NativeKeys,
+  Zne1NativeSealedFile
+} from '@zennotes/portable-vault/host'
 import type { OpfsDispatcher, OpfsOp, OpfsOpenResult, OpfsRequest, OpfsResponse } from './opfs-dispatch'
-import { deserializeOpfsError, isOpfsNotFound, OPFS_CLOSED, OpfsError } from './opfs-errors'
-import type { OpfsEntry, OpfsStat } from './opfs-store'
+import { deserializeOpfsError, isOpfsNotFound, OPFS_CLOSED, OPFS_QUOTA, OPFS_STUB, OpfsError } from './opfs-errors'
+import type { OpfsFileSnapshot } from './opfs-handles'
+import type { OpfsEntry, OpfsFingerprint, OpfsStat } from './opfs-store'
 import { vaultAssetUrl } from './opfs-paths'
+
+const URI_PREFIX = 'opfs-vault:'
+const ENCRYPTED_NOT_YET =
+  'This vault is end-to-end encrypted, which ZenNotes in the browser cannot open yet. Use the ZenNotes app for it for now.'
+
+/** Hydrates the stub at a path: true when the file now holds its bytes. */
+export type StubHydrator = (relPath: string) => Promise<boolean>
 
 export interface OpfsTransport {
   call(op: OpfsOp, args: unknown[], transfer?: Transferable[]): Promise<unknown>
@@ -89,11 +120,14 @@ export interface OpfsVaultFileSystemOptions {
   generation: number
 }
 
-export class OpfsVaultFileSystem implements PortableVaultFiles {
+export class OpfsVaultFileSystem implements PortableVaultFiles, SyncFastPath {
   writeGeneration = 0
   /** Whether this engine folds case and normalization in this vault (Safari
    *  on a Mac). Learned in init(). */
   foldsCase = false
+  private hydrator: StubHydrator | null = null
+  private quotaPressure: (() => Promise<void>) | null = null
+  private readonly writeListeners = new Set<() => void>()
 
   constructor(
     readonly vaultKey: string,
@@ -119,12 +153,32 @@ export class OpfsVaultFileSystem implements PortableVaultFiles {
     this.transport.close()
   }
 
+  /** How a stub this vault holds gets its bytes (the Cloud layer's one
+   *  hydration function). Without one, reading a stub's bytes fails. */
+  setStubHydrator(hydrator: StubHydrator | null): void {
+    this.hydrator = hydrator
+  }
+
+  /** Runs when a write finds the browser out of space, before one retry:
+   *  the host turns synced attachments back into stubs. */
+  setQuotaPressureHandler(handler: (() => Promise<void>) | null): void {
+    this.quotaPressure = handler
+  }
+
+  /** Every change this vault makes, after it lands (the unsynced-changes
+   *  mark and the leave-page guard read it). */
+  onWrite(listener: () => void): () => void {
+    this.writeListeners.add(listener)
+    return () => this.writeListeners.delete(listener)
+  }
+
   private async changing<T>(change: () => Promise<T>): Promise<T> {
     this.writeGeneration += 1
     try {
       return await change()
     } finally {
       this.writeGeneration += 1
+      for (const listener of this.writeListeners) listener()
     }
   }
 
@@ -132,10 +186,42 @@ export class OpfsVaultFileSystem implements PortableVaultFiles {
     return (await this.transport.call('read', [relPath])) as Uint8Array
   }
 
+  /** A file's bytes, a stub's after it hydrates. */
+  private async hydratedBytes(relPath: string): Promise<Uint8Array> {
+    const bytes = await this.bytes(relPath)
+    if (bytes.byteLength > CLOUD_STUB_MAX_BYTES || !decodeCloudStub(bytes)) return bytes
+    await this.hydrate(relPath)
+    const after = await this.bytes(relPath)
+    if (after.byteLength <= CLOUD_STUB_MAX_BYTES && decodeCloudStub(after)) throw this.stubError(relPath)
+    return after
+  }
+
+  private stubError(relPath: string): OpfsError {
+    return new OpfsError(OPFS_STUB, `“${relPath}” is only in ZenNotes Cloud on this device. Connect to the internet to open it.`, 'CloudStubError', { path: relPath })
+  }
+
+  private async hydrate(relPath: string): Promise<void> {
+    if (!this.hydrator) throw this.stubError(relPath)
+    await this.hydrator(relPath)
+  }
+
   private async put(relPath: string, bytes: Uint8Array): Promise<void> {
-    // The copy keeps a caller's buffer usable: the transfer detaches it.
-    const owned = bytes.slice()
-    await this.changing(() => this.transport.call('write', [relPath, owned], [owned.buffer]))
+    const send = () => {
+      // The copy keeps a caller's buffer usable: the transfer detaches it.
+      const owned = bytes.slice()
+      return this.transport.call('write', [relPath, owned], [owned.buffer])
+    }
+    await this.changing(async () => {
+      try {
+        await send()
+      } catch (error) {
+        if ((error as { code?: unknown } | null)?.code !== OPFS_QUOTA || !this.quotaPressure) throw error
+        // Out of space: synced attachments go back to stubs, then one more
+        // try. A note is never dropped; a second refusal says so.
+        await this.quotaPressure()
+        await send()
+      }
+    })
   }
 
   isNotFound(error: unknown): boolean {
@@ -164,10 +250,16 @@ export class OpfsVaultFileSystem implements PortableVaultFiles {
   }
 
   async readBase64(relPath: string): Promise<string> {
-    return bytesToBase64(await this.bytes(relPath))
+    return bytesToBase64(await this.hydratedBytes(relPath))
   }
 
   async readBytes(relPath: string): Promise<Uint8Array> {
+    return await this.hydratedBytes(relPath)
+  }
+
+  /** The bytes as they are on disk, a stub's own included (export of a
+   *  vault that cannot reach Cloud, tests). */
+  async readStoredBytes(relPath: string): Promise<Uint8Array> {
     return await this.bytes(relPath)
   }
 
@@ -214,7 +306,19 @@ export class OpfsVaultFileSystem implements PortableVaultFiles {
   }
 
   async copy(fromRel: string, toRel: string): Promise<void> {
-    await this.changing(() => this.transport.call('copy', [fromRel, toRel]))
+    // The worker refuses to copy a stub and names it; it hydrates, and the
+    // copy runs again (a folder copy meets its stubs one by one).
+    for (let attempt = 0; attempt < 10_000; attempt += 1) {
+      try {
+        await this.changing(() => this.transport.call('copy', [fromRel, toRel]))
+        return
+      } catch (error) {
+        const stub = error as { code?: unknown; path?: unknown } | null
+        if (stub?.code !== OPFS_STUB || typeof stub.path !== 'string') throw error
+        await this.hydrate(stub.path)
+      }
+    }
+    throw new Error('Copying this folder kept meeting attachments that are only in ZenNotes Cloud.')
   }
 
   async deleteFile(relPath: string): Promise<void> {
@@ -231,5 +335,80 @@ export class OpfsVaultFileSystem implements PortableVaultFiles {
 
   async exists(relPath: string): Promise<boolean> {
     return (await this.statOrNull(relPath)) !== null
+  }
+
+  // -------------------------------------------------------------------
+  // SyncFastPath (the package's host interface)
+  // -------------------------------------------------------------------
+
+  uriFor(relPath: string): string {
+    return `${URI_PREFIX}${this.vaultKey}/${relPath}`
+  }
+
+  /** The vault path a `uriFor` URI names in this vault, else null. */
+  pathForUri(uri: string): string | null {
+    const prefix = `${URI_PREFIX}${this.vaultKey}/`
+    return uri.startsWith(prefix) ? uri.slice(prefix.length) : null
+  }
+
+  async readForSync(relPath: string, textCandidate: boolean): Promise<CloudFileFingerprint> {
+    const print = (await this.transport.call('fingerprint', [relPath, textCandidate, CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES])) as OpfsFingerprint
+    return {
+      uri: this.uriFor(relPath),
+      sha256: print.sha256,
+      byteLength: print.byteLength,
+      utf8: print.utf8,
+      ...(print.inline ? { inlineBase64: bytesToBase64(print.inline) } : {}),
+      ...(print.stub ? { stub: { mediaType: print.stub.media_type } } : {})
+    }
+  }
+
+  async copyForSync(fromRel: string, toRel: string, byteLength: number): Promise<void> {
+    await this.changing(() => this.transport.call('copyForSync', [fromRel, toRel, byteLength]))
+  }
+
+  async download(options: CloudDownloadToFile): Promise<void> {
+    await this.changing(() => this.transport.call('download', [options]))
+  }
+
+  async readHeader(relPath: string, length: number): Promise<string> {
+    return bytesToBase64((await this.bytes(relPath)).subarray(0, length))
+  }
+
+  async decryptFile(_options: { from: string; to: string } & Zne1NativeKeys): Promise<{ byteLength: number; sha256: string }> {
+    throw new Error(ENCRYPTED_NOT_YET)
+  }
+
+  async sealForUpload(_sourceUri: string, _keys: Zne1NativeKeys): Promise<Zne1NativeSealedFile> {
+    throw new Error(ENCRYPTED_NOT_YET)
+  }
+
+  async writeCloudStub(relPath: string, stub: CloudStubRecord): Promise<void> {
+    await this.changing(() => this.transport.call('writeStub', [relPath, stub]))
+  }
+
+  async readCloudStub(relPath: string): Promise<CloudStubRecord | null> {
+    try {
+      return (await this.transport.call('readStub', [relPath])) as CloudStubRecord | null
+    } catch (error) {
+      if (this.isNotFound(error)) return null
+      throw error
+    }
+  }
+
+  async replaceCloudStub(fromRel: string, toRel: string, expected: CloudStubRecord): Promise<boolean> {
+    return (await this.changing(() => this.transport.call('replaceStub', [fromRel, toRel, expected]))) as boolean
+  }
+
+  async evictToCloudStub(relPath: string, expected: { size: number; mtime: number; sha256: string }, stub: CloudStubRecord): Promise<boolean> {
+    return (await this.changing(() => this.transport.call('evictToStub', [relPath, expected, stub]))) as boolean
+  }
+
+  /** The file behind a `uriFor` URI, checked against the fingerprint an
+   *  upload was planned with; a stub is refused. */
+  async fileForUpload(uri: string, sha256: string, byteLength: number): Promise<OpfsFileSnapshot> {
+    const path = this.pathForUri(uri)
+    if (path === null) throw new Error('That upload source is not in this vault.')
+    return (await this.transport.call('fileForUpload', [path, sha256, byteLength])) as OpfsFileSnapshot
   }
 }

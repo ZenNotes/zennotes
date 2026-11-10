@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
-import { packWebDistribution } from './pack-web-artifact.mjs'
+import { cloudWebRelease, packWebDistribution } from './pack-web-artifact.mjs'
 
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'zennotes web artifact & test '))
@@ -26,6 +26,14 @@ async function fixture(t) {
     toolchain: { node: process.version }
   }
 }
+
+test('a cloud-web release is named for the product version and commit, before the build', () => {
+  assert.deepEqual(cloudWebRelease({ productVersion: '2.85.0', commit: '0123456789abcdef'.repeat(2) + '01234567', dirty: false }), {
+    release: '2.85.0-0123456789ab',
+    base: '/vendor/cloud-web/releases/2.85.0-0123456789ab/'
+  })
+  assert.throws(() => cloudWebRelease({ productVersion: '2.85.0', commit: 'nope', dirty: false }), /40-hex/)
+})
 
 test('identical browser bytes produce an identical archive; changed bytes produce a new pin', async (t) => {
   const options = await fixture(t)
@@ -98,6 +106,11 @@ test('viewer license symlinks cannot overwrite files outside staging', async (t)
 test('ZenNotes in your browser packs as its own artifact, with its headers and notices', async (t) => {
   const options = await fixture(t)
   options.target = 'cloud-web'
+  // The website refuses a pin without the base its files were built for.
+  await assert.rejects(packWebDistribution(options), /needs the base it was built for/)
+  await assert.rejects(packWebDistribution({ ...options, base: '/somewhere/else/' }), /needs the base it was built for/)
+  options.base = cloudWebRelease({ productVersion: '1.0.0', commit: options.source.commit, dirty: true }).base
+  assert.equal(options.base, '/vendor/cloud-web/releases/1.0.0-aaaaaaaaaaaa-dirty/')
   await assert.rejects(packWebDistribution(options), /Missing browser entrypoint: headers.json/)
   await writeFile(join(options.distribution, 'headers.json'), '{"schemaVersion":1}')
   await writeFile(join(options.distribution, 'THIRD_PARTY_NOTICES.txt'), 'TikZJax notices')
@@ -105,8 +118,16 @@ test('ZenNotes in your browser packs as its own artifact, with its headers and n
   assert.equal(first.manifest.artifact, 'zennotes-cloud-web')
   assert.equal(first.manifest.protocol, 'browser-vault-v1')
   assert.match(first.manifest.version, /^1\.0\.0-cloud-web\.h[a-f0-9]{16}$/)
+  assert.equal(first.manifest.base, options.base)
   assert.ok(first.manifest.files.some((file) => file.path === 'LICENSE'))
   assert.deepEqual(await packWebDistribution(options), first)
-  const web = await packWebDistribution({ ...options, target: 'web' })
+  // The base is part of what the version names: the same bytes built for
+  // another folder are another pin.
+  const elsewhere = await packWebDistribution({ ...options, output: `${options.output}-2`, base: '/vendor/cloud-web/releases/1.0.0-bbbbbbbbbbbb/' })
+  assert.notEqual(elsewhere.manifest.version, first.manifest.version)
+  const { base: _base, ...webOptions } = options
+  await assert.rejects(packWebDistribution({ ...options, target: 'web' }), /has no base/)
+  const web = await packWebDistribution({ ...webOptions, target: 'web' })
   assert.notEqual(web.manifest.version, first.manifest.version)
+  assert.equal(web.manifest.base, undefined)
 })

@@ -26,6 +26,7 @@ import {
 } from "@zennotes/shared-domain/cloud-error-copy";
 import { confirmApp } from "../lib/confirm-requests";
 import { CloudEncryptionPanel } from "./CloudEncryptionPanel";
+import { CloudBrowserPanel, hostHasBrowserStorage } from "./CloudBrowserPanel";
 import { CloudErrorMessage, cloudErrorCopy } from "./CloudErrorMessage";
 import {
   clearRemovedCloudVault,
@@ -985,6 +986,8 @@ export function CloudSettings({
           ) : null}
         </>
       )}
+
+      {hostHasBrowserStorage(bridge) && <CloudBrowserPanel bridge={bridge} />}
 
       {deleteRequest && (
         <CloudVaultDeleteDialog

@@ -12,6 +12,12 @@ import {
 const AUTH_LIFETIME_MS = 5 * 60 * 1000
 const REVOKE_TIMEOUT_MS = 5_000
 
+/** The `platform` a sign-in exchange reports, and a device's on the service.
+ *  `web` is ZenNotes in the browser (app.zennotes.org); each app keeps its
+ *  own check of which ones it accepts (desktop takes only `desktop`). */
+export type CloudAuthPlatform = 'desktop' | 'ios' | 'android' | 'web'
+const CLOUD_AUTH_PLATFORMS: readonly CloudAuthPlatform[] = ['desktop', 'ios', 'android', 'web']
+
 export interface CloudAuthPending {
   base_url: string
   state: string
@@ -33,7 +39,7 @@ export interface CloudAuthCallback {
 export interface CloudAuthExchangeRequest extends CloudAuthCallback {
   code_verifier: string
   device_name: string
-  platform: 'desktop' | 'ios' | 'android'
+  platform: CloudAuthPlatform
   app_version: string
 }
 
@@ -43,17 +49,25 @@ export interface CloudAuthExchangeResponse {
   device: CloudAccount['device']
 }
 
+/**
+ * Where the flow keeps the pending sign-in and the credential. The apps keep
+ * one pending sign-in and ignore `state`. The browser keeps each by its
+ * `state`, because the callback can land in another tab than the one that
+ * started (a new user's verification link opens a new tab): `complete` asks
+ * for the record of the state it was handed, and a host may take that record
+ * out as it answers, so a callback is used once.
+ */
 export interface CloudAuthStorage {
-  loadPending(): Promise<unknown>
+  loadPending(state?: string): Promise<unknown>
   savePending(pending: CloudAuthPending): Promise<void>
-  deletePending(): Promise<void>
+  deletePending(state?: string): Promise<void>
   loadCredential(): Promise<unknown>
   saveCredential(credential: CloudAuthCredential): Promise<void>
   deleteCredential(): Promise<void>
 }
 
 export interface CloudAuthFlowDependencies {
-  platform: 'desktop' | 'ios' | 'android'
+  platform: CloudAuthPlatform
   appVersion: string
   deviceName: string
   storage: CloudAuthStorage
@@ -68,6 +82,16 @@ export interface CloudAuthFlowDependencies {
   randomVerifier?: () => string
   allowInsecureLoopback?: boolean
   allowedInsecureOrigins?: readonly string[]
+  /** Where the website sends the code back, as `callback_url`. Absent, the
+   *  website answers with the app's `zennotes://auth` link (the phones); the
+   *  browser's is its own origin's `/auth/callback`, which gets the code and
+   *  state in the URL fragment. */
+  callbackUrl?: string
+  /** How long a started sign-in waits for its callback (default five
+   *  minutes). The browser waits longer: a new user signs up and verifies
+   *  their email in between, and the verifier is useless without a code,
+   *  which the service still expires five minutes after Authorize. */
+  authLifetimeMs?: number
 }
 
 export interface CloudBaseUrlValidationOptions {
@@ -120,7 +144,7 @@ export class CloudAuthFlow {
       base_url: normalizedBaseUrl,
       state,
       code_verifier: codeVerifier,
-      expires_at: new Date(this.now().getTime() + AUTH_LIFETIME_MS).toISOString()
+      expires_at: new Date(this.now().getTime() + (this.dependencies.authLifetimeMs ?? AUTH_LIFETIME_MS)).toISOString()
     }
     await this.dependencies.storage.savePending(pending)
 
@@ -128,10 +152,13 @@ export class CloudAuthFlow {
     authorizationUrl.searchParams.set('state', state)
     authorizationUrl.searchParams.set('code_challenge', codeChallenge)
     authorizationUrl.searchParams.set('code_challenge_method', 'S256')
+    if (this.dependencies.callbackUrl) {
+      authorizationUrl.searchParams.set('callback_url', this.dependencies.callbackUrl)
+    }
     try {
       await this.dependencies.openExternal(authorizationUrl.toString())
     } catch (error) {
-      await this.dependencies.storage.deletePending()
+      await this.dependencies.storage.deletePending(state)
       throw error
     }
 
@@ -142,7 +169,7 @@ export class CloudAuthFlow {
   }
 
   async complete(callback: CloudAuthCallback): Promise<CloudAccountStatus> {
-    const pending = await this.pending()
+    const pending = await this.pending(callback.state)
     if (!pending || !safeEquals(callback.state, pending.state)) {
       throw new Error(CLOUD_SIGN_IN_EXPIRED_MESSAGE)
     }
@@ -175,7 +202,7 @@ export class CloudAuthFlow {
       token: response.token,
       account
     })
-    await this.dependencies.storage.deletePending()
+    await this.dependencies.storage.deletePending(pending.state)
 
     return { state: 'connected', account }
   }
@@ -234,14 +261,14 @@ export class CloudAuthFlow {
     }
   }
 
-  private async pending(): Promise<CloudAuthPending | null> {
-    const stored = await this.dependencies.storage.loadPending()
+  private async pending(state?: string): Promise<CloudAuthPending | null> {
+    const stored = await this.dependencies.storage.loadPending(state)
     if (stored === null || stored === undefined) return null
     if (isCloudAuthPending(stored) && new Date(stored.expires_at).getTime() > this.now().getTime()) {
       return stored
     }
 
-    await this.dependencies.storage.deletePending()
+    await this.dependencies.storage.deletePending(state)
     return null
   }
 }
@@ -296,6 +323,30 @@ export function parseCloudAuthCallback(rawUrl: string): CloudAuthCallback | null
   if (!/^[A-Za-z0-9]+$/.test(code) || code.length > 256) return null
   if (!isBoundedState(state)) return null
 
+  return { code, state }
+}
+
+/**
+ * A browser's sign-in callback: `<callbackUrl>#code=…&state=…`. The website
+ * puts both in the fragment for a web callback, so the code never reaches a
+ * server log or a Referer. Anything but exactly the configured callback page
+ * is refused.
+ */
+export function parseCloudAuthFragmentCallback(rawUrl: string, callbackUrl: string): CloudAuthCallback | null {
+  let parsed: URL
+  let expected: URL
+  try {
+    parsed = new URL(rawUrl.trim())
+    expected = new URL(callbackUrl)
+  } catch {
+    return null
+  }
+  if (parsed.origin !== expected.origin || parsed.pathname !== expected.pathname || parsed.search) return null
+  const params = new URLSearchParams(parsed.hash.replace(/^#/, ''))
+  const code = params.get('code') ?? ''
+  const state = params.get('state') ?? ''
+  if (!/^[A-Za-z0-9]+$/.test(code) || code.length > 256) return null
+  if (!isBoundedState(state)) return null
   return { code, state }
 }
 
@@ -411,7 +462,7 @@ function isCloudAccountDevice(value: unknown): value is CloudAccount['device'] {
   return (
     typeof device.id === 'string' &&
     typeof device.name === 'string' &&
-    ['desktop', 'ios', 'android'].includes(String(device.platform)) &&
+    (CLOUD_AUTH_PLATFORMS as readonly string[]).includes(String(device.platform)) &&
     (device.app_version === undefined ||
       device.app_version === null ||
       typeof device.app_version === 'string')

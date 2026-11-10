@@ -14,7 +14,7 @@ import type { VaultInfo } from '@zennotes/bridge-contract/ipc'
 import { createPortableBridge } from '@zennotes/portable-vault/bridge'
 import { posixNormalize } from '@zennotes/portable-vault/vault-core'
 import { PortableVault } from '@zennotes/portable-vault/vault'
-import { createBrowserHost } from './browser-host'
+import { createBrowserHost, rootOf } from './browser-host'
 import { createOpfsDispatcher } from './opfs-dispatch'
 import { OpfsVaultFileSystem, directTransport } from './opfs-fs'
 import { originOpfsRoot } from './opfs-handles'
@@ -45,11 +45,20 @@ export async function createExportBridge(vaultKey: string, vaultName: string): P
   )
   await fs.init()
   const vault = new PortableVault(vaultName, fs)
-  const info: VaultInfo = { root: 'In this browser', name: vaultName, folderName: vaultName }
+  const info: VaultInfo = { root: rootOf(vaultKey), name: vaultName, folderName: vaultName }
   const base = createPortableBridge(
-    createBrowserHost(async () => {
-      throw new Error('The export window does not open vaults.')
-    })
+    createBrowserHost(
+      async () => {
+        throw new Error('The export window does not open vaults.')
+      },
+      {
+        beforeLeavingForSignIn: async () => {},
+        leftApp: () => {},
+        returnedToApp: () => {},
+        revoked: () => {},
+        switchTo: () => {}
+      }
+    )
   )
   const assetUrl = (relPath: string | null): string | null => {
     if (!relPath) return null

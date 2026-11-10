@@ -102,6 +102,10 @@ export interface CloudFileFingerprint {
   byteLength: number
   utf8: boolean
   inlineBase64?: string
+  /** The file is a Cloud stub (cloud-sync-stubs.ts): the fingerprint is the
+   *  one it records for the attachment it stands for, and no bytes of that
+   *  attachment are here. */
+  stub?: { mediaType: string }
 }
 
 /** Base64 of the 74-byte ZNE1 header, the 32-byte per-object key and
@@ -152,6 +156,12 @@ export interface SyncFastPath {
   decryptFile(options: { from: string; to: string } & Zne1NativeKeys): Promise<{ byteLength: number; sha256: string }>
   /** Seals a vault file for an encrypted vault's direct upload. */
   sealForUpload(sourceUri: string, keys: Zne1NativeKeys): Promise<Zne1NativeSealedFile>
+  /** Attachments on open (cloud-sync-stubs.ts), where the host stubs them:
+   *  writes a stub file, reads one back (null for any other file), and
+   *  replaces one with downloaded bytes only while it is still that stub. */
+  writeCloudStub?(relPath: string, stub: import('./cloud-stub-format').CloudStubRecord): Promise<void>
+  readCloudStub?(relPath: string): Promise<import('./cloud-stub-format').CloudStubRecord | null>
+  replaceCloudStub?(fromRel: string, toRel: string, expected: import('./cloud-stub-format').CloudStubRecord): Promise<boolean>
 }
 
 export function hasSyncFastPath<F extends VaultFileSystem>(fs: F): fs is F & SyncFastPath {
@@ -290,8 +300,16 @@ export interface HttpTransport {
 
 export interface HostCloudConfig {
   /** The `platform` the sign-in exchange reports. */
-  platform: 'ios' | 'android'
+  platform: 'ios' | 'android' | 'web'
   deviceName: string
+  /** The page the website returns a sign-in to, sent as `callback_url`; the
+   *  code and state arrive in its fragment. Absent on the phones, which get
+   *  the `zennotes://auth` link. */
+  callbackUrl?: string
+  /** How long a started sign-in waits for its callback; the shared flow's
+   *  five minutes when absent (the browser waits longer, see
+   *  CloudAuthFlowDependencies.authLifetimeMs). */
+  authLifetimeMs?: number
   /** A development service (VITE_ZENNOTES_CLOUD_DEV_URL in the phones'
    *  builds), allowed over plain http and used as the default base URL. */
   developmentBaseUrl?: string
@@ -312,6 +330,10 @@ export interface HostShell {
   listSystemFonts(): Promise<string[]>
   /** Shown where a desktop build would offer an update. */
   updatesMessage: string
+  /** Where TikZJax's files are served, ending in a slash. Default
+   *  `tikzjax/`, beside the page (the phones); the browser build serves its
+   *  release files under a base of their own. */
+  tikzAssetBase?: string
   /** Ends "zen.x is not available …", e.g. "on iPhone". */
   unavailableWhere: string
   /** The last sentence of "Could not connect to the ZenNotes server at …":
@@ -386,6 +408,20 @@ export interface HostVaults {
   openAssetExternally(relPath: string): Promise<{ ok: boolean; error?: string }>
 }
 
+/**
+ * Whether Cloud attachments arrive as stubs on this host and hydrate on open
+ * (the browser; docs/ideas/cloud-in-browser.md, "Notes first, attachments on
+ * open"). Absent, every file is mirrored in full, as on the phones.
+ */
+export interface CloudAttachmentStubs {
+  /** Read for every revision that arrives; the browser's "Keep attachments
+   *  in this browser" setting turns it off. */
+  enabled(): boolean
+  /** Binary attachments above this many bytes are stubbed (default
+   *  CLOUD_STUB_THRESHOLD_BYTES). */
+  thresholdBytes?: number
+}
+
 export interface PortableHost {
   shell: HostShell
   lifecycle: AppLifecycle
@@ -396,6 +432,7 @@ export interface PortableHost {
   preferences: HostStorage
   secrets: SecretStorage
   vaults: HostVaults
+  cloudStubs?: CloudAttachmentStubs
 }
 
 let installed: PortableHost | null = null

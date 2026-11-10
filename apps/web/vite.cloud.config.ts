@@ -47,7 +47,13 @@ const TIKZJAX_DIR = dirname(
  * The policy every renderer was measured against (docs/ideas/cloud-in-browser.md,
  * "Hosting at app.zennotes.org"; spike 4). `'unsafe-eval'` is there for D2,
  * Typst and function-plot as shipped; dropping it is a later hardening pass.
- * The bucket origin joins connect-src with Cloud sync in Phase 4.
+ *
+ * connect-src names only the app and production Cloud here. The website
+ * serves this policy from headers.json and appends, at serve time, the API
+ * origin (its APP_URL) and the sync bucket's origin (CLOUD_WEB_CONNECT_ORIGINS,
+ * where signed uploads and downloads go), so neither is baked into a release.
+ * A local preview against a local website names its origins in
+ * ZN_CLOUD_CONNECT_ORIGINS (comma-separated) the same way.
  */
 export const CLOUD_CSP = [
   "default-src 'none'",
@@ -65,6 +71,13 @@ export const CLOUD_CSP = [
   "form-action 'none'",
   "frame-ancestors 'none'"
 ].join('; ')
+
+/** The policy with more origins in connect-src, as the website serves it. */
+export function cloudCspWithConnectOrigins(origins: readonly string[]): string {
+  const extra = origins.map((origin) => origin.trim()).filter((origin) => /^https?:\/\/[^\s;,'"]+$/.test(origin))
+  if (extra.length === 0) return CLOUD_CSP
+  return CLOUD_CSP.replace(/connect-src ([^;]+)/, (_match, sources: string) => `connect-src ${sources} ${extra.join(' ')}`)
+}
 
 export const CLOUD_DOCUMENT_HEADERS: Record<string, string> = {
   'Content-Security-Policy': CLOUD_CSP,
@@ -88,9 +101,32 @@ async function walk(dir: string): Promise<string[]> {
   return out
 }
 
+/** The shell files the app host serves at its own root, never under the
+ *  base: index.html at every app route, the web manifest at
+ *  `/manifest.webmanifest` (and `/sw.js`, which is never precached). */
+const ROOT_SHELL_URLS: Record<string, string> = {
+  'index.html': '/',
+  'manifest.webmanifest': '/manifest.webmanifest'
+}
+
 function publicUrl(file: string): string {
   const rel = relative(OUT_DIR, file).split(sep).join('/')
-  return rel === 'index.html' ? '/' : `${BASE}${rel}`
+  return ROOT_SHELL_URLS[rel] ?? `${BASE}${rel}`
+}
+
+/**
+ * The web manifest as the app host serves it: at the root, with its icons
+ * under the base, where the hashed release files live (the website's
+ * installer refuses an icon outside it). The icons in public/ are written
+ * root-relative and joined to the base here.
+ */
+async function writeWebManifest(): Promise<void> {
+  const file = resolve(OUT_DIR, 'manifest.webmanifest')
+  const manifest = JSON.parse(await readFile(file, 'utf8')) as { icons?: Array<{ src: string }> }
+  for (const icon of manifest.icons ?? []) {
+    icon.src = `${BASE}${icon.src.replace(/^\/+/, '')}`
+  }
+  await writeFile(file, JSON.stringify(manifest, null, 2) + '\n')
 }
 
 async function serviceWorkerSource(defines: { precache: string[]; warm: string[]; buildId: string }): Promise<string> {
@@ -146,6 +182,14 @@ function vaultNotFound(req: IncomingMessage, res: ServerResponse, next: Connect.
 function cloudHost(): Plugin {
   return {
     name: 'zennotes-cloud-host',
+    // Vite joins every root-relative href to the base; the web manifest is a
+    // shell file the app host serves at its root, so its link goes back.
+    transformIndexHtml: {
+      order: 'post',
+      handler(html) {
+        return html.replaceAll(`href="${BASE}manifest.webmanifest"`, 'href="/manifest.webmanifest"')
+      }
+    },
     configureServer(server) {
       server.middlewares.use(vaultNotFound)
       server.middlewares.use(async (req, res, next) => {
@@ -189,6 +233,7 @@ function cloudHost(): Plugin {
           recursive: true,
           filter: (source) => !source.endsWith('README.md')
         })
+        await writeWebManifest()
         await writeFile(
           resolve(OUT_DIR, 'headers.json'),
           JSON.stringify({ schemaVersion: 1, document: CLOUD_DOCUMENT_HEADERS, serviceWorker: { 'Cache-Control': 'no-cache', 'Service-Worker-Allowed': '/' } }, null, 2) + '\n'
@@ -235,7 +280,10 @@ export default defineConfig({
   preview: {
     port: 4175,
     host: '127.0.0.1',
-    headers: CLOUD_DOCUMENT_HEADERS
+    headers: {
+      ...CLOUD_DOCUMENT_HEADERS,
+      'Content-Security-Policy': cloudCspWithConnectOrigins((process.env.ZN_CLOUD_CONNECT_ORIGINS ?? '').split(','))
+    }
   },
   plugins: [onigurumaDataUrl(), harperWasmAsset(), react(), excalidrawFonts(OUT_DIR), cloudHost()],
   optimizeDeps: {

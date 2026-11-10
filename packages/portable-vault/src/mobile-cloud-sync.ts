@@ -14,11 +14,14 @@ import type {
   CloudSyncBootstrapConflictResolution,
   CloudSyncSettingsChoice,
   CloudSyncSettingsConflict,
+  CloudSyncContentReference,
   CloudVaultLink
 } from '@zennotes/bridge-contract/cloud-sync'
 import {
   CLOUD_SYNC_SETTINGS_CONFLICT_PATH,
-  CLOUD_SYNC_VAULT_SETTINGS_PATH
+  CLOUD_SYNC_VAULT_SETTINGS_PATH,
+  shouldSyncVaultPath,
+  shouldTraverseCloudSyncDirectory
 } from '@zennotes/shared-domain/cloud-sync'
 import {
   CloudSyncHostService,
@@ -33,7 +36,17 @@ import type { CloudSyncState } from '@zennotes/shared-domain/cloud-sync-engine'
 import { CLOUD_E2EE_HEADER, CLOUD_E2EE_HEADER_VALUE } from '@zennotes/shared-domain/cloud-e2ee-vault'
 import { CachedCloudSyncRepository, type ScanCache } from './cloud-sync-repository'
 import type { PortableVault } from './vault-fs'
-import { hasSyncFastPath, portableHost } from './host'
+import { hasSyncFastPath, portableHost, type SyncFastPath, type VaultDirEntry, type VaultFileSystem } from './host'
+import {
+  CLOUD_STUB_MAX_BYTES,
+  CLOUD_STUB_THRESHOLD_BYTES,
+  evictableStubFor,
+  hydrateCloudStub,
+  shouldStubCloudContent,
+  type CloudStubFiles,
+  type CloudStubRecord
+} from './cloud-sync-stubs'
+import { mobileCloudRequestSignal } from './cloud-sync-client'
 import { trackCloudSyncChanges } from './cloud-sync-refresh'
 import { reconcileLayoutForCloudJoin } from './cloud-layout'
 import {
@@ -123,12 +136,192 @@ export async function createAndLinkMobileCloudVault(
 }
 
 export async function unlinkMobileCloudVault(vault: PortableVault): Promise<void> {
+  // A stub with no link can never be filled: bring every attachment here
+  // first, or stay linked.
+  await requireEveryStubHydrated(vault, 'unlinking')
   await service.unlink(hostVault(vault))
 }
 
 /** Permanently delete the cloud copy, then unlink this device (desktop parity). */
 export async function deleteMobileCloudVault(vault: PortableVault): Promise<void> {
+  // The only copy of a stubbed attachment is the one about to be deleted.
+  await requireEveryStubHydrated(vault, 'deleting the Cloud copy')
   await service.deleteLinkedVault(hostVault(vault))
+}
+
+// ---------------------------------------------------------------------------
+// Attachments on open (cloud-sync-stubs.ts)
+// ---------------------------------------------------------------------------
+
+type StubCapableFiles = VaultFileSystem & SyncFastPath & CloudStubFiles
+
+function stubFiles(files: VaultFileSystem): StubCapableFiles | null {
+  const candidate = files as Partial<StubCapableFiles>
+  return hasSyncFastPath(files) && typeof candidate.readCloudStub === 'function' &&
+    typeof candidate.replaceCloudStub === 'function' && typeof candidate.writeCloudStub === 'function'
+    ? (files as StubCapableFiles)
+    : null
+}
+
+/** Whether a revision arriving now is written as a stub on this host. */
+function stubPolicy(path?: string): ((reference: Pick<CloudSyncContentReference, 'encoding' | 'byte_length'>) => boolean) | undefined {
+  const stubs = portableHost().cloudStubs
+  if (!stubs) return undefined
+  const threshold = stubs.thresholdBytes ?? CLOUD_STUB_THRESHOLD_BYTES
+  return (reference) => stubs.enabled() && shouldStubCloudContent(reference, path, threshold)
+}
+
+/**
+ * The one way an attachment's bytes reach this device after it arrived as a
+ * stub: opening it, copying it, exporting or publishing it, unlinking. True
+ * when the file now holds its bytes, false when there was no stub there.
+ */
+export async function hydrateMobileCloudStub(vault: PortableVault, relPath: string): Promise<boolean> {
+  const files = stubFiles(vault.fs)
+  if (!files || !(await files.readCloudStub(relPath))) return false
+  const link = await getMobileCloudVaultLink(vault)
+  if (!link) {
+    throw new Error('This attachment is only in ZenNotes Cloud, and this vault is no longer linked to it.')
+  }
+  const client = await authenticatedClient()
+  if (!(await client.negotiateContentReferences())) {
+    throw new Error('ZenNotes Cloud could not send this attachment. Try again in a moment.')
+  }
+  return hydrateCloudStub(files, {
+    vaultId: link.vault_id,
+    download: (vaultId, itemId, revision) => client.download(vaultId, itemId, revision),
+    allowInsecureLoopback: client.allowInsecureLoopbackDownloads,
+    signal: mobileCloudRequestSignal()
+  }, relPath)
+}
+
+const TEXT_KIND_EXTENSIONS = new Set([
+  '.base', '.css', '.csv', '.excalidraw', '.htm', '.html', '.ini', '.js', '.json', '.jsx', '.md', '.mdx',
+  '.svg', '.toml', '.ts', '.tsx', '.txt', '.xml', '.yaml', '.yml'
+])
+
+function extensionOf(name: string): string {
+  const dot = name.lastIndexOf('.')
+  return dot <= 0 ? '' : name.slice(dot).toLowerCase()
+}
+
+/** Every file the vault's sync sees, with its listing entry. */
+async function walkSyncedFiles(
+  files: VaultFileSystem,
+  visit: (path: string, entry: VaultDirEntry) => Promise<void>,
+  directory = ''
+): Promise<void> {
+  for (const entry of await files.readdirStrict(directory)) {
+    const path = directory ? `${directory}/${entry.name}` : entry.name
+    if (entry.type === 'directory') {
+      if (shouldTraverseCloudSyncDirectory(path)) await walkSyncedFiles(files, visit, path)
+    } else if (shouldSyncVaultPath(path)) {
+      await visit(path, entry)
+    }
+  }
+}
+
+/** The stubs in a vault: only small files of a binary kind can be one, so a
+ *  vault of notes is listed, not read. */
+export async function listMobileCloudStubs(vault: PortableVault): Promise<Array<{ path: string; stub: CloudStubRecord }>> {
+  const files = stubFiles(vault.fs)
+  if (!files) return []
+  const found: Array<{ path: string; stub: CloudStubRecord }> = []
+  await walkSyncedFiles(files, async (path, entry) => {
+    if (entry.size > CLOUD_STUB_MAX_BYTES || TEXT_KIND_EXTENSIONS.has(extensionOf(entry.name))) return
+    const stub = await files.readCloudStub(path)
+    if (stub) found.push({ path, stub })
+  })
+  return found
+}
+
+/** Downloads every stubbed attachment, a few at a time. */
+export async function hydrateAllMobileCloudStubs(
+  vault: PortableVault,
+  onProgress?: (done: number, total: number) => void
+): Promise<{ hydrated: number; failed: Array<{ path: string; error: unknown }> }> {
+  const stubs = await listMobileCloudStubs(vault)
+  const failed: Array<{ path: string; error: unknown }> = []
+  let hydrated = 0
+  let done = 0
+  const queue = [...stubs]
+  const worker = async (): Promise<void> => {
+    for (let next = queue.shift(); next; next = queue.shift()) {
+      try {
+        if (await hydrateMobileCloudStub(vault, next.path)) hydrated += 1
+      } catch (error) {
+        failed.push({ path: next.path, error })
+      }
+      done += 1
+      onProgress?.(done, stubs.length)
+    }
+  }
+  await Promise.all([worker(), worker(), worker()])
+  if (hydrated > 0) await vault.rescan()
+  return { hydrated, failed }
+}
+
+async function requireEveryStubHydrated(vault: PortableVault, doing: string): Promise<void> {
+  if (!stubFiles(vault.fs)) return
+  const { failed } = await hydrateAllMobileCloudStubs(vault)
+  if (failed.length === 0) return
+  const count = failed.length === 1 ? 'One attachment is' : `${failed.length} attachments are`
+  throw new Error(
+    `${count} still only in ZenNotes Cloud, and ${doing} would leave it out of this vault. Connect to the internet and try again.`
+  )
+}
+
+export interface MobileCloudEvictionResult {
+  stubbed: number
+  freedBytes: number
+}
+
+/**
+ * Turns synced attachments back into stubs to make room: only binaries above
+ * the threshold whose bytes are exactly what Cloud has (never a file with an
+ * unsynced change, never a note), in the order the host gives (oldest opened
+ * first), until `targetBytes` are freed or every candidate is a stub.
+ */
+export async function evictMobileCloudAttachments(
+  vault: PortableVault,
+  options: {
+    targetBytes?: number
+    /** The candidates in the order to take them (the host's oldest-opened
+     *  first); absent, the listing's order. */
+    order?: (candidates: Array<{ path: string; size: number; mtime: number }>) => Promise<string[]> | string[]
+  } = {}
+): Promise<MobileCloudEvictionResult> {
+  const files = stubFiles(vault.fs) as (StubCapableFiles & Partial<{
+    evictToCloudStub(path: string, expected: { size: number; mtime: number; sha256: string }, stub: CloudStubRecord): Promise<boolean>
+  }>) | null
+  if (!files || typeof files.evictToCloudStub !== 'function') return { stubbed: 0, freedBytes: 0 }
+  const vaultKey = files.syncKey
+  const state = (await linkedState(vaultKey)) as CloudSyncState | null | undefined
+  if (!state) return { stubbed: 0, freedBytes: 0 }
+  const threshold = portableHost().cloudStubs?.thresholdBytes ?? CLOUD_STUB_THRESHOLD_BYTES
+  const candidates = new Map<string, VaultDirEntry>()
+  await walkSyncedFiles(files, async (path, entry) => {
+    if (entry.size > threshold && !TEXT_KIND_EXTENSIONS.has(extensionOf(entry.name))) candidates.set(path, entry)
+  })
+  const ordered = options.order
+    ? await options.order([...candidates.entries()].map(([path, entry]) => ({ path, size: entry.size, mtime: entry.mtime })))
+    : [...candidates.keys()]
+  let stubbed = 0
+  let freedBytes = 0
+  for (const path of ordered) {
+    if (options.targetBytes !== undefined && freedBytes >= options.targetBytes) break
+    const entry = candidates.get(path)
+    if (!entry) continue
+    const local = await files.readForSync(path, false)
+    if (local.stub) continue
+    const stub = evictableStubFor(state, path, local, threshold)
+    if (!stub) continue
+    if (await files.evictToCloudStub(path, { size: entry.size, mtime: entry.mtime, sha256: local.sha256 }, stub)) {
+      stubbed += 1
+      freedBytes += entry.size
+    }
+  }
+  return { stubbed, freedBytes }
 }
 
 /** The pending settings question, if sync parked a cloud version. It lives
@@ -391,13 +584,17 @@ function hostVault(vault: PortableVault, cacheScan = false): CloudSyncHostVault 
   refreshStates.set(vault, state)
   const changes = trackCloudSyncChanges(fs, () => vault.rescan(), state)
   if (!hasSyncFastPath(files)) {
-    // No native sync path (the browser): every file is read as base64 through
-    // the shared repository, with no scan cache to skip unchanged ones.
+    // No sync fast path: every file is read as base64 through the shared
+    // repository, with no scan cache to skip unchanged ones.
     return { key: vaultKey, repository: new PortableCloudSyncRepository(changes.fs), refresh: changes.refresh }
   }
+  // Review and restore actions want every file's real bytes, so a stub they
+  // meet hydrates first; only a sync run writes new stubs.
+  const native = cacheScan ? files : withStubsHydrated(files, vault)
+  const stubs = cacheScan ? stubPolicy() : undefined
   return {
     key: vaultKey,
-    repository: new CachedCloudSyncRepository(changes.fs, files, {
+    repository: new CachedCloudSyncRepository(changes.fs, native, {
       // A transient failure here disables skipping for the run (full read),
       // the safe direction, rather than failing or, worse, mis-skipping.
       loadTracked: async () => {
@@ -409,9 +606,28 @@ function hostVault(vault: PortableVault, cacheScan = false): CloudSyncHostVault 
       isFirstSync: async () => cacheScan && (await linkedState(vaultKey)) === null,
       loadCache: async () => readJson(await scanCachePath(vaultKey)),
       saveCache: async (cache: ScanCache) => writeJson(await scanCachePath(vaultKey), cache)
-    }, changes.markChanged),
+    }, changes.markChanged, stubs ? { stubs } : {}),
     refresh: changes.refresh
   }
+}
+
+/** The vault's sync files with every stub read hydrated first (outside the
+ *  sync's own staging folder). */
+function withStubsHydrated<F extends VaultFileSystem & SyncFastPath>(files: F, vault: PortableVault): F {
+  if (!stubFiles(files)) return files
+  const readForSync: SyncFastPath['readForSync'] = async (path, textCandidate, knownUri) => {
+    const first = await files.readForSync(path, textCandidate, knownUri)
+    if (!first.stub || path.startsWith('.zennotes/')) return first
+    await hydrateMobileCloudStub(vault, path)
+    return files.readForSync(path, textCandidate)
+  }
+  return new Proxy(files, {
+    get(target, property, receiver) {
+      if (property === 'readForSync') return readForSync
+      const value = Reflect.get(target, property, receiver)
+      return typeof value === 'function' ? value.bind(target) : value
+    }
+  })
 }
 
 /** The state stored for this vault's link: null if none yet, undefined with no link. */

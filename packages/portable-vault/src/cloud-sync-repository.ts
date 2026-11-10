@@ -28,9 +28,17 @@
  * the run's next scan when there is not. It only ever leaves through the usual
  * vouched write, against the bytes scanned here, so words typed into it after
  * this scan still raise the conflict.
+ *
+ * Stubs (cloud-sync-stubs.ts, a host with attachments on open): a stub reads
+ * as the attachment it stands for, with its recorded fingerprint and a
+ * throwing `data`, like a skipped file. It is cached even though its own size
+ * is not the attachment's, so it stays stable across scans. A first sync
+ * removes every stub it meets before reporting anything: with no state there
+ * is no history to vouch for one.
  */
 import type {
   CloudSyncContent,
+  CloudSyncContentReference,
   CloudSyncItemKind
 } from '@zennotes/bridge-contract/cloud-sync'
 import {
@@ -78,20 +86,27 @@ export interface ScanCacheStore {
   saveCache(cache: ScanCache): Promise<void>
 }
 
+export interface CachedCloudSyncOptions {
+  /** Whether a revision arrives as a stub (cloud-sync-stubs.ts). */
+  stubs?: (reference: CloudSyncContentReference) => boolean
+}
+
 export class CachedCloudSyncRepository extends PortableCloudSyncRepository {
   private readonly contentFiles: NativeCloudSyncContent
   private readonly heldBackSeeds: HeldBackSeeds
 
   constructor(
-    fs: PortableCloudSyncFileSystem,
+    private readonly plainFs: PortableCloudSyncFileSystem,
     private readonly native: CloudSyncNativeFiles,
     private readonly store: ScanCacheStore,
-    private readonly onChanged: () => void = () => {}
+    private readonly onChanged: () => void = () => {},
+    options: CachedCloudSyncOptions = {}
   ) {
+    const fs = plainFs
     const contentFiles = new NativeCloudSyncContent(fs, native)
     const heldBackSeeds: HeldBackSeeds = new Map()
     const staging = isStagingNative(native)
-      ? new NativeCloudStaging(native, (path) => TEXT_EXTENSIONS.has(extension(path)), (path) => contentFiles.read(path))
+      ? new NativeCloudStaging(native, (path) => TEXT_EXTENSIONS.has(extension(path)), (path) => contentFiles.read(path), options.stubs)
       : null
     const sourceAwareFs = {
       ...(staging ? {
@@ -142,7 +157,7 @@ export class CachedCloudSyncRepository extends PortableCloudSyncRepository {
     const firstSync = await this.store.isFirstSync().catch(() => false)
     const nextCache: ScanCache = {}
     const items: CloudSyncLocalItem[] = []
-    await this.walkCached('', trackedSha, cache, nextCache, items)
+    await this.walkCached('', trackedSha, cache, nextCache, items, firstSync)
     if (Object.keys(cache).some((path) => !nextCache[path])) this.onChanged()
     // Cache loss is only a slow next scan, never let it fail the sync run.
     await this.store.saveCache(nextCache).catch(() => {})
@@ -165,7 +180,8 @@ export class CachedCloudSyncRepository extends PortableCloudSyncRepository {
     trackedSha: Map<string, string>,
     cache: ScanCache,
     nextCache: ScanCache,
-    items: CloudSyncLocalItem[]
+    items: CloudSyncLocalItem[],
+    firstSync: boolean
   ): Promise<void> {
     // readdirStrict entries carry mtime and size, so validating the cache
     // costs no extra stat calls on a hit. Fresh reads are checked again
@@ -177,7 +193,7 @@ export class CachedCloudSyncRepository extends PortableCloudSyncRepository {
       const relPath = directory ? `${directory}/${entry.name}` : entry.name
       if (entry.type === 'directory') {
         if (shouldTraverseCloudSyncDirectory(relPath)) {
-          await this.walkCached(relPath, trackedSha, cache, nextCache, items)
+          await this.walkCached(relPath, trackedSha, cache, nextCache, items, firstSync)
         }
         continue
       }
@@ -197,15 +213,25 @@ export class CachedCloudSyncRepository extends PortableCloudSyncRepository {
       }
 
       const item = await this.readItemFresh(path, entry.uri)
+      const stub = isStubContent(item.content)
+      if (stub && firstSync) {
+        // A first sync has no state to vouch for a stub, so it would raise a
+        // conflict over a file the person never had. Cloud still holds the
+        // attachment; this sync brings it back as it brings any other.
+        await this.plainFs.deleteFile(path)
+        this.onChanged()
+        continue
+      }
       if (!cached || cached.mtime !== entry.mtime || cached.size !== entry.size || cached.sha256 !== item.content.sha256) {
         this.onChanged()
       }
       // Never seed a reusable fingerprint from an unstable native read.
       // Unknown provider timestamps are deliberately always cache misses.
+      // A stub's own size is never the attachment's, which it records.
       const after = await this.native.statOrNull(path).catch(() => null)
       if (validFingerprint(entry) && after?.type === 'file' &&
           after.mtime === entry.mtime && after.size === entry.size &&
-          item.content.byte_length === entry.size) nextCache[path] = {
+          (item.content.byte_length === entry.size || stub)) nextCache[path] = {
         mtime: entry.mtime,
         size: entry.size,
         sha256: item.content.sha256,
@@ -256,6 +282,19 @@ class NativeCloudSyncContent {
   async read(path: string, uri?: string): Promise<CloudSyncLocalItem> {
     await this.assertReady()
     const file = await this.native.readForSync(path, TEXT_EXTENSIONS.has(extension(path)), uri)
+    if (file.stub) {
+      // The attachment a stub stands for, without its bytes: never an upload
+      // source, and a `data` that refuses to be read.
+      return {
+        path,
+        kind: 'binary',
+        content: stubContent(path, {
+          sha256: file.sha256,
+          byte_length: file.byteLength,
+          media_type: file.stub.mediaType
+        })
+      }
+    }
     if (file.byteLength > CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES) {
       const seal = this.native.sealForUpload?.bind(this.native)
       const content = rememberMobileUploadSource({
@@ -404,6 +443,30 @@ function itemFromCache(path: string, cached: ScanCacheEntry): CloudSyncLocalItem
     }
   })
   return { path, kind: cached.kind, content }
+}
+
+const stubContents = new WeakSet<CloudSyncContent>()
+
+/** Whether a scanned item is a Cloud stub's stand-in. */
+export function isStubContent(content: CloudSyncContent): boolean {
+  return stubContents.has(content)
+}
+
+function stubContent(
+  path: string,
+  metadata: { sha256: string; byte_length: number; media_type: string }
+): CloudSyncContent {
+  const content = { encoding: 'base64', ...metadata } as CloudSyncContent
+  Object.defineProperty(content, 'data', {
+    enumerable: true,
+    get(): string {
+      throw new Error(
+        `Cloud sync tried to read ${path}, which is only in ZenNotes Cloud on this device. Open it first to download it.`
+      )
+    }
+  })
+  stubContents.add(content)
+  return content
 }
 
 function trackedShaByPath(state: CloudSyncState | null): Map<string, string> {

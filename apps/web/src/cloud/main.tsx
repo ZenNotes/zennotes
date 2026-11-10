@@ -1,45 +1,130 @@
 /**
  * ZenNotes in your browser (app.zennotes.org): the second bootstrap of
  * apps/web, built by vite.cloud.config.ts into dist-cloud/. The self-hosted
- * build (../main.tsx) talks to a ZenNotes server; this one keeps the vault in
+ * build (../main.tsx) talks to a ZenNotes server; this one keeps each vault in
  * the browser's private file storage (OPFS) through
- * @zennotes/portable-vault, the layer the phones run.
+ * @zennotes/portable-vault, the layer the phones run, and syncs it with
+ * ZenNotes Cloud as a `web` device.
+ *
+ * Routes (the website serves the shell at exactly these, CloudWebApp::APP_PATHS):
+ * - `/`: the signed-in app. Opens this browser's Cloud vault (the one asked
+ *   for with `?vault=`, else the last one), or asks to sign in, or to choose
+ *   a Cloud vault to open here.
+ * - `/try`: Try mode, a local vault seeded with the tour, in this browser
+ *   only until it is kept in ZenNotes Cloud.
+ * - `/auth/callback`: the website's answer to a sign-in, with the code in
+ *   the fragment.
  *
  * Boot order:
- * 1. Refuse any origin but the configured one (and loopback for local runs):
- *    the release files are also reachable under zennotes.org/vendor/..., an
- *    origin shared with the website, where a vault must never live.
- * 2. Firefox private windows have no OPFS: say so and stop.
- * 3. Take control by the service worker, or `/_vault/...` attachment URLs
- *    would reach the network.
- * 4. The PDF export window (`?exportNote=`) reads the vault without owning it.
- * 5. Take the vault's Web Lock, or show "open in another tab" with Use here.
- * 6. Install the bridge, open (and on first visit seed) the vault, render.
- *
- * Phase 2 has one vault, Try mode's, at /try. Cloud sign-in (Phase 4) adds
- * the signed-in vaults at /.
+ * 1. Refuse any origin but the configured one (and loopback for local runs).
+ * 2. Take the sign-in callback out of the address bar before anything runs.
+ * 3. Firefox private windows have no OPFS: say so and stop.
+ * 4. Take control by the service worker, or `/_vault/...` URLs would reach
+ *    the network.
+ * 5. The PDF export window (`?exportNote=`) reads a vault without owning it.
+ * 6. Install the bridge and Cloud sign-in, then finish a callback, or open a
+ *    vault under its Web Lock (or show "open in another tab" with Use here),
+ *    and render the app.
  */
 import '@renderer/styles/index.css'
 import './cloud.css'
 import { installZenBridge, type ZenBridge } from '@zennotes/bridge-contract/bridge'
+import type { CloudAccount, CloudSyncRunSummary } from '@zennotes/bridge-contract/cloud-sync'
 import { DEMO_TOUR_START_PATH } from '@zennotes/shared-domain/demo-tour'
 import { bootPortableVault, createPortableBridge, activePortableVault } from '@zennotes/portable-vault/bridge'
-import { requestOpenNote } from '@zennotes/portable-vault/events'
+import {
+  authenticatedClient,
+  CloudSignInRefusedError,
+  completeMobileCloudSignIn,
+  configureMobileCloudAuth,
+  connectMobileCloudAccount,
+  getMobileCloudAccountStatus,
+  listMobileCloudVaults,
+  logoutMobileCloudAccount,
+  refreshMobileCloudAccountStatus
+} from '@zennotes/portable-vault/cloud-auth'
+import {
+  createAndLinkMobileCloudVault,
+  evictMobileCloudAttachments,
+  getMobileCloudVaultLink,
+  hydrateAllMobileCloudStubs,
+  hydrateMobileCloudStub,
+  linkMobileCloudVault,
+  listMobileCloudStubs,
+  syncMobileCloudVault
+} from '@zennotes/portable-vault/cloud-sync'
+import { stopMobileCloudRequests } from '@zennotes/portable-vault/cloud-sync-client'
+import { onVaultChange, requestOpenNote } from '@zennotes/portable-vault/events'
+import { CLOUD_SIGN_IN_EXPIRED_MESSAGE } from '@zennotes/shared-domain/cloud-error-copy'
+import appPackage from '../../package.json'
 import {
   closeBrowserVault,
   createBrowserHost,
   currentBrowserVault,
-  openBrowserVault
+  openBrowserVault,
+  type BrowserHostHooks
 } from './browser-host'
+import {
+  browserStorageStatus,
+  bytesOverPressure,
+  evictionOrder,
+  keepsAttachments,
+  loadKeepAttachments,
+  persistAfterFirstSync,
+  recordAttachmentOpened,
+  requestPersistence,
+  setKeepAttachments
+} from './browser-storage'
+import {
+  cloudVaultKey,
+  currentBrowserVaultKey,
+  findBrowserVault,
+  isVaultUnsynced,
+  listBrowserVaults,
+  markVaultUnsynced,
+  saveBrowserVault,
+  setCurrentBrowserVaultKey,
+  touchBrowserVault,
+  TRY_VAULT_KEY,
+  TRY_VAULT_NAME,
+  vaultsOfAccount,
+  type BrowserVaultEntry
+} from './browser-vaults'
+import {
+  announceAccount,
+  captureAuthCallback,
+  CLOUD_WEB_NOT_ENABLED_MESSAGE,
+  onAccountAnnouncement,
+  SIGN_IN_ELSEWHERE_MESSAGE,
+  type CallbackCapture
+} from './cloud-account'
+import {
+  showAccountSwitch,
+  showRemoved,
+  showSignedInElsewhere,
+  showSignIn,
+  showSignInFailed,
+  showSigningIn,
+  showVaultPicker,
+  type PickableCloudVault
+} from './cloud-screens'
+import { clearLocalState, wipeBrowserCloudData } from './cloud-session'
 import { buildVaultArchive, saveBlob, archiveFolderName } from './download-folder'
+import { idbDelete, idbGet, idbPut } from './idb'
 import { idbHostStorage } from './idb-storage'
 import { clearScreen, showBootError, showNoStorage, showVaultTaken } from './screens'
-import { ensureServiceWorkerControl, warmServiceWorkerCache, watchForUpdates } from './sw-register'
-import { renderTryBanner } from './try-banner'
+import { ensureServiceWorkerControl, serveVaultToWorker, warmServiceWorkerCache, watchForUpdates } from './sw-register'
+import { renderTryBanner, removeTryBanner } from './try-banner'
 import { takeVaultHere, tryAcquireVault, vaultLocksSupported, type HeldVault } from './vault-lock'
 
-const TRY_VAULT = { key: 'try', name: 'Try ZenNotes' } as const
 const YIELDED_FLAG = 'zn:vault-yielded:'
+const REMOVED_FLAG = 'zn:cloud-removed'
+const AFTER_SIGN_IN_KEY = 'zn-browser:after-sign-in'
+const WIPING_KEY = 'zn-browser:wiping'
+/** "Keep it in ZenNotes Cloud" waits through a sign-in this long. */
+const AFTER_SIGN_IN_LIFETIME_MS = 60 * 60 * 1000
+/** The Cloud vault Try mode's notes go into. */
+const KEPT_TRY_VAULT_NAME = 'My Notes'
 
 const root = document.getElementById('root')
 const bannerHost = document.getElementById('zn-host-banner')
@@ -74,38 +159,55 @@ async function probeStorage(): Promise<StorageProbe> {
   return 'ok'
 }
 
-function takeYieldedFlag(vaultKey: string): boolean {
+function sessionFlag(key: string, take = false): string | null {
   try {
-    const set = sessionStorage.getItem(YIELDED_FLAG + vaultKey) === '1'
-    sessionStorage.removeItem(YIELDED_FLAG + vaultKey)
-    return set
+    const value = sessionStorage.getItem(key)
+    if (take) sessionStorage.removeItem(key)
+    return value
   } catch {
-    return false
+    return null
   }
 }
 
-function setYieldedFlag(vaultKey: string): void {
+function setSessionFlag(key: string, value: string): void {
   try {
-    sessionStorage.setItem(YIELDED_FLAG + vaultKey, '1')
+    sessionStorage.setItem(key, value)
   } catch {
-    // storage blocked: the reload shows the lock screen anyway
+    // storage blocked: the reload shows the default screen
   }
 }
 
-async function downloadCurrentVault(): Promise<void> {
-  const open = currentBrowserVault()
-  if (!open) throw new Error('No vault is open.')
+async function toast(message: string, tone: 'success' | 'error' | 'info' = 'info'): Promise<void> {
   const { useToastStore } = await import('@renderer/lib/toast')
-  const { blob, fileCount } = await buildVaultArchive(open.fs, open.spec.name)
-  const fileName = `${archiveFolderName(open.spec.name)}.zip`
-  saveBlob(blob, fileName)
-  useToastStore
-    .getState()
-    .addToast(`Downloaded ${fileName} (${fileCount} ${fileCount === 1 ? 'file' : 'files'}). Unzip it and open the folder as a vault in the app.`, 'success')
+  useToastStore.getState().addToast(message, tone)
 }
 
+function errorText(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback
+}
+
+// ---------------------------------------------------------------------------
+// The tab's vault
+// ---------------------------------------------------------------------------
+
+interface VaultTarget {
+  entry: BrowserVaultEntry
+  held: HeldVault
+  /** A Cloud vault opened here for the first time: link the new local copy. */
+  joinVaultId?: string
+}
+
+let target: VaultTarget | null = null
+let wiping = false
+let yielding = false
 let rendererReady = false
+let releaseWorkerService: (() => void) | null = null
 const afterReady: Array<() => void> = []
+
+/** Changes since the last sync run that finished; a run clears it only when
+ *  nothing changed while it ran. */
+let changeCounter = 0
+let syncing = 0
 
 function whenRendererReady(run: () => void): void {
   if (rendererReady) run()
@@ -138,6 +240,107 @@ function whenWorkspaceReady(run: () => void): void {
   })
 }
 
+async function flushEditors(): Promise<void> {
+  if (!rendererReady) return
+  try {
+    const { useStore } = await import('@renderer/store')
+    await useStore.getState().flushDirtyNotes()
+  } catch (error) {
+    console.warn('[zen] saving open notes failed', error)
+  }
+}
+
+async function hasUnsavedText(): Promise<boolean> {
+  if (!rendererReady) return false
+  const { useStore } = await import('@renderer/store')
+  return Object.values(useStore.getState().noteDirty).some(Boolean)
+}
+
+/** Whether the open vault is linked to the signed-in account. */
+async function openVaultIsSynced(): Promise<boolean> {
+  try {
+    const status = await getMobileCloudAccountStatus()
+    if (status.state !== 'connected' || !status.account) return false
+    const link = await getMobileCloudVaultLink(activePortableVault())
+    return !!link && link.base_url === status.account.base_url
+  } catch {
+    return false
+  }
+}
+
+/** One sync run of the open vault, outside app-core's status: the final
+ *  push when the tab hides or signs out. Bounded, best effort. */
+async function finalPush(timeoutMs: number): Promise<void> {
+  if (!target || wiping) return
+  await flushEditors()
+  if (!(await openVaultIsSynced())) return
+  let timer: ReturnType<typeof setTimeout> | undefined
+  await Promise.race([
+    trackedSync(() => syncMobileCloudVault(activePortableVault())).catch((error: unknown) => {
+      console.warn('[zen] the final push did not finish', error)
+    }),
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, timeoutMs)
+    })
+  ])
+  if (timer) clearTimeout(timer)
+}
+
+async function trackedSync<T>(run: () => Promise<T>): Promise<T> {
+  const before = changeCounter
+  const key = target?.entry.key
+  syncing += 1
+  try {
+    const result = await run()
+    if (key && changeCounter === before) await markVaultUnsynced(key, false).catch(() => undefined)
+    return result
+  } finally {
+    syncing -= 1
+  }
+}
+
+async function afterSyncRun(summary: CloudSyncRunSummary): Promise<void> {
+  void summary
+  // Ask to be kept once the vault is here, and make room when the browser
+  // is short of it.
+  void persistAfterFirstSync()
+  const over = await bytesOverPressure()
+  if (over > 0 && !keepsAttachments()) await evictForSpace(over).catch(() => undefined)
+}
+
+async function evictForSpace(targetBytes?: number): Promise<{ stubbed: number; freedBytes: number }> {
+  if (!target) return { stubbed: 0, freedBytes: 0 }
+  const key = target.entry.key
+  return evictMobileCloudAttachments(activePortableVault(), {
+    ...(targetBytes !== undefined ? { targetBytes } : {}),
+    order: (candidates) => evictionOrder(key, candidates)
+  })
+}
+
+async function cloudOnlyAttachmentCount(): Promise<number> {
+  if (!target) return 0
+  try {
+    return (await listMobileCloudStubs(activePortableVault())).length
+  } catch {
+    return 0
+  }
+}
+
+async function downloadCurrentVault(): Promise<void> {
+  const open = currentBrowserVault()
+  if (!open) throw new Error('No vault is open.')
+  const { blob, fileCount } = await buildVaultArchive(open.fs, open.spec.name)
+  const fileName = `${archiveFolderName(open.spec.name)}.zip`
+  saveBlob(blob, fileName)
+  await toast(
+    `Downloaded ${fileName} (${fileCount} ${fileCount === 1 ? 'file' : 'files'}). Unzip it and open the folder as a vault in the app.`,
+    'success'
+  )
+}
+
+const ENCRYPTED_NOT_YET =
+  'Encrypted vaults open in the browser in a later release. Use the ZenNotes app for this vault for now.'
+
 /** The portable bridge, with what a browser does its own way. */
 function browserBridge(base: ZenBridge): ZenBridge {
   return {
@@ -149,6 +352,7 @@ function browserBridge(base: ZenBridge): ZenBridge {
       url.search = ''
       url.hash = ''
       url.searchParams.set('exportNote', relPath)
+      if (target) url.searchParams.set('vault', target.entry.key)
       const exportWindow = window.open(url.toString(), 'zennotes-pdf-export')
       if (!exportWindow) {
         throw new Error('ZenNotes could not open the PDF export window. Allow pop-ups for this site and try again.')
@@ -161,36 +365,248 @@ function browserBridge(base: ZenBridge): ZenBridge {
       base.notifyRendererReady()
       rendererReady = true
       for (const run of afterReady.splice(0)) run()
-    }
+    },
+    syncCloudVault: async () => {
+      const summary = await trackedSync(() => base.syncCloudVault())
+      void afterSyncRun(summary)
+      return summary
+    },
+    logoutCloudAccount: async () => {
+      // Push what is waiting while the sign-in still works; the copy stays.
+      await finalPush(15_000)
+      const status = await base.logoutCloudAccount()
+      announceAccount({ type: 'signed-out' })
+      return status
+    },
+    // Phase 5 opens encrypted vaults in the browser; until then they are
+    // never linked here.
+    linkCloudVault: async (vaultId) => {
+      const vault = (await base.listCloudVaults()).find((candidate) => candidate.id === vaultId)
+      if (vault?.encryption) throw new Error(ENCRYPTED_NOT_YET)
+      const link = await base.linkCloudVault(vaultId)
+      await rememberCloudLink(link.vault_id, vault?.name)
+      return link
+    },
+    createAndLinkCloudVault: async (name, options) => {
+      if (options?.encrypted) throw new Error(ENCRYPTED_NOT_YET)
+      const link = await base.createAndLinkCloudVault(name, options)
+      await rememberCloudLink(link.vault_id, name)
+      return link
+    },
+    getBrowserStorageStatus: async () => browserStorageStatus(await cloudOnlyAttachmentCount()),
+    requestBrowserStoragePersistence: async () => {
+      await requestPersistence()
+      return browserStorageStatus(await cloudOnlyAttachmentCount())
+    },
+    setBrowserKeepAttachments: async (keep) => {
+      await setKeepAttachments(keep)
+      // Kept from now on: what is still only in Cloud comes down too.
+      if (keep && target) void hydrateAllMobileCloudStubs(activePortableVault()).catch(() => undefined)
+      return browserStorageStatus(await cloudOnlyAttachmentCount())
+    },
+    downloadBrowserAttachments: async () => {
+      if (!target) throw new Error('No vault is open.')
+      const result = await hydrateAllMobileCloudStubs(activePortableVault())
+      return { changed: result.hydrated, failed: result.failed.length, status: await browserStorageStatus(await cloudOnlyAttachmentCount()) }
+    },
+    freeBrowserSpace: async () => {
+      const result = await evictForSpace()
+      if (result.stubbed > 0) await activePortableVault().rescan()
+      return {
+        changed: result.stubbed,
+        failed: 0,
+        freedBytes: result.freedBytes,
+        status: await browserStorageStatus(await cloudOnlyAttachmentCount())
+      }
+    },
+    chooseCloudVaultInBrowser: async () => {
+      await flushEditors()
+      location.assign('/?choose=1')
+    },
+    ...(target?.entry.kind === 'try' ? { keepVaultInCloud: () => keepTryVaultInCloud() } : {})
   }
 }
 
-let yielding = false
+/** A vault linked from app-core's Cloud settings becomes one of this
+ *  browser's Cloud vaults, under the account that linked it. */
+async function rememberCloudLink(vaultId: string, name: string | undefined): Promise<void> {
+  if (!target) return
+  const status = await getMobileCloudAccountStatus()
+  if (status.state !== 'connected' || !status.account) return
+  const entry: BrowserVaultEntry = {
+    ...target.entry,
+    kind: 'cloud',
+    vaultId,
+    name: name ?? target.entry.name,
+    account: accountOf(status.account),
+    lastOpenedAt: Date.now()
+  }
+  target.entry = entry
+  await saveBrowserVault(entry)
+}
+
+function accountOf(account: CloudAccount): { baseUrl: string; email: string } {
+  return { baseUrl: account.base_url, email: account.user.email }
+}
+
+// ---------------------------------------------------------------------------
+// Leaving the tab, handing it over, being removed
+// ---------------------------------------------------------------------------
+
+function takeYieldedFlag(vaultKey: string): boolean {
+  return sessionFlag(YIELDED_FLAG + vaultKey, true) === '1'
+}
 
 /** Another tab pressed Use here, or took the lock: save, stop, step aside. */
 async function yieldVault(held: HeldVault | null, saveFirst: boolean): Promise<void> {
-  if (yielding) return
+  if (yielding || wiping) return
   yielding = true
-  if (saveFirst) {
-    try {
-      const { useStore } = await import('@renderer/store')
-      await useStore.getState().flushDirtyNotes()
-    } catch (error) {
-      console.warn('[zen] saving before handing the vault over failed', error)
-    }
-  }
+  const key = target?.entry.key
+  if (saveFirst) await flushEditors()
+  releaseWorkerService?.()
   closeBrowserVault()
   held?.release()
-  setYieldedFlag(TRY_VAULT.key)
+  if (key) setSessionFlag(YIELDED_FLAG + key, '1')
   location.reload()
 }
 
-async function openTryVault(held: HeldVault): Promise<void> {
-  await openBrowserVault({ key: TRY_VAULT.key, name: TRY_VAULT.name, generation: held.generation })
+let leaveTimer: ReturnType<typeof setTimeout> | null = null
+
+const hooks: BrowserHostHooks = {
+  async beforeLeavingForSignIn() {
+    await flushEditors()
+  },
+  leftApp() {
+    // A hidden tab may be closed without another chance: push now. Typing
+    // into a note keeps it visible, so this runs only on leaving.
+    if (leaveTimer) clearTimeout(leaveTimer)
+    leaveTimer = setTimeout(() => {
+      leaveTimer = null
+      void finalPush(30_000)
+    }, 300)
+  },
+  returnedToApp() {
+    if (leaveTimer) clearTimeout(leaveTimer)
+    leaveTimer = null
+  },
+  revoked() {
+    void removeThisBrowser('revoked')
+  },
+  switchTo(entry) {
+    void flushEditors().then(() => location.assign(`/?vault=${encodeURIComponent(entry.key)}`))
+  }
+}
+
+/** Stops everything this tab does with the vault, before its files go. */
+async function closeForWipe(): Promise<void> {
+  wiping = true
+  stopMobileCloudRequests()
+  try {
+    const { stopCloudAutoSync } = await import('@renderer/lib/cloud-auto-sync')
+    stopCloudAutoSync()
+  } catch {
+    // the app never started
+  }
+  releaseWorkerService?.()
+  closeBrowserVault()
+  target?.held.release()
+}
+
+let removing = false
+
+/** Cloud removed this browser from the account: the copy goes, now. Every
+ *  request in flight hears the same answer; the first starts the wipe. */
+async function removeThisBrowser(reason: 'revoked'): Promise<void> {
+  if (removing || wiping) return
+  removing = true
+  await idbPut('preferences', WIPING_KEY, String(Date.now())).catch(() => undefined)
+  try {
+    await wipeBrowserCloudData({ closeOpenVault: closeForWipe }, { reason })
+  } finally {
+    await idbDelete('preferences', WIPING_KEY).catch(() => undefined)
+  }
+  setSessionFlag(REMOVED_FLAG, reason)
+  location.replace('/')
+}
+
+/** A wipe another tab started finishes before this one reads the registry. */
+async function waitForWipe(): Promise<void> {
+  for (let waited = 0; waited < 30_000; waited += 250) {
+    const started = Number(await idbGet<string>('preferences', WIPING_KEY).catch(() => undefined))
+    if (!Number.isFinite(started) || started <= 0 || Date.now() - started > 120_000) return
+    await new Promise((resolve) => setTimeout(resolve, 250))
+  }
+}
+
+function listenForAccountChanges(): void {
+  onAccountAnnouncement((message) => {
+    if (message.type === 'wiped') {
+      if (wiping) return
+      void closeForWipe().then(() => {
+        setSessionFlag(REMOVED_FLAG, message.reason)
+        location.replace('/')
+      })
+      return
+    }
+    void refreshMobileCloudAccountStatus().catch(() => undefined)
+  })
+}
+
+function installLeaveGuard(): void {
+  window.addEventListener('beforeunload', (event) => {
+    if (wiping || yielding) return
+    // Unsaved text in an editor, or a sync pushing right now: the browser
+    // asks in its own words. Saved changes stay in this browser either way.
+    const dirty = rendererReady && (window as unknown as { __znDirty?: boolean }).__znDirty === true
+    if (dirty || syncing > 0) {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+  })
+  // The guard is read synchronously; keep a cheap flag of unsaved text.
+  whenRendererReady(() => {
+    void import('@renderer/store').then(({ useStore }) => {
+      const update = (): void => {
+        ;(window as unknown as { __znDirty?: boolean }).__znDirty = Object.values(useStore.getState().noteDirty).some(Boolean)
+      }
+      update()
+      useStore.subscribe(update)
+    })
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Opening a vault
+// ---------------------------------------------------------------------------
+
+async function openTarget(): Promise<void> {
+  const current = target
+  if (!current) throw new Error('No vault was chosen for this tab.')
+  const { entry, held } = current
+  await openBrowserVault({ key: entry.key, name: entry.name, generation: held.generation })
+  const open = currentBrowserVault()!
+  open.fs.setStubHydrator(async (path) => {
+    const hydrated = await hydrateMobileCloudStub(activePortableVault(), path)
+    if (hydrated) recordAttachmentOpened(entry.key, path)
+    return hydrated
+  })
+  open.fs.setQuotaPressureHandler(async () => {
+    if (keepsAttachments()) return
+    await evictForSpace(await bytesOverPressure() || 64 * 1024 * 1024).catch(() => undefined)
+  })
+  if (current.joinVaultId) {
+    await linkMobileCloudVault(activePortableVault(), current.joinVaultId)
+    await saveBrowserVault(entry)
+    current.joinVaultId = undefined
+  }
+  if (entry.kind === 'try') await seedTryVault()
+}
+
+async function seedTryVault(): Promise<void> {
   // The tour is seeded once per browser, through the same generateDemoTour
   // the apps' "Generate Demo Tour" command runs; deleting it later sticks.
   const preferences = idbHostStorage('preferences')
-  const seededKey = `zn-browser:seeded:${TRY_VAULT.key}`
+  const seededKey = `zn-browser:seeded:${TRY_VAULT_KEY}`
   if (await preferences.read(seededKey)) return
   const vault = activePortableVault()
   if ((await vault.listNotes()).length === 0) {
@@ -200,13 +616,33 @@ async function openTryVault(held: HeldVault): Promise<void> {
   await preferences.write(seededKey, new Date().toISOString())
 }
 
-async function startApp(held: HeldVault): Promise<void> {
-  const host = createBrowserHost(() => openTryVault(held))
-  installZenBridge(browserBridge(createPortableBridge(host)))
-  await bootPortableVault()
+async function startApp(entry: BrowserVaultEntry, held: HeldVault, joinVaultId?: string): Promise<void> {
+  target = { entry, held, ...(joinVaultId ? { joinVaultId } : {}) }
   held.onUseHereRequest(() => void yieldVault(held, true))
   // Stolen after the timeout: whatever was in flight is fenced off already.
-  void held.lost.then(() => yieldVault(null, false))
+  void held.lost.then(() => {
+    if (!wiping) void yieldVault(null, false)
+  })
+
+  installZenBridge(browserBridge(createPortableBridge(createBrowserHost(openTarget, hooks))))
+  await configureMobileCloudAuth(appPackage.version)
+  await bootPortableVault()
+  releaseWorkerService = serveVaultToWorker(entry.key, {
+    hydrate: async (path) => {
+      const vault = activePortableVault()
+      const hydrated = await hydrateMobileCloudStub(vault, path)
+      if (hydrated) recordAttachmentOpened(entry.key, path)
+      return hydrated || (await vault.fs.statVerified(path)) === 'file'
+    },
+    opened: (path) => recordAttachmentOpened(entry.key, path)
+  })
+  onVaultChange((event) => {
+    if (event.scope === 'resync') return
+    changeCounter += 1
+    void markVaultUnsynced(entry.key, true).catch(() => undefined)
+  })
+  await setCurrentBrowserVaultKey(entry.key)
+  await touchBrowserVault(entry.key)
 
   // Excalidraw loads its fonts from this base (the self-hosted build's #324 fix).
   ;(window as unknown as { EXCALIDRAW_ASSET_PATH?: string }).EXCALIDRAW_ASSET_PATH = `${import.meta.env.BASE_URL}excalidraw-assets/`
@@ -220,18 +656,29 @@ async function startApp(held: HeldVault): Promise<void> {
     whenWorkspaceReady(() => requestOpenNote(requestedNote))
   }
 
-  renderTryBanner(bannerRoot, async () => {
-    try {
-      await downloadCurrentVault()
-    } catch (error) {
-      const { useToastStore } = await import('@renderer/lib/toast')
-      useToastStore.getState().addToast(error instanceof Error ? error.message : 'Could not download the vault.', 'error')
-    }
-  })
+  if (entry.kind === 'try') {
+    renderTryBanner(bannerRoot, {
+      onDownload: async () => {
+        try {
+          await downloadCurrentVault()
+        } catch (error) {
+          await toast(errorText(error, 'Could not download the vault.'), 'error')
+        }
+      },
+      onKeep: () => keepTryVaultInCloud()
+    })
+  }
+  installLeaveGuard()
+  listenForAccountChanges()
+  if (entry.kind === 'cloud') skipOnboardingForCloudVault()
+
   const { renderZenNotesApp } = await import('@zennotes/app-core/main')
   renderZenNotesApp(appRoot)
   // After the app is up, never in its way.
   setTimeout(warmServiceWorkerCache, 5000)
+  if (entry.kind === 'try' && (await takeAfterSignIn()) === 'keep-try') {
+    whenWorkspaceReady(() => void keepTryVaultInCloud())
+  }
 
   watchForUpdates(
     {
@@ -245,11 +692,299 @@ async function startApp(held: HeldVault): Promise<void> {
       }
     },
     async () => {
-      const { useStore } = await import('@renderer/store')
-      await useStore.getState().flushDirtyNotes()
-      return !Object.values(useStore.getState().noteDirty).some(Boolean)
+      await flushEditors()
+      // Never under a running sync, and never with text unsaved.
+      return syncing === 0 && !(await hasUnsavedText())
     }
   )
+}
+
+/**
+ * A Cloud vault arrives with its own layout (its vault.json syncs), so the
+ * onboarding wizard's one step for a profile with a vault, "Vault layout",
+ * would only rewrite it, and every device would get the change. A new browser
+ * profile opening a Cloud vault starts as onboarded; Try mode keeps the
+ * wizard.
+ */
+function skipOnboardingForCloudVault(): void {
+  const key = 'zen:prefs:v2'
+  try {
+    const raw = localStorage.getItem(key)
+    const prefs = raw ? (JSON.parse(raw) as Record<string, unknown>) : {}
+    if (prefs.hasCompletedOnboarding === true) return
+    localStorage.setItem(key, JSON.stringify({ ...prefs, hasCompletedOnboarding: true }))
+  } catch {
+    // storage blocked: the wizard shows, and nothing is lost
+  }
+}
+
+/** Opens `entry` under its lock, or offers Use here when another tab has it. */
+async function openEntry(entry: BrowserVaultEntry, joinVaultId?: string): Promise<void> {
+  const movedAway = takeYieldedFlag(entry.key)
+  const held = movedAway ? null : await tryAcquireVault(entry.key)
+  if (held) {
+    clearScreen()
+    await startApp(entry, held, joinVaultId)
+    return
+  }
+  showVaultTaken(appRoot, movedAway, async () => {
+    const taken = await takeVaultHere(entry.key)
+    clearScreen()
+    await startApp(entry, taken, joinVaultId)
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Signing in
+// ---------------------------------------------------------------------------
+
+/** The host and Cloud sign-in, for the screens before a vault is open. */
+async function installAccountOnly(): Promise<void> {
+  installZenBridge(browserBridge(createPortableBridge(createBrowserHost(async () => {
+    throw new Error('No vault was chosen for this tab.')
+  }, hooks))))
+  await configureMobileCloudAuth(appPackage.version)
+}
+
+async function signIn(): Promise<void> {
+  await connectMobileCloudAccount()
+}
+
+async function setAfterSignIn(action: 'keep-try'): Promise<void> {
+  await idbPut('preferences', AFTER_SIGN_IN_KEY, JSON.stringify({ action, at: Date.now() }))
+}
+
+async function takeAfterSignIn(): Promise<'keep-try' | null> {
+  const raw = await idbGet<string>('preferences', AFTER_SIGN_IN_KEY).catch(() => undefined)
+  if (typeof raw !== 'string') return null
+  await idbDelete('preferences', AFTER_SIGN_IN_KEY).catch(() => undefined)
+  try {
+    const value = JSON.parse(raw) as { action?: unknown; at?: unknown }
+    return value.action === 'keep-try' && typeof value.at === 'number' && Date.now() - value.at < AFTER_SIGN_IN_LIFETIME_MS
+      ? 'keep-try'
+      : null
+  } catch {
+    return null
+  }
+}
+
+async function peekAfterSignIn(): Promise<boolean> {
+  return typeof (await idbGet<string>('preferences', AFTER_SIGN_IN_KEY).catch(() => undefined)) === 'string'
+}
+
+function signInFailureMessage(error: unknown): string {
+  if (error instanceof CloudSignInRefusedError && error.code === 'CLOUD_WEB_NOT_ENABLED') return CLOUD_WEB_NOT_ENABLED_MESSAGE
+  const message = errorText(error, 'ZenNotes Cloud did not finish the sign-in.')
+  // No pending sign-in for this state: started in another browser (or its
+  // 45 minutes ran out). The shared flow's words name five minutes.
+  if (message === CLOUD_SIGN_IN_EXPIRED_MESSAGE) return SIGN_IN_ELSEWHERE_MESSAGE
+  return message
+}
+
+/** The website sent the browser back with a code (or without one). */
+async function finishSignIn(callback: CallbackCapture): Promise<void> {
+  showSigningIn(appRoot)
+  await installAccountOnly()
+  if (!callback.hasCode) {
+    showSignInFailed(appRoot, 'The sign-in was cancelled or did not finish. Sign in again to open your notes here.', signIn)
+    return
+  }
+  let account: CloudAccount
+  try {
+    const status = await completeMobileCloudSignIn(callback.url)
+    if (status.state !== 'connected' || !status.account) throw new Error('ZenNotes Cloud did not finish the sign-in.')
+    account = status.account
+  } catch (error) {
+    // Another tab may have finished this same sign-in a moment ago.
+    const status = await getMobileCloudAccountStatus().catch(() => null)
+    if (status?.state === 'connected') {
+      showSignedInElsewhere(appRoot)
+      return
+    }
+    showSignInFailed(appRoot, signInFailureMessage(error), signIn)
+    return
+  }
+
+  // One account per browser: another account's vaults leave first.
+  const { others } = vaultsOfAccount(await listBrowserVaults(), accountOf(account))
+  const continueSignedIn = async (): Promise<void> => {
+    announceAccount({ type: 'signed-in', email: account.user.email })
+    location.replace((await peekAfterSignIn()) ? '/try' : '/')
+  }
+  if (others.length === 0) {
+    await continueSignedIn()
+    return
+  }
+  const unsynced: string[] = []
+  for (const entry of others) if (await isVaultUnsynced(entry.key)) unsynced.push(entry.name)
+  const replace = async (): Promise<void> => {
+    await idbPut('preferences', WIPING_KEY, String(Date.now())).catch(() => undefined)
+    try {
+      await wipeBrowserCloudData({ closeOpenVault: closeForWipe }, { entries: others, reason: 'account-switch' })
+    } finally {
+      await idbDelete('preferences', WIPING_KEY).catch(() => undefined)
+    }
+    wiping = false
+    await continueSignedIn()
+  }
+  if (unsynced.length === 0) {
+    await replace()
+    return
+  }
+  showAccountSwitch(appRoot, {
+    previousEmail: others[0]!.account?.email ?? 'the previous account',
+    nextEmail: account.user.email,
+    unsyncedVaults: unsynced,
+    onReplace: replace,
+    onCancel: async () => {
+      await logoutMobileCloudAccount()
+      announceAccount({ type: 'signed-out' })
+      location.replace('/')
+    }
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Try mode, kept in Cloud
+// ---------------------------------------------------------------------------
+
+/** "Keep it in ZenNotes Cloud": sign in if needed, then the Try vault goes
+ *  into a new Cloud vault and becomes one of this browser's Cloud vaults. */
+async function keepTryVaultInCloud(): Promise<void> {
+  if (!target || target.entry.kind !== 'try') return
+  const status = await getMobileCloudAccountStatus()
+  if (status.state !== 'connected' || !status.account) {
+    await flushEditors()
+    await setAfterSignIn('keep-try')
+    await connectMobileCloudAccount()
+    return
+  }
+  try {
+    await flushEditors()
+    const link = await createAndLinkMobileCloudVault(activePortableVault(), KEPT_TRY_VAULT_NAME)
+    const entry: BrowserVaultEntry = {
+      ...target.entry,
+      kind: 'cloud',
+      name: KEPT_TRY_VAULT_NAME,
+      vaultId: link.vault_id,
+      account: accountOf(status.account),
+      lastOpenedAt: Date.now()
+    }
+    target.entry = entry
+    await saveBrowserVault(entry)
+    removeTryBanner(bannerRoot)
+    history.replaceState(null, '', `/?vault=${encodeURIComponent(entry.key)}`)
+    const { requestCloudAutoSync } = await import('@renderer/lib/cloud-auto-sync')
+    requestCloudAutoSync('vault-link')
+    await toast(`Your notes are going into ZenNotes Cloud as “${KEPT_TRY_VAULT_NAME}”. Open them on any device you sign in on.`, 'success')
+  } catch (error) {
+    await toast(errorText(error, 'ZenNotes could not keep this vault in Cloud.'), 'error')
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Home: the signed-in app
+// ---------------------------------------------------------------------------
+
+async function loadPickableVaults(): Promise<PickableCloudVault[]> {
+  const here = new Set((await listBrowserVaults()).map((entry) => entry.vaultId).filter(Boolean))
+  return (await listMobileCloudVaults()).map((vault) => ({
+    id: vault.id,
+    name: vault.name,
+    encrypted: !!vault.encryption,
+    here: here.has(vault.id)
+  }))
+}
+
+async function openCloudVault(vault: { id: string; name: string }, account: CloudAccount): Promise<void> {
+  const key = cloudVaultKey(vault.id)
+  const existing = await findBrowserVault(key)
+  if (existing) {
+    location.assign(`/?vault=${encodeURIComponent(key)}`)
+    return
+  }
+  const entry: BrowserVaultEntry = {
+    key,
+    name: vault.name,
+    kind: 'cloud',
+    vaultId: vault.id,
+    account: accountOf(account),
+    lastOpenedAt: Date.now()
+  }
+  history.replaceState(null, '', `/?vault=${encodeURIComponent(key)}`)
+  await openEntry(entry, vault.id)
+}
+
+async function openHome(): Promise<void> {
+  await waitForWipe()
+  const removed = sessionFlag(REMOVED_FLAG, true)
+  const entries = await listBrowserVaults()
+  const params = new URLSearchParams(location.search)
+  const wanted = params.get('vault')
+  // "Open a ZenNotes Cloud Vault Here": the list, not the last vault.
+  const choosing = params.get('choose') === '1'
+  if (choosing) history.replaceState(null, '', '/')
+  const cloudEntries = entries.filter((entry) => entry.kind === 'cloud')
+  const lastKey = await currentBrowserVaultKey()
+  const entry = choosing
+    ? undefined
+    : (wanted ? entries.find((candidate) => candidate.key === wanted) : undefined) ??
+      cloudEntries.find((candidate) => candidate.key === lastKey) ??
+      [...cloudEntries].sort((left, right) => right.lastOpenedAt - left.lastOpenedAt)[0]
+  if (entry) {
+    // Signed in or not: a copy that was signed out (an expired sign-in) opens
+    // as it is, and app-core asks to connect again.
+    await openEntry(entry)
+    return
+  }
+  await installAccountOnly()
+  listenForAccountChanges()
+  if (removed === 'revoked' || removed === 'account-switch') {
+    clearLocalState()
+    showRemoved(appRoot, removed, signIn)
+    return
+  }
+  const status = await getMobileCloudAccountStatus()
+  if (status.state !== 'connected' || !status.account) {
+    showSignIn(appRoot, signIn)
+    // A sign-in this tab started can finish in another (the verification
+    // link opens one): that tab says so here.
+    onAccountAnnouncement((message) => {
+      if (message.type === 'signed-in') showSignedInElsewhere(appRoot)
+    })
+    return
+  }
+  const account = status.account
+  showVaultPicker(appRoot, {
+    email: account.user.email,
+    load: loadPickableVaults,
+    onOpen: async (vault) => {
+      if (vault.encrypted) throw new Error(ENCRYPTED_NOT_YET)
+      await openCloudVault(vault, account)
+    },
+    onCreate: async (name) => {
+      const created = (await (await authenticatedClient()).createVault(name)).data
+      await openCloudVault({ id: created.id, name: created.name || name }, account)
+    },
+    onSignOut: async () => {
+      await logoutMobileCloudAccount()
+      announceAccount({ type: 'signed-out' })
+      location.replace('/')
+    }
+  })
+}
+
+async function openTry(): Promise<void> {
+  await waitForWipe()
+  const existing = await findBrowserVault(TRY_VAULT_KEY)
+  if (existing?.kind === 'cloud') {
+    // Try's vault was kept in Cloud: it opens with the signed-in app now.
+    location.replace(`/?vault=${encodeURIComponent(TRY_VAULT_KEY)}`)
+    return
+  }
+  const entry: BrowserVaultEntry = existing ?? { key: TRY_VAULT_KEY, name: TRY_VAULT_NAME, kind: 'try', lastOpenedAt: Date.now() }
+  if (!existing) await saveBrowserVault(entry)
+  await openEntry(entry)
 }
 
 async function boot(): Promise<void> {
@@ -257,9 +992,10 @@ async function boot(): Promise<void> {
     showBootError(appRoot, 'ZenNotes in your browser runs at app.zennotes.org.')
     return
   }
-  // Phase 2 serves Try mode only; the signed-in app joins it at / in Phase 4.
-  if (location.pathname !== '/try') {
-    location.replace(`/try${location.search}${location.hash}`)
+  // First, before any await: the code leaves the address bar and history.
+  const callback = captureAuthCallback()
+  if (!callback && location.pathname !== '/' && location.pathname !== '/try') {
+    location.replace(`/${location.search}${location.hash}`)
     return
   }
   const storage = await probeStorage()
@@ -268,30 +1004,31 @@ async function boot(): Promise<void> {
     return
   }
   await ensureServiceWorkerControl()
+  await loadKeepAttachments()
 
   const params = new URLSearchParams(location.search)
   const exportNotePath = params.get('exportNote')
-  if (exportNotePath) {
+  if (exportNotePath && !callback) {
+    const key = params.get('vault') ?? (location.pathname === '/try' ? TRY_VAULT_KEY : await currentBrowserVaultKey()) ?? TRY_VAULT_KEY
+    const name = (await findBrowserVault(key))?.name ?? TRY_VAULT_NAME
     const [{ createExportBridge }, { renderExportNoteWindow }] = await Promise.all([
       import('./export-bridge'),
       import('../export-window')
     ])
-    installZenBridge(await createExportBridge(TRY_VAULT.key, TRY_VAULT.name))
+    installZenBridge(await createExportBridge(key, name))
     renderExportNoteWindow(appRoot, exportNotePath)
     return
   }
 
-  const movedAway = takeYieldedFlag(TRY_VAULT.key)
-  const held = movedAway ? null : await tryAcquireVault(TRY_VAULT.key)
-  if (held) {
-    await startApp(held)
+  if (callback) {
+    await finishSignIn(callback)
     return
   }
-  showVaultTaken(appRoot, movedAway, async () => {
-    const taken = await takeVaultHere(TRY_VAULT.key)
-    clearScreen()
-    await startApp(taken)
-  })
+  if (location.pathname === '/try') {
+    await openTry()
+    return
+  }
+  await openHome()
 }
 
 boot().catch((error: unknown) => {
@@ -299,3 +1036,4 @@ boot().catch((error: unknown) => {
   clearScreen()
   showBootError(appRoot, error instanceof Error ? error.message : String(error))
 })
+

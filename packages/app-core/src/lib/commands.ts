@@ -76,6 +76,16 @@ import {
   downloadVaultArchive,
   openVaultFolder
 } from './vault-folder'
+import {
+  canChooseCloudVaultInBrowser,
+  canKeepVaultInCloud,
+  canManageBrowserAttachments,
+  chooseCloudVaultInBrowser,
+  downloadAttachmentsToBrowser,
+  freeUpBrowserSpace,
+  keepVaultInCloud,
+  toggleKeepAttachmentsInBrowser
+} from './browser-cloud'
 import { promptImageWidth } from './image-resize'
 import { copyLinkAtCursor } from './link-copy'
 import { getKeymapDisplay, getLeaderChordDisplay, type KeymapId } from './keymaps'
@@ -2647,6 +2657,53 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       host: canDownloadVaultArchive,
       when: () => canDownloadCurrentVault(getState()),
       run: () => downloadVaultArchive()
+    },
+    // ZenNotes in the browser around Cloud (lib/browser-cloud.ts): present
+    // only where the host has them. The vault switcher (its own key) lists
+    // the vaults already in this browser; this opens one more.
+    {
+      id: 'cloud.browser.open-vault',
+      title: 'Open a ZenNotes Cloud Vault Here…',
+      category: 'Vault',
+      keywords: 'cloud vault open browser another choose list account sync web',
+      host: canChooseCloudVaultInBrowser,
+      run: () => chooseCloudVaultInBrowser()
+    },
+    {
+      id: 'cloud.browser.keep-in-cloud',
+      title: 'Keep This Vault in ZenNotes Cloud',
+      category: 'Vault',
+      keywords: 'try cloud keep save sign in account sync browser upload vault',
+      host: canKeepVaultInCloud,
+      when: () => !!getState().vault,
+      run: () => keepVaultInCloud()
+    },
+    {
+      id: 'cloud.browser.keep-attachments',
+      title: 'Toggle Keeping Attachments in This Browser',
+      category: 'Vault',
+      keywords: 'cloud browser attachments images pdf download keep offline storage space stub',
+      host: canManageBrowserAttachments,
+      when: () => !!getState().vault,
+      run: () => toggleKeepAttachmentsInBrowser()
+    },
+    {
+      id: 'cloud.browser.download-attachments',
+      title: 'Download All Attachments to This Browser',
+      category: 'Vault',
+      keywords: 'cloud browser attachments images pdf download offline storage fetch all',
+      host: canManageBrowserAttachments,
+      when: () => !!getState().vault,
+      run: () => downloadAttachmentsToBrowser()
+    },
+    {
+      id: 'cloud.browser.free-space',
+      title: 'Free Up Space in This Browser',
+      category: 'Vault',
+      keywords: 'cloud browser storage space quota attachments remove evict clear free disk',
+      host: canManageBrowserAttachments,
+      when: () => !!getState().vault,
+      run: () => freeUpBrowserSpace()
     },
     {
       id: 'cli.check-updates',

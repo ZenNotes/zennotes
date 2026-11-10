@@ -186,6 +186,28 @@ export interface ZenAppInfo {
   install?: string
 }
 
+/** What a browser keeps of ZenNotes and whether it may clear it. */
+export interface BrowserStorageStatus {
+  /** The browser promised to keep the data (navigator.storage.persisted). */
+  persisted: boolean
+  /** Whether this browser can be asked to keep it (persist() exists). */
+  canRequestPersistence: boolean
+  /** Bytes this site uses in the browser, and what it may use, when known. */
+  usageBytes: number | null
+  quotaBytes: number | null
+  keepAttachments: boolean
+  /** Attachments of the open vault that are only in Cloud on this browser. */
+  cloudOnlyAttachments: number
+}
+
+export interface BrowserAttachmentsResult {
+  /** Downloaded or turned back into placeholders. */
+  changed: number
+  failed: number
+  freedBytes?: number
+  status: BrowserStorageStatus
+}
+
 export interface ZenBridge {
   getCapabilities(): ZenCapabilities
   getAppInfo(): ZenAppInfo
@@ -527,6 +549,27 @@ export interface ZenBridge {
    *  browser, where it lives in the origin's private storage) offers this in
    *  place of openVaultInFileManager; others leave it out. */
   downloadVaultArchive?(): Promise<void>
+  /** ZenNotes in the browser: what this browser keeps of the account and
+   *  whether it may clear it (Settings > Cloud > This browser). Only the
+   *  browser host has these; app-core hides the section without them. */
+  getBrowserStorageStatus?(): Promise<BrowserStorageStatus>
+  /** Asks the browser to keep this site's data (navigator.storage.persist). */
+  requestBrowserStoragePersistence?(): Promise<BrowserStorageStatus>
+  /** On: every attachment is downloaded and kept here, and nothing is turned
+   *  back into a stub. Off: large attachments download when opened. */
+  setBrowserKeepAttachments?(keep: boolean): Promise<BrowserStorageStatus>
+  /** Downloads every attachment that is only in Cloud on this browser. */
+  downloadBrowserAttachments?(): Promise<BrowserAttachmentsResult>
+  /** Turns synced attachments back into placeholders that download again
+   *  when opened. Notes and unsynced changes are never touched. */
+  freeBrowserSpace?(): Promise<BrowserAttachmentsResult>
+  /** Try mode: signs in (or uses the account signed in) and keeps the vault
+   *  in a new ZenNotes Cloud vault. Present only while the open vault is the
+   *  browser's local Try vault. */
+  keepVaultInCloud?(): Promise<void>
+  /** ZenNotes in the browser: shows the account's Cloud vaults to open one
+   *  more in this browser (each vault opens in a tab of its own). */
+  chooseCloudVaultInBrowser?(): Promise<void>
   getPathForFile(file: File): string | null
   /** Open a folder as a temporary session (drag a folder onto the app to read
    *  it without turning it into a vault). Desktop-only. */

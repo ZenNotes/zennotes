@@ -26,8 +26,10 @@
  * before every change: it throws once another tab owns the vault.
  */
 import {
+  DIRECT_TRANSFER_FAILED,
   notFound,
   OPFS_EXISTS,
+  OPFS_STUB,
   OPFS_IS_DIRECTORY,
   OPFS_NOT_DIRECTORY,
   OPFS_NOT_EMPTY,
@@ -39,9 +41,12 @@ import {
 import type {
   OpfsDirectoryHandle,
   OpfsFileHandle,
+  OpfsFileSnapshot,
   OpfsHandle,
   OpfsSyncAccessHandle
 } from './opfs-handles'
+import { createSHA256 } from 'hash-wasm'
+import { CLOUD_STUB_MAX_BYTES, decodeCloudStub, encodeCloudStub, type CloudStubRecord } from '@zennotes/portable-vault/cloud-stub-format'
 import {
   assertStorableName,
   isValidVaultKey,
@@ -66,6 +71,41 @@ export interface OpfsVaultStoreOptions {
   /** Throws when this tab no longer owns the vault. Runs before every change. */
   fence?: () => Promise<void>
   randomId?: () => string
+  /** The worker's fetch (tests pass their own). */
+  fetch?: typeof fetch
+}
+
+/** What the sync fast path learns about one file (SyncFastPath.readForSync). */
+export interface OpfsFingerprint {
+  sha256: string
+  byteLength: number
+  utf8: boolean
+  /** The bytes, for a file no larger than the inline limit asked for. */
+  inline?: Uint8Array
+  /** A Cloud stub: the fingerprint above is the one it records. */
+  stub?: CloudStubRecord
+}
+
+/** Bytes hashed per read of a large file. */
+const HASH_CHUNK_BYTES = 8 * 1024 * 1024
+/** A signed download that sends nothing for this long is dropped and
+ *  retried by the caller. */
+const DOWNLOAD_STALL_MS = 60_000
+
+function hex(bytes: ArrayBuffer): string {
+  return [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
+}
+
+function stubsEqual(left: CloudStubRecord, right: CloudStubRecord): boolean {
+  return left.item_id === right.item_id && left.revision === right.revision &&
+    left.sha256 === right.sha256 && left.byte_length === right.byte_length &&
+    left.media_type === right.media_type &&
+    (left.encrypted?.sha256 ?? null) === (right.encrypted?.sha256 ?? null) &&
+    (left.encrypted?.byte_length ?? null) === (right.encrypted?.byte_length ?? null)
+}
+
+function transferFailed(message: string, status?: number): OpfsError {
+  return new OpfsError(DIRECT_TRANSFER_FAILED, message, 'CloudTransferError', status === undefined ? {} : { status })
 }
 
 interface Located {
@@ -98,6 +138,7 @@ async function listChildren(dir: OpfsDirectoryHandle): Promise<Array<[string, Op
 export class OpfsVaultStore {
   private readonly fence: () => Promise<void>
   private readonly randomId: () => string
+  private readonly fetchImpl: typeof fetch
   /** Sync access handles open right now, by the path they are on. */
   private readonly openHandles = new Map<string, OpfsSyncAccessHandle>()
   private foldsCase: boolean | null = null
@@ -109,6 +150,7 @@ export class OpfsVaultStore {
   ) {
     this.fence = options.fence ?? (async () => {})
     this.randomId = options.randomId ?? defaultRandomId
+    this.fetchImpl = options.fetch ?? ((...args) => globalThis.fetch(...args))
   }
 
   /** `vaults/<vaultKey>/` under the origin root, made on first use. */
@@ -543,19 +585,300 @@ export class OpfsVaultStore {
     }
   }
 
-  /** Copies a file over whatever is at the target, or a folder into a new one. */
+  /** Copies a file over whatever is at the target, or a folder into a new
+   *  one. A Cloud stub is never copied: a copy of one would be a new file
+   *  with no bytes behind it, so the caller hydrates it first (OPFS_STUB). */
   async copy(from: string, to: string): Promise<void> {
     await this.fence()
     const source = await this.locate(from)
     if (!source) throw notFound(from)
     if (source.handle.kind === 'file') {
-      await this.write(to, await this.read(from))
+      const bytes = await this.read(from)
+      if (decodeCloudStub(bytes)) {
+        throw new OpfsError(OPFS_STUB, `“${from}” is only in ZenNotes Cloud on this device.`, 'CloudStubError', { path: from })
+      }
+      await this.write(to, bytes)
       return
     }
     await this.mkdir(to)
     for (const entry of await this.list(from)) {
       await this.copy(`${from}/${entry.name}`, `${to}/${entry.name}`)
     }
+  }
+
+  // -------------------------------------------------------------------
+  // Cloud sync fast path (the package's SyncFastPath, in JavaScript)
+  // -------------------------------------------------------------------
+
+  private async fileAt(path: string): Promise<OpfsFileSnapshot> {
+    const found = await this.locate(path)
+    if (!found) throw notFound(path)
+    if (found.handle.kind !== 'file') {
+      throw new OpfsError(OPFS_IS_DIRECTORY, `“${path}” is a folder.`, 'TypeMismatchError')
+    }
+    try {
+      return await found.handle.getFile()
+    } catch (error) {
+      throw toOpfsError(error, path)
+    }
+  }
+
+  /** The bytes of a file no larger than `max`, else null (a stub is small). */
+  async readSmall(path: string, max = CLOUD_STUB_MAX_BYTES): Promise<Uint8Array | null> {
+    const file = await this.fileAt(path)
+    if (file.size > max) return null
+    return new Uint8Array(await file.arrayBuffer())
+  }
+
+  async readStub(path: string): Promise<CloudStubRecord | null> {
+    const bytes = await this.readSmall(path)
+    return bytes ? decodeCloudStub(bytes) : null
+  }
+
+  /**
+   * SHA-256, length and (for a text candidate) whether the bytes are UTF-8,
+   * with the bytes themselves for a file up to `inlineLimit`. Large files are
+   * hashed in slices, never held whole. A stub answers with what it records.
+   */
+  async fingerprint(path: string, textCandidate: boolean, inlineLimit: number): Promise<OpfsFingerprint> {
+    const file = await this.fileAt(path)
+    let small: Uint8Array<ArrayBuffer> | null = null
+    if (file.size <= CLOUD_STUB_MAX_BYTES) {
+      small = new Uint8Array(await file.arrayBuffer())
+      const stub = decodeCloudStub(small)
+      if (stub) return { sha256: stub.sha256, byteLength: stub.byte_length, utf8: false, stub }
+    }
+    if (file.size <= inlineLimit) {
+      // Most notes are small: the read that ruled out a stub is the one hashed.
+      const bytes = small ?? new Uint8Array(await file.arrayBuffer())
+      const sha256 = hex(await crypto.subtle.digest('SHA-256', bytes))
+      let utf8 = false
+      if (textCandidate) {
+        try {
+          new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+          utf8 = true
+        } catch {
+          utf8 = false
+        }
+      }
+      return { sha256, byteLength: bytes.byteLength, utf8, inline: bytes }
+    }
+    const hasher = await createSHA256()
+    hasher.init()
+    const decoder = textCandidate ? new TextDecoder('utf-8', { fatal: true }) : null
+    let utf8 = textCandidate
+    for (let offset = 0; offset < file.size; offset += HASH_CHUNK_BYTES) {
+      if (!file.slice) throw new OpfsError('ZN-OPFS-STORAGE', 'This browser cannot read large files in parts.', 'NotSupportedError')
+      const chunk = new Uint8Array(await file.slice(offset, Math.min(offset + HASH_CHUNK_BYTES, file.size)).arrayBuffer())
+      hasher.update(chunk)
+      if (decoder && utf8) {
+        try {
+          decoder.decode(chunk, { stream: offset + HASH_CHUNK_BYTES < file.size })
+        } catch {
+          utf8 = false
+        }
+      }
+    }
+    return { sha256: hasher.digest('hex'), byteLength: file.size, utf8 }
+  }
+
+  /** A file's whole bytes for an upload, after checking they are the ones
+   *  the scan fingerprinted (never a stub). */
+  async fileForUpload(path: string, sha256: string, byteLength: number): Promise<OpfsFileSnapshot> {
+    const print = await this.fingerprint(path, false, 0)
+    if (print.stub) {
+      throw new OpfsError(OPFS_STUB, `“${path}” is only in ZenNotes Cloud on this device.`, 'CloudStubError', { path })
+    }
+    if (print.sha256 !== sha256 || print.byteLength !== byteLength) {
+      throw new OpfsError('ZN-OPFS-CHANGED', `“${path}” changed since it was read for sync. Sync again.`, 'CloudSourceChangedError')
+    }
+    return await this.fileAt(path)
+  }
+
+  /** A verified copy into a new path (SyncFastPath.copyForSync). */
+  async copyForSync(from: string, to: string, byteLength: number): Promise<void> {
+    await this.fence()
+    const bytes = await this.read(from)
+    if (decodeCloudStub(bytes)) {
+      throw new OpfsError(OPFS_STUB, `“${from}” is only in ZenNotes Cloud on this device.`, 'CloudStubError', { path: from })
+    }
+    if (bytes.byteLength !== byteLength) {
+      throw new OpfsError('ZN-OPFS-CHANGED', `“${from}” changed before it could be copied.`, 'CloudSourceChangedError')
+    }
+    if (await this.locate(to)) throw new OpfsError(OPFS_EXISTS, `“${to}” already exists.`, 'InvalidModificationError')
+    await this.write(to, bytes)
+  }
+
+  /**
+   * Streams a signed Cloud download into `to`, a new path: into a temp file
+   * first, hashed as it arrives, moved into place only when its length and
+   * SHA-256 are the ones expected. A failure says whether the storage host
+   * answered (`status`), which is what decides a retry.
+   */
+  async download(options: { url: string; headers: Record<string, string>; to: string; byteLength: number; sha256: string }): Promise<void> {
+    await this.fence()
+    const segments = splitVaultPath(options.to)
+    if (segments.length === 0) throw new OpfsError(OPFS_IS_DIRECTORY, 'The vault root is a folder.', 'TypeMismatchError')
+    for (const segment of segments) assertStorableName(segment, options.to)
+    const parent = await this.directory(segments.slice(0, -1), true, options.to)
+    const name = segments[segments.length - 1]!
+    if (await this.child(parent, name, options.to)) {
+      throw new OpfsError(OPFS_EXISTS, `“${options.to}” already exists.`, 'InvalidModificationError')
+    }
+    const controller = new AbortController()
+    let stall: ReturnType<typeof setTimeout> | null = null
+    const watch = (): void => {
+      if (stall) clearTimeout(stall)
+      stall = setTimeout(() => controller.abort(), DOWNLOAD_STALL_MS)
+    }
+    let response: Response
+    try {
+      watch()
+      response = await this.fetchImpl(options.url, {
+        method: 'GET',
+        headers: options.headers,
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+        signal: controller.signal
+      })
+    } catch (error) {
+      if (stall) clearTimeout(stall)
+      throw transferFailed(`ZenNotes could not reach Cloud storage (${error instanceof Error ? error.message : String(error)}).`)
+    }
+    if (!response.ok || !response.body) {
+      if (stall) clearTimeout(stall)
+      await response.body?.cancel().catch(() => undefined)
+      throw transferFailed(`Cloud storage answered ${response.status}.`, response.status)
+    }
+    const tempName = `${TEMP_PREFIX}${this.randomId()}`
+    let temp: OpfsFileHandle
+    try {
+      temp = await parent.getFileHandle(tempName, { create: true })
+    } catch (error) {
+      if (stall) clearTimeout(stall)
+      await response.body.cancel().catch(() => undefined)
+      throw toOpfsError(error, options.to)
+    }
+    const hasher = await createSHA256()
+    hasher.init()
+    let written = 0
+    try {
+      const reader = response.body.getReader()
+      const sink = await this.openSink(temp, `${options.to}#temp`)
+      try {
+        for (;;) {
+          let chunk: ReadableStreamReadResult<Uint8Array>
+          try {
+            chunk = await reader.read()
+          } catch (error) {
+            throw transferFailed(`The Cloud download stopped (${error instanceof Error ? error.message : String(error)}).`)
+          }
+          if (chunk.done) break
+          watch()
+          written += chunk.value.byteLength
+          if (written > options.byteLength) throw new Error('Cloud download failed length or SHA-256 verification.')
+          hasher.update(chunk.value)
+          await sink.write(chunk.value)
+        }
+      } finally {
+        await sink.close()
+      }
+      if (written !== options.byteLength || hasher.digest('hex') !== options.sha256) {
+        throw new Error('Cloud download failed length or SHA-256 verification.')
+      }
+      await this.fence()
+      this.closeHandlesOn(options.to)
+      if (typeof temp.move !== 'function') {
+        throw new OpfsError('ZN-OPFS-STORAGE', 'This browser cannot replace files in place.', 'NotSupportedError')
+      }
+      await temp.move(parent, name)
+    } catch (error) {
+      await parent.removeEntry(tempName).catch(() => undefined)
+      throw error instanceof OpfsError ? error : toOpfsError(error, options.to)
+    } finally {
+      if (stall) clearTimeout(stall)
+    }
+  }
+
+  /** Writes a file in order, by sync access handle in the worker or a
+   *  writable on the main thread (tests). */
+  private async openSink(handle: OpfsFileHandle, key: string): Promise<{ write(bytes: Uint8Array): Promise<void>; close(): Promise<void> }> {
+    if (typeof handle.createSyncAccessHandle === 'function') {
+      const access = await handle.createSyncAccessHandle()
+      this.openHandles.set(key, access)
+      access.truncate(0)
+      let at = 0
+      return {
+        async write(bytes) {
+          let done = 0
+          while (done < bytes.byteLength) done += access.write(bytes.subarray(done), { at: at + done })
+          at += bytes.byteLength
+        },
+        close: async () => {
+          this.openHandles.delete(key)
+          try {
+            access.flush()
+          } finally {
+            access.close()
+          }
+        }
+      }
+    }
+    if (typeof handle.createWritable !== 'function') {
+      throw new OpfsError('ZN-OPFS-STORAGE', 'This browser cannot write to its private storage.', 'NotSupportedError')
+    }
+    const writable = await handle.createWritable()
+    return {
+      write: (bytes) => writable.write(bytes),
+      close: () => writable.close()
+    }
+  }
+
+  /** Writes a stub file (attachments on open). */
+  async writeStub(path: string, stub: CloudStubRecord): Promise<void> {
+    await this.write(path, encodeCloudStub(stub))
+  }
+
+  /**
+   * Moves `from` over `to` only while `to` is still the stub `expected`, in
+   * one call, so no write of this tab lands between the check and the move.
+   */
+  async replaceStub(from: string, to: string, expected: CloudStubRecord): Promise<boolean> {
+    await this.fence()
+    const current = await this.readStub(to).catch((error) => {
+      if (isOpfsNotFound(error)) return null
+      throw error
+    })
+    if (!current || !stubsEqual(current, expected)) return false
+    const source = await this.locate(from)
+    const target = await this.locate(to)
+    if (!source?.parent || source.handle.kind !== 'file' || !target?.parent) return false
+    this.closeHandlesOn(to)
+    this.closeHandlesOn(from)
+    if (typeof source.handle.move !== 'function') {
+      throw new OpfsError('ZN-OPFS-STORAGE', 'This browser cannot move files.', 'NotSupportedError')
+    }
+    try {
+      await source.handle.move(target.parent, target.name)
+    } catch (error) {
+      throw toOpfsError(error, to)
+    }
+    return true
+  }
+
+  /**
+   * Turns a synced attachment back into its stub to free space, only while
+   * the file is the one the caller checked (same size and time, the hash it
+   * was read with).
+   */
+  async evictToStub(path: string, expected: { size: number; mtime: number; sha256: string }, stub: CloudStubRecord): Promise<boolean> {
+    await this.fence()
+    const before = await this.stat(path)
+    if (before?.type !== 'file' || before.size !== expected.size || before.mtime !== expected.mtime) return false
+    if (stub.sha256 !== expected.sha256 || stub.byte_length !== expected.size) return false
+    await this.write(path, encodeCloudStub(stub))
+    return true
   }
 
   // -------------------------------------------------------------------

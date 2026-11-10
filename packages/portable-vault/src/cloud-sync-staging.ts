@@ -16,6 +16,7 @@ import type { CloudSyncRepositoryConflict } from '@zennotes/shared-domain/cloud-
 import { retryCloudTransfer } from '@zennotes/shared-domain/cloud-sync-stall'
 import type { CloudSyncLocalItem, CloudSyncTrackedItem } from '@zennotes/shared-domain/cloud-sync-engine'
 import type { CloudFileFingerprint } from './host'
+import { stubRecordFor, type CloudStubRecord } from './cloud-sync-stubs'
 import { randomUUID } from './uuid'
 
 const ROLLBACK_DIRECTORY = '.zennotes/sync'
@@ -35,6 +36,8 @@ export interface CloudStagingNative {
   readHeader?(path: string, length: number): Promise<string>
   /** End-to-end encrypted vaults: opens a ZNE1 file into `to` with the native chunk loop. */
   decryptFile?(options: { from: string; to: string; header: string; objectKey: string; aad: string }): Promise<{ byteLength: number; sha256: string }>
+  /** Attachments on open: writes a stub file (cloud-sync-stubs.ts). */
+  writeCloudStub?(path: string, stub: CloudStubRecord): Promise<void>
 }
 
 type NativeDecryption = Required<Pick<CloudStagingNative, 'readHeader' | 'decryptFile'>>
@@ -51,11 +54,15 @@ export class NativeCloudStaging {
   constructor(
     private readonly native: CloudStagingNative,
     private readonly textCandidate: (path: string) => boolean,
-    private readonly readLocal: (path: string) => Promise<CloudSyncLocalItem>
+    private readonly readLocal: (path: string) => Promise<CloudSyncLocalItem>,
+    /** Whether this revision arrives as a stub instead of its bytes (a host
+     *  with attachments on open; cloud-sync-stubs.ts). */
+    private readonly stubs?: (reference: CloudSyncContentReference) => boolean
   ) {}
 
   async stage(source: CloudSyncDownloadSource): Promise<CloudSyncStagedFile> {
     const reference = validateCloudSyncContentReference(source.reference)
+    if (this.native.writeCloudStub && this.stubs?.(reference)) return this.stageStub(source, reference)
     // An encrypted vault's download is ciphertext. It is verified against
     // `encrypted`, opened by the native chunk loop into the staged file and
     // deleted, so only plaintext checked against the reference can publish.
@@ -125,6 +132,30 @@ export class NativeCloudStaging {
     } catch (error) {
       await discard()
       if (download !== path) await discardDownload()
+      throw error
+    }
+  }
+
+  /**
+   * A stub in staging instead of a download: the rest of the publish path
+   * (verify, vouch, back up, rename, verify again) runs unchanged, because
+   * the host fingerprints a stub as the revision it records.
+   */
+  private async stageStub(source: CloudSyncDownloadSource, reference: CloudSyncContentReference): Promise<CloudSyncStagedFile> {
+    throwIfCloudSyncCancelled(source.signal)
+    await this.native.mkdir(STAGING_DIRECTORY)
+    const path = `${STAGING_DIRECTORY}/${randomUUID()}`
+    const discard = async () => { await this.native.deleteFile(path).catch(() => {}) }
+    try {
+      await this.native.writeCloudStub!(path, stubRecordFor(reference))
+      const staged = await this.native.readForSync(path, false)
+      if (!staged.stub || staged.sha256 !== reference.sha256 || staged.byteLength !== reference.byte_length) {
+        throw new Error('The Cloud stub failed verification.')
+      }
+      throwIfCloudSyncCancelled(source.signal)
+      return registerCloudSyncStagedFile(reference, { owner: this, path, signal: source.signal } satisfies StagedHandle, discard)
+    } catch (error) {
+      await discard()
       throw error
     }
   }

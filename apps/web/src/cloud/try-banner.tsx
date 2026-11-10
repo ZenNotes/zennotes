@@ -1,9 +1,9 @@
 /**
- * Try mode's banner: where the notes are, and the way out with them. It sits
+ * Try mode's banner: where the notes are, and the ways out with them. It sits
  * above the app in its own root (#zn-host-banner, laid out by cloud.css), so
  * app-core is unchanged. Built from app-core's Button and design tokens.
- * "Keep it in ZenNotes Cloud" joins it in Phase 4, when the browser can sign
- * in.
+ * "Keep it in ZenNotes Cloud" signs in (or uses the account signed in) and
+ * puts the vault in a new Cloud vault; the palette has it too.
  */
 import React, { useState } from 'react'
 import ReactDOM from 'react-dom/client'
@@ -16,13 +16,18 @@ export function isWebKitBrowser(userAgent = navigator.userAgent): boolean {
   return /AppleWebKit\//.test(userAgent) && !/(Chrome|Chromium|Edg|OPR)\//.test(userAgent)
 }
 
-function TryBanner({ onDownload }: { onDownload: () => Promise<void> }): JSX.Element {
-  const [busy, setBusy] = useState(false)
+export interface TryBannerActions {
+  onDownload: () => Promise<void>
+  onKeep: () => Promise<void>
+}
+
+function TryBanner({ onDownload, onKeep }: TryBannerActions): JSX.Element {
+  const [busy, setBusy] = useState<'download' | 'keep' | null>(null)
   const webkit = isWebKitBrowser()
-  const download = (): void => {
+  const run = (which: 'download' | 'keep', action: () => Promise<void>): void => {
     if (busy) return
-    setBusy(true)
-    void onDownload().finally(() => setBusy(false))
+    setBusy(which)
+    void action().finally(() => setBusy(null))
   }
   return (
     <div
@@ -33,12 +38,15 @@ function TryBanner({ onDownload }: { onDownload: () => Promise<void> }): JSX.Ele
       <p className="min-w-0 flex-1">
         <span className="font-medium text-ink-900">This vault lives only in this browser.</span>{' '}
         {webkit
-          ? 'Safari may clear it after a week without a visit, so download it to keep it.'
-          : 'Download it as a folder to keep it, or get the app.'}
+          ? 'Safari may clear it after a week without a visit. Keep it in ZenNotes Cloud, or download it.'
+          : 'Keep it in ZenNotes Cloud to have it everywhere, or download it as a folder.'}
       </p>
       <div className="flex items-center gap-2">
-        <Button variant="secondary" size="sm" disabled={busy} onClick={download}>
-          {busy ? 'Preparing…' : 'Download as a folder'}
+        <Button variant="primary" size="sm" disabled={busy !== null} onClick={() => run('keep', onKeep)}>
+          {busy === 'keep' ? 'Opening ZenNotes Cloud…' : 'Keep it in ZenNotes Cloud'}
+        </Button>
+        <Button variant="secondary" size="sm" disabled={busy !== null} onClick={() => run('download', onDownload)}>
+          {busy === 'download' ? 'Preparing…' : 'Download as a folder'}
         </Button>
         <Button
           variant="ghost"
@@ -52,11 +60,21 @@ function TryBanner({ onDownload }: { onDownload: () => Promise<void> }): JSX.Ele
   )
 }
 
-export function renderTryBanner(container: HTMLElement, onDownload: () => Promise<void>): void {
+let bannerRoot: ReactDOM.Root | null = null
+
+export function renderTryBanner(container: HTMLElement, actions: TryBannerActions): void {
   document.body.dataset.znHostBanner = 'try'
-  ReactDOM.createRoot(container).render(
+  bannerRoot ??= ReactDOM.createRoot(container)
+  bannerRoot.render(
     <React.StrictMode>
-      <TryBanner onDownload={onDownload} />
+      <TryBanner {...actions} />
     </React.StrictMode>
   )
+}
+
+/** The vault was kept in Cloud: it is no longer only in this browser. */
+export function removeTryBanner(_container: HTMLElement): void {
+  bannerRoot?.unmount()
+  bannerRoot = null
+  delete document.body.dataset.znHostBanner
 }

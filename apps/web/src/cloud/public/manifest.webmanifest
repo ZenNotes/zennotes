@@ -3,7 +3,7 @@
   "short_name": "ZenNotes",
   "description": "Keyboard-first Markdown notes, in your browser.",
   "id": "/",
-  "start_url": "/try",
+  "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "background_color": "#f7f5f0",

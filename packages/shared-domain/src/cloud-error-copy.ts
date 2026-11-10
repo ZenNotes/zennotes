@@ -498,7 +498,9 @@ function serviceMessage(raw: RawCloudError): { message: string; kind: CloudError
  * page once revoked a device whose sign-in was fine.
  */
 function isRefusedSignIn(raw: RawCloudError): boolean {
-  if (raw.code === 'UNAUTHENTICATED' || raw.code === 'ACTIVE_DEVICE_REQUIRED') return true
+  // DEVICE_REVOKED: a browser removed under Connected apps (the browser wipes
+  // its copy on hearing it; every client reads it as signed out).
+  if (raw.code === 'UNAUTHENTICATED' || raw.code === 'ACTIVE_DEVICE_REQUIRED' || raw.code === 'DEVICE_REVOKED') return true
   if (raw.code !== null || !isCloudApiAnswer(raw)) return false
   return raw.status === 401 || (raw.status === 403 && raw.text === 'Invalid ability provided.')
 }

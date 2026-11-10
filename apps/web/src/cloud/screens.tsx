@@ -43,7 +43,7 @@ export function vimModeFromPrefs(): boolean {
   return typeof vimMode === 'boolean' ? vimMode : true
 }
 
-function Card({ title, children }: { title: string; children: React.ReactNode }): JSX.Element {
+export function Card({ title, children }: { title: string; children: React.ReactNode }): JSX.Element {
   return (
     <main className="flex h-full items-center justify-center bg-paper-100 p-6 text-ink-900">
       <section
@@ -60,7 +60,7 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
   )
 }
 
-function useLetterKey(letter: string, action: () => void, enabled: boolean): void {
+export function useLetterKey(letter: string, action: () => void, enabled: boolean): void {
   useEffect(() => {
     if (!enabled) return
     const onKey = (event: KeyboardEvent): void => {
@@ -154,7 +154,7 @@ function BootErrorScreen({ message }: { message: string }): JSX.Element {
 
 let screenRoot: ReactDOM.Root | null = null
 
-function show(root: HTMLElement, element: JSX.Element): void {
+export function show(root: HTMLElement, element: JSX.Element): void {
   applySavedTheme()
   screenRoot ??= ReactDOM.createRoot(root)
   screenRoot.render(<React.StrictMode>{element}</React.StrictMode>)

@@ -10,6 +10,7 @@ import type {
 import {
   CloudAuthFlow,
   parseCloudAuthCallback,
+  parseCloudAuthFragmentCallback,
   type CloudAuthCredential,
   type CloudAuthExchangeRequest,
   type CloudAuthPending,
@@ -38,6 +39,9 @@ function defaultCloudBaseUrl(): string {
   return developmentCloudBaseUrl() || PRODUCTION_CLOUD_BASE_URL
 }
 const PENDING_AUTH_KEY = 'pending-auth'
+/** The browser keeps each pending sign-in by its state (`pending-auth:<state>`):
+ *  the callback can land in another tab than the one that started it. */
+const PENDING_AUTH_BY_STATE_PREFIX = 'pending-auth:'
 const CREDENTIAL_KEY = 'credential'
 /** The two ways the phones name an account's unlocked key: the iPhone by its
  *  account (`cloud-e2ee:<base url>#<email>`), Android by a fingerprint of it.
@@ -81,21 +85,73 @@ function secureStorageReady(): Promise<void> {
   return secureStorageSetup
 }
 
+/** A host whose sign-in returns to a web page keeps pending sign-ins by
+ *  state (the browser); the phones keep one. */
+function pendingByState(): boolean {
+  return !!portableHost().shell.cloud.callbackUrl
+}
+
+function pendingKey(state: string): string | null {
+  return /^[A-Za-z0-9._-]{1,128}$/.test(state) ? `${PENDING_AUTH_BY_STATE_PREFIX}${state}` : null
+}
+
+/** The unexpired pending sign-in that lasts longest, any state; expired
+ *  ones are removed on the way. */
+async function newestPendingByState(): Promise<unknown> {
+  let newest: { value: unknown; expires: number } | null = null
+  for (const key of await secrets().keys()) {
+    if (!key.startsWith(PENDING_AUTH_BY_STATE_PREFIX)) continue
+    const value = parseStoredJson(await secrets().get(key))
+    const expires = isRecord(value) && typeof value.expires_at === 'string' ? Date.parse(value.expires_at) : NaN
+    if (!Number.isFinite(expires) || expires <= Date.now()) {
+      await secrets().remove(key)
+      continue
+    }
+    if (!newest || expires > newest.expires) newest = { value, expires }
+  }
+  return newest?.value ?? null
+}
+
 const storage: CloudAuthStorage = {
-  async loadPending(): Promise<unknown> {
+  async loadPending(state?: string): Promise<unknown> {
     if (!secrets().available()) return null
     await secureStorageReady()
-    return parseStoredJson(await secrets().get(PENDING_AUTH_KEY))
+    if (!pendingByState()) return parseStoredJson(await secrets().get(PENDING_AUTH_KEY))
+    if (state === undefined) return newestPendingByState()
+    // Completing a sign-in takes its record out as it reads it, so one
+    // callback is used once, whichever tab it lands in.
+    const key = pendingKey(state)
+    if (!key) return null
+    const raw = await secrets().get(key)
+    if (raw !== null) await secrets().remove(key)
+    return parseStoredJson(raw)
   },
   async savePending(pending: CloudAuthPending): Promise<void> {
     assertNativeCloudAuth()
     await secureStorageReady()
-    await secrets().set(PENDING_AUTH_KEY, JSON.stringify(pending))
+    if (!pendingByState()) {
+      await secrets().set(PENDING_AUTH_KEY, JSON.stringify(pending))
+      return
+    }
+    const key = pendingKey(pending.state)
+    if (!key) throw new Error('ZenNotes could not create a secure cloud sign-in request.')
+    await secrets().set(key, JSON.stringify(pending))
   },
-  async deletePending(): Promise<void> {
+  async deletePending(state?: string): Promise<void> {
     if (!secrets().available()) return
     await secureStorageReady()
-    await secrets().remove(PENDING_AUTH_KEY)
+    if (!pendingByState()) {
+      await secrets().remove(PENDING_AUTH_KEY)
+      return
+    }
+    if (state !== undefined) {
+      const key = pendingKey(state)
+      if (key) await secrets().remove(key)
+      return
+    }
+    for (const key of await secrets().keys()) {
+      if (key.startsWith(PENDING_AUTH_BY_STATE_PREFIX)) await secrets().remove(key)
+    }
   },
   async loadCredential(): Promise<unknown> {
     if (!secrets().available()) return null
@@ -255,7 +311,9 @@ export async function configureMobileCloudAuth(appVersion: string): Promise<void
     allowInsecureLoopback: shell.cloud.allowInsecureLoopback,
     allowedInsecureOrigins: developmentBaseUrl
       ? [developmentBaseUrl]
-      : undefined
+      : undefined,
+    ...(shell.cloud.callbackUrl ? { callbackUrl: shell.cloud.callbackUrl } : {}),
+    ...(shell.cloud.authLifetimeMs ? { authLifetimeMs: shell.cloud.authLifetimeMs } : {})
   })
 
   await lifecycle.onOpenUrl((url) => {
@@ -273,10 +331,16 @@ export async function configureMobileCloudAuth(appVersion: string): Promise<void
 }
 
 /** The scheme is shared with the widget links (ui-mobile/widget-links.ts);
- *  only `zennotes://auth…` is this module's to handle. */
+ *  only `zennotes://auth…` is this module's to handle, and in the browser the
+ *  host's own callback page. */
 function isCloudAuthUrl(rawUrl: string): boolean {
   try {
     const parsed = new URL(rawUrl.trim())
+    const callbackUrl = portableHost().shell.cloud.callbackUrl
+    if (callbackUrl) {
+      const expected = new URL(callbackUrl)
+      if (parsed.origin === expected.origin && parsed.pathname === expected.pathname) return true
+    }
     return (
       parsed.protocol === 'zennotes:' &&
       (parsed.hostname || parsed.pathname.replace(/^\/+/, '')) === 'auth'
@@ -284,6 +348,41 @@ function isCloudAuthUrl(rawUrl: string): boolean {
   } catch {
     return false
   }
+}
+
+function parseAuthCallback(rawUrl: string) {
+  const callbackUrl = portableHost().shell.cloud.callbackUrl
+  return callbackUrl
+    ? parseCloudAuthFragmentCallback(rawUrl, callbackUrl) ?? parseCloudAuthCallback(rawUrl)
+    : parseCloudAuthCallback(rawUrl)
+}
+
+/**
+ * Finishes a sign-in from its callback URL and says how it went: the browser
+ * runs this on its callback page before anything else, and shows the error
+ * where the phones log it. Calls queue behind each other, like the deep links.
+ */
+export function completeMobileCloudSignIn(rawUrl: string): Promise<CloudAccountStatus> {
+  const callback = parseAuthCallback(rawUrl)
+  if (!callback) return Promise.reject(new Error('This sign-in link is not complete. Start signing in again.'))
+  const run = callbackQueue.then(async () => {
+    const status = await requireAuthFlow().complete(callback)
+    notify(status)
+    return status
+  })
+  callbackQueue = run.then(() => undefined, () => undefined)
+  return run
+}
+
+/** Tells this tab's listeners the account changed elsewhere (another tab
+ *  finished signing in or signed out); they read the status again. */
+export async function refreshMobileCloudAccountStatus(): Promise<CloudAccountStatus> {
+  stopMobileCloudRequests()
+  forgetKeyring()
+  const status = await requireAuthFlow().status()
+  if (appActive && status.state === 'connected') resumeMobileCloudRequests()
+  notify(status)
+  return status
 }
 
 export async function getMobileCloudAccountStatus(): Promise<CloudAccountStatus> {
@@ -376,20 +475,13 @@ export async function authenticatedCredential(): Promise<CloudAuthCredential> {
 }
 
 function scheduleAuthCallback(rawUrl: string): void {
-  const callback = parseCloudAuthCallback(rawUrl)
-  if (!callback) {
+  if (!parseAuthCallback(rawUrl)) {
     console.error('ZenNotes Cloud ignored an invalid auth callback URL.')
     return
   }
-
-  callbackQueue = callbackQueue
-    .then(async () => {
-      const status = await requireAuthFlow().complete(callback)
-      notify(status)
-    })
-    .catch((error: unknown) => {
-      console.error('ZenNotes Cloud could not complete the auth callback.', error)
-    })
+  completeMobileCloudSignIn(rawUrl).catch((error: unknown) => {
+    console.error('ZenNotes Cloud could not complete the auth callback.', error)
+  })
 }
 
 async function notifyAccountListeners(): Promise<void> {
@@ -443,7 +535,9 @@ async function exchangeCloudAuthCode(
         : typeof payload.message === 'string'
           ? payload.message
           : 'ZenNotes Cloud rejected this sign-in request.')
-    throw new Error(message)
+    // The status and code travel with the message: the browser tells "not
+    // available for this account yet" (403 CLOUD_WEB_NOT_ENABLED) apart.
+    throw new CloudSignInRefusedError(message, response.status, typeof error.code === 'string' ? error.code : null)
   }
 
   return response.data
@@ -463,6 +557,14 @@ async function revokeCloudDevice(baseUrl: string, token: string): Promise<void> 
   })
   if ((response.status < 200 || response.status >= 300) && response.status !== 401) {
     throw new Error(`ZenNotes Cloud could not revoke this device (${response.status}).`)
+  }
+}
+
+/** Cloud answered a sign-in exchange with an error. */
+export class CloudSignInRefusedError extends Error {
+  constructor(message: string, readonly status: number, readonly code: string | null) {
+    super(message)
+    this.name = 'CloudSignInRefusedError'
   }
 }
 

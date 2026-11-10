@@ -17,19 +17,30 @@ export const OPFS_FENCED = 'ZN-OPFS-FENCED'
 export const OPFS_QUOTA = 'ZN-OPFS-QUOTA'
 export const OPFS_STORAGE = 'ZN-OPFS-STORAGE'
 export const OPFS_CLOSED = 'ZN-OPFS-CLOSED'
+/** A Cloud stub where bytes were asked for (copying one); `path` names it. */
+export const OPFS_STUB = 'ZN-OPFS-STUB'
+/** The package's code for a signed download or upload that failed; `status`
+ *  is the storage host's answer, absent when none came. */
+export const DIRECT_TRANSFER_FAILED = 'DIRECT_DOWNLOAD_FAILED'
 
 export interface OpfsErrorShape {
   name: string
   message: string
   code: string
+  status?: number
+  path?: string
 }
 
 export class OpfsError extends Error {
   readonly code: string
-  constructor(code: string, message: string, name = 'OpfsError') {
+  status?: number
+  path?: string
+  constructor(code: string, message: string, name = 'OpfsError', extra: { status?: number; path?: string } = {}) {
     super(message)
     this.code = code
     this.name = name
+    if (extra.status !== undefined) this.status = extra.status
+    if (extra.path !== undefined) this.path = extra.path
   }
 }
 
@@ -59,11 +70,17 @@ export function toOpfsError(error: unknown, path = ''): OpfsError {
 
 export function serializeOpfsError(error: unknown): OpfsErrorShape {
   const opfs = toOpfsError(error)
-  return { name: opfs.name, message: opfs.message, code: opfs.code }
+  return {
+    name: opfs.name,
+    message: opfs.message,
+    code: opfs.code,
+    ...(opfs.status !== undefined ? { status: opfs.status } : {}),
+    ...(opfs.path !== undefined ? { path: opfs.path } : {})
+  }
 }
 
 export function deserializeOpfsError(shape: OpfsErrorShape): OpfsError {
-  return new OpfsError(shape.code, shape.message, shape.name)
+  return new OpfsError(shape.code, shape.message, shape.name, { status: shape.status, path: shape.path })
 }
 
 export function isOpfsNotFound(error: unknown): boolean {

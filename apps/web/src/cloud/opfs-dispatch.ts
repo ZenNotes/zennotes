@@ -20,6 +20,14 @@ export type OpfsOp =
   | 'deleteFile'
   | 'rmdir'
   | 'rmdirIfEmpty'
+  | 'readStub'
+  | 'fingerprint'
+  | 'fileForUpload'
+  | 'copyForSync'
+  | 'download'
+  | 'writeStub'
+  | 'replaceStub'
+  | 'evictToStub'
 
 export interface OpfsRequest {
   id: number
@@ -44,9 +52,10 @@ export interface OpfsDispatcherDeps {
   /** A reader: opens only an existing vault, prepares nothing and refuses
    *  every change (the export window, spike F1a). */
   readOnly?: boolean
+  fetch?: typeof fetch
 }
 
-const READS = new Set<OpfsOp>(['open', 'read', 'stat', 'list'])
+const READS = new Set<OpfsOp>(['open', 'read', 'stat', 'list', 'readStub', 'fingerprint'])
 
 export interface OpfsDispatcher {
   handle(request: OpfsRequest): Promise<OpfsResponse>
@@ -83,7 +92,8 @@ export function createOpfsDispatcher(deps: OpfsDispatcherDeps): OpfsDispatcher {
         : undefined
       const next = await OpfsVaultStore.open(await deps.root(), vaultKey, {
         fence,
-        randomId: deps.randomId
+        randomId: deps.randomId,
+        fetch: deps.fetch
       })
       const result: OpfsOpenResult = await next.prepare()
       store = next
@@ -112,6 +122,26 @@ export function createOpfsDispatcher(deps: OpfsDispatcherDeps): OpfsDispatcher {
         return await store.rmdir(path)
       case 'rmdirIfEmpty':
         return await store.rmdirIfEmpty(path)
+      case 'readStub':
+        return await store.readStub(path)
+      case 'fingerprint':
+        return await store.fingerprint(path, args[1] === true, Number(args[2] ?? 0))
+      case 'fileForUpload':
+        return await store.fileForUpload(path, String(args[1] ?? ''), Number(args[2] ?? -1))
+      case 'copyForSync':
+        return await store.copyForSync(path, String(args[1] ?? ''), Number(args[2] ?? -1))
+      case 'download':
+        return await store.download(args[0] as Parameters<OpfsVaultStore['download']>[0])
+      case 'writeStub':
+        return await store.writeStub(path, args[1] as Parameters<OpfsVaultStore['writeStub']>[1])
+      case 'replaceStub':
+        return await store.replaceStub(path, String(args[1] ?? ''), args[2] as Parameters<OpfsVaultStore['replaceStub']>[2])
+      case 'evictToStub':
+        return await store.evictToStub(
+          path,
+          args[1] as Parameters<OpfsVaultStore['evictToStub']>[1],
+          args[2] as Parameters<OpfsVaultStore['evictToStub']>[2]
+        )
       default:
         throw new OpfsError('ZN-OPFS-STORAGE', `Unknown vault operation ${String(op)}`, 'NotSupportedError')
     }

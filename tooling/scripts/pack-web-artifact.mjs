@@ -70,8 +70,27 @@ export const TARGETS = {
     entrypoints: ['index.html', 'sw.js', 'manifest.webmanifest', 'headers.json', 'THIRD_PARTY_NOTICES.txt'],
     workspaceScript: 'build:cloud',
     distribution: 'apps/web/dist-cloud',
-    staticLicense: true
+    staticLicense: true,
+    requiresBase: true
   }
+}
+
+/**
+ * Where a cloud-web build is served from: `/vendor/cloud-web/releases/<release>/`
+ * on the website (Phase 3 installs the hashed files there). The release name
+ * is chosen before building, because the version hashes the built files,
+ * which embed the base, and so cannot name their own folder:
+ * `<product version>-<12 hex of the commit>`, with `-dirty` for a local
+ * candidate.
+ */
+export const CLOUD_WEB_BASE_PATTERN = /^\/vendor\/cloud-web\/releases\/([A-Za-z0-9][A-Za-z0-9._+-]{0,127})\/$/
+
+export function cloudWebRelease({ productVersion, commit, dirty }) {
+  if (!/^[a-f0-9]{40}$/.test(commit)) throw new Error('A cloud-web release needs the 40-hex source commit')
+  const release = `${productVersion}-${commit.slice(0, 12)}${dirty ? '-dirty' : ''}`
+  const base = `/vendor/cloud-web/releases/${release}/`
+  if (!CLOUD_WEB_BASE_PATTERN.test(base)) throw new Error(`Not a cloud-web release name: ${release}`)
+  return { release, base }
 }
 
 export async function packWebDistribution({
@@ -81,7 +100,8 @@ export async function packWebDistribution({
   source,
   toolchain,
   license = join(root, 'LICENSE'),
-  target = 'web'
+  target = 'web',
+  base
 }) {
   if (
     typeof source?.dirty !== 'boolean' ||
@@ -94,6 +114,15 @@ export async function packWebDistribution({
   }
   const profile = TARGETS[target]
   if (!profile) throw new Error('Unknown frontend artifact target')
+  // The website installs a cloud-web build under the base it was built for
+  // and refuses a manifest without one; no other target has a base.
+  if (profile.requiresBase) {
+    if (typeof base !== 'string' || !CLOUD_WEB_BASE_PATTERN.test(base)) {
+      throw new Error('A cloud-web artifact needs the base it was built for: /vendor/cloud-web/releases/<release>/')
+    }
+  } else if (base !== undefined) {
+    throw new Error(`The ${target} artifact has no base`)
+  }
   const stage = await mkdtemp(join(tmpdir(), 'zennotes-web-artifact-'))
   try {
     await cp(distribution, join(stage, 'dist'), {
@@ -114,6 +143,7 @@ export async function packWebDistribution({
       schemaVersion: 1,
       artifact: profile.artifact,
       protocol: profile.protocol,
+      ...(profile.requiresBase ? { base } : {}),
       source,
       toolchain,
       entrypoints,
@@ -152,7 +182,8 @@ export async function packWebDistribution({
           }
         : {})
     }
-    const manifest = { ...identity, version, archive }
+    const { base: builtFor, ...rest } = identity
+    const manifest = builtFor === undefined ? { ...identity, version, archive } : { ...rest, version, base: builtFor, archive }
     await mkdir(output, { recursive: true })
     const archivePath = join(output, packed.filename)
     const manifestPath = `${archivePath}.json`
@@ -183,13 +214,17 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
         }).trim().length > 0,
       lockfileSha256: sha256(await readFile(join(root, 'package-lock.json')))
     }
+    const product = JSON.parse(await readFile(join(root, 'apps/web/package.json'), 'utf8'))
+    const base = profile.requiresBase
+      ? cloudWebRelease({ productVersion: product.version, commit: source.commit, dirty: source.dirty }).base
+      : undefined
     runNpm(['run', profile.workspaceScript, '--workspace', '@zennotes/web'], {
       cwd: root,
-      env: webDistLockEnv(lock),
+      env: { ...webDistLockEnv(lock), ...(base ? { ZN_CLOUD_BASE: base } : {}) },
       stdio: 'inherit'
     })
-    const product = JSON.parse(await readFile(join(root, 'apps/web/package.json'), 'utf8'))
     const result = await packWebDistribution({
+      base,
       distribution: join(root, profile.distribution),
       output: join(root, 'dist/web-artifacts'),
       productVersion: product.version,
@@ -204,6 +239,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       JSON.stringify(
         {
           version: result.manifest.version,
+          ...(base ? { base } : {}),
           archive: result.archivePath,
           manifest: result.manifestPath
         },

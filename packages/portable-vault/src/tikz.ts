@@ -19,8 +19,18 @@
  * tolerate concurrent runs).
  */
 import type { TikzRenderResponse } from '@zennotes/shared-domain/ipc'
+import { portableHost } from './host'
 
-const ASSET_BASE = 'tikzjax/'
+/** Where the host serves the vendored files: `tikzjax/` beside the page on
+ *  the phones; the browser build serves them under its release base, which
+ *  is not where the page is (HostShell.tikzAssetBase). */
+function assetBase(): string {
+  try {
+    return portableHost().shell.tikzAssetBase ?? 'tikzjax/'
+  } catch {
+    return 'tikzjax/'
+  }
+}
 // Generous: the first render on a cold device includes engine load + wasm
 // init; subsequent blocks are sub-second. Past this, fall back to an error.
 const RENDER_TIMEOUT_MS = 30000
@@ -51,14 +61,14 @@ function ensureLoaded(): Promise<boolean> {
       const link = document.createElement('link')
       link.id = 'zn-tikzjax-fonts'
       link.rel = 'stylesheet'
-      link.href = `${ASSET_BASE}fonts.css`
+      link.href = `${assetBase()}fonts.css`
       document.head.appendChild(link)
     }
     if (!document.getElementById('zn-tikzjax')) {
       await new Promise<void>((resolve, reject) => {
         const s = document.createElement('script')
         s.id = 'zn-tikzjax'
-        s.src = `${ASSET_BASE}tikzjax.js`
+        s.src = `${assetBase()}tikzjax.js`
         s.onload = () => resolve()
         s.onerror = () => reject(new Error('tikzjax.js failed to load'))
         document.body.appendChild(s)

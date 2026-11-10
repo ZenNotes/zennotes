@@ -14,7 +14,7 @@
 import assert from 'node:assert/strict'
 import { afterEach, describe, it, vi } from 'vitest'
 import { createTestHost, RecordingHttp, type HttpResponder } from '../test/test-host'
-import type { HostCloudConfig, HttpTransportRequest, SecretStorage } from './host'
+import type { HostCloudConfig, HostShell, HttpTransportRequest, SecretStorage } from './host'
 
 const account = {
   base_url: 'https://zennotes.org', connected_at: '2026-09-14T12:00:00Z',
@@ -77,7 +77,12 @@ afterEach(() => {
   vi.resetModules()
 })
 
-async function coldLaunch(saved: Map<string, string>, http: HttpResponder = noTransport, cloud: Partial<HostCloudConfig> = {}) {
+async function coldLaunch(
+  saved: Map<string, string>,
+  http: HttpResponder = noTransport,
+  cloud: Partial<HostCloudConfig> = {},
+  shell: Partial<HostShell> = {}
+) {
   const lifecycle: string[] = []
   let lifetime = new AbortController()
   const stop = () => { lifecycle.push('stop'); lifetime.abort() }
@@ -89,7 +94,8 @@ async function coldLaunch(saved: Map<string, string>, http: HttpResponder = noTr
     createCloudSyncClient: () => assert.fail('status must only read storage'),
     stopMobileCloudRequests: stop,
     resumeMobileCloudRequests: resume,
-    mobileCloudRequestSignal: () => lifetime.signal
+    mobileCloudRequestSignal: () => lifetime.signal,
+    firstValidationMessage: () => null
   }))
   const keychain = new Keychain(saved)
   const host = createTestHost({
@@ -102,6 +108,7 @@ async function coldLaunch(saved: Map<string, string>, http: HttpResponder = noTr
     }
   })
   host.shell.cloud = { ...host.shell.cloud, ...cloud }
+  Object.assign(host.shell, shell)
   // The fresh module reads the fresh host module, so install into that one.
   const { installPortableHost } = await import('./host')
   installPortableHost({ ...host, secrets: keychain })
@@ -265,5 +272,74 @@ describe('Android cases', () => {
       }])
       assert.equal(saved.size, 0, `answer ${status}`)
     }
+  })
+})
+
+describe('signing in from a web page (the browser)', () => {
+  const callbackUrl = 'https://app.zennotes.org/auth/callback'
+  const webAccount = { ...account, device: { id: 'browser-1', name: 'Chrome on macOS', platform: 'web' as const } }
+
+  async function browserLaunch(saved: Map<string, string>, exchange: HttpResponder = noTransport) {
+    const opened: string[] = []
+    const api = await coldLaunch(saved, exchange, {
+      platform: 'web', deviceName: 'Chrome on macOS', callbackUrl, authLifetimeMs: 45 * 60 * 1000
+    }, { openExternal: async (url: string) => { opened.push(url) } })
+    return { api, opened }
+  }
+
+  it('sends the callback page, keeps the pending sign-in by its state and lets it wait 45 minutes', async () => {
+    const saved = new Map<string, string>()
+    const { api, opened } = await browserLaunch(saved)
+    const before = Date.now()
+    const result = await api.connectMobileCloudAccount('https://zennotes.org')
+    const url = new URL(opened[0]!)
+    assert.equal(url.pathname, '/app/connect')
+    assert.equal(url.searchParams.get('callback_url'), callbackUrl)
+    const state = url.searchParams.get('state')!
+    assert.deepEqual([...saved.keys()], [`pending-auth:${state}`])
+    const lifetime = Date.parse(result.expires_at) - before
+    assert.ok(lifetime > 44 * 60 * 1000 && lifetime <= 45 * 60 * 1000 + 1000)
+    assert.deepEqual(await api.getMobileCloudAccountStatus(), { state: 'connecting', account: null })
+  })
+
+  it('finishes in another tab from the fragment, as a web device, and uses the record once', async () => {
+    const saved = new Map<string, string>()
+    const exchanges: HttpTransportRequest[] = []
+    const first = await browserLaunch(saved)
+    await first.api.connectMobileCloudAccount('https://zennotes.org')
+    const state = new URL(first.opened[0]!).searchParams.get('state')!
+    // The verification link opened a new tab: a fresh module over the same storage.
+    const second = await browserLaunch(saved, async (options) => {
+      exchanges.push(options)
+      return { status: 200, headers: {}, data: { token: 'test-only', user: webAccount.user, device: webAccount.device } }
+    })
+    const status = await second.api.completeMobileCloudSignIn(`${callbackUrl}#code=abc123&state=${state}`)
+    assert.equal(status.state, 'connected')
+    assert.equal(status.account?.device.platform, 'web')
+    const body = exchanges[0]!.data as Record<string, unknown>
+    assert.equal(body.platform, 'web')
+    assert.equal(body.device_name, 'Chrome on macOS')
+    assert.equal([...saved.keys()].some((key) => key.startsWith('pending-auth')), false)
+    // Replayed, the same callback finds nothing to finish.
+    const third = await browserLaunch(saved)
+    await third.api.logoutMobileCloudAccount().catch(() => undefined)
+    await assert.rejects(third.api.completeMobileCloudSignIn(`${callbackUrl}#code=abc123&state=${state}`), /expired/)
+  })
+
+  it('refuses a callback for another page or with the code in the query', async () => {
+    const { api } = await browserLaunch(new Map())
+    await assert.rejects(api.completeMobileCloudSignIn(`https://evil.example/auth/callback#code=abc&state=s`), /not complete/)
+    await assert.rejects(api.completeMobileCloudSignIn(`${callbackUrl}?code=abc&state=s`), /not complete/)
+  })
+
+  it('carries the service code of a refused exchange (403 CLOUD_WEB_NOT_ENABLED)', async () => {
+    const saved = new Map<string, string>()
+    const { api, opened } = await browserLaunch(saved, async () => ({
+      status: 403, headers: {}, data: { error: { code: 'CLOUD_WEB_NOT_ENABLED', message: 'Not yet.' } }
+    }))
+    await api.connectMobileCloudAccount('https://zennotes.org')
+    const state = new URL(opened[0]!).searchParams.get('state')!
+    await assert.rejects(api.completeMobileCloudSignIn(`${callbackUrl}#code=abc123&state=${state}`), (error: unknown) =>
+      (error as { code?: string; status?: number }).code === 'CLOUD_WEB_NOT_ENABLED' && (error as { status?: number }).status === 403)
   })
 })
