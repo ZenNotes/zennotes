@@ -129,7 +129,11 @@ it('sets up, locks, unlocks, changes the passphrase and replaces the recovery ke
   await assert.rejects(encryption.unlock({ recoveryWords: setup.recoveryWords.join(' ') }), { code: 'wrong-key' })
   await encryption.unlock({ recoveryWords: replaced.recoveryWords.join(' ') })
   assert.equal((await encryption.status()).unlocked, true)
-})
+  // Every step above derives a key from a passphrase or recovery words: under
+  // a second on a Mac, over five on a Windows runner (the phones ran it on
+  // node:test, which has no default timeout). shared-domain gives its
+  // key-work cases the same room.
+}, 30_000)
 
 it('finishes a pending setup only under the credential that began it', async () => {
   const h = account()
