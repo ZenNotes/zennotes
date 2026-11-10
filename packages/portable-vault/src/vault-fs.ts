@@ -1380,21 +1380,24 @@ export class PortableVault<F extends PortableVaultFiles = PortableVaultFiles> {
     const candidates: SearchCandidate[] = []
     const settings = await this.getVaultSettings()
     const hidden = hiddenPrimaryRootNames(settings.systemFolderPaths)
+    // Template notes (#1024) are placeholders nobody is searching for, so
+    // their folder is never walked: desktop leaves them out before ranking so
+    // the limit is spent on real notes, and not listing or reading them at
+    // all is the cheaper way to get there on a document-provider folder,
+    // where every listing and read is a query.
+    const templateFolder = resolveTemplateFolder(settings)
     for (const folder of SEARCHABLE_TEXT_FOLDERS) {
       const topRel = await this.folderRootRel(folder)
       const isPrimaryRoot = folder === 'inbox' && topRel === ''
       if (!isPrimaryRoot) {
+        if (isPathInTemplateFolder(topRel, templateFolder)) continue
         const stat = await this.fs.statOrNull(topRel)
         if (!stat || stat.type !== 'directory') continue
       }
-      await this.collectSearchCandidates(topRel, folder, isPrimaryRoot, hidden, candidates)
+      await this.collectSearchCandidates(topRel, folder, isPrimaryRoot, hidden, templateFolder, candidates)
     }
-    // Template notes (#1024) are placeholders nobody is searching for. They
-    // go before ranking, as on desktop, so the limit is spent on real notes.
-    const templateFolder = resolveTemplateFolder(settings)
     const ranked: { score: number; c: SearchCandidate }[] = []
     for (const c of candidates) {
-      if (isPathInTemplateFolder(c.path, templateFolder)) continue
       const bodyScore = scoreMatch(trimmed, c.lineText)
       if (bodyScore <= 0) continue
       const titleScore = scoreMatch(trimmed, c.title) * 0.18
@@ -1417,15 +1420,17 @@ export class PortableVault<F extends PortableVaultFiles = PortableVaultFiles> {
     folder: NoteFolder,
     isPrimaryRoot: boolean,
     hidden: Set<string>,
+    templateFolder: string | null,
     out: SearchCandidate[]
   ): Promise<void> {
     const entries = await this.fs.readdir(dirRel)
     for (const entry of entries) {
       const childRel = dirRel ? `${dirRel}/${entry.name}` : entry.name
+      if (isPathInTemplateFolder(childRel, templateFolder)) continue
       if (entry.type === 'directory') {
         if (entry.name.startsWith('.')) continue
         if (isPrimaryRoot && hidden.has(entry.name)) continue
-        await this.collectSearchCandidates(childRel, folder, false, hidden, out)
+        await this.collectSearchCandidates(childRel, folder, false, hidden, templateFolder, out)
         continue
       }
       if (!isMarkdownPath(entry.name)) continue
@@ -1591,10 +1596,15 @@ export class PortableVault<F extends PortableVaultFiles = PortableVaultFiles> {
   }
 
   /** Tour notes still on disk under their older names (see
-   *  currentDemoTourPath), found the way desktop's vault.ts finds them. */
+   *  currentDemoTourPath), found the way desktop's vault.ts finds them
+   *  (olderDemoTourNotePaths). Regenerate and Remove delete what this
+   *  returns, so it takes only a file that shared-domain's exact older-name
+   *  match maps onto one of the tour's own notes: a folder that happens to
+   *  carry such a name is the user's and stays. */
   private async olderDemoTourNotePaths(): Promise<string[]> {
     const current = new Set(DEMO_TOUR_NOTES.map((note) => note.path))
     return (await this.fs.readdir(DEMO_TOUR_DIR))
+      .filter((entry) => entry.type === 'file')
       .map((entry) => `${DEMO_TOUR_DIR}/${entry.name}`)
       .filter((rel) => rel !== currentDemoTourPath(rel) && current.has(currentDemoTourPath(rel)))
   }
