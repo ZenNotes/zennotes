@@ -9,6 +9,7 @@
     "./vault": "./src/vault-fs.ts",
     "./vault-fs-contract": "./src/vault-fs-contract.ts",
     "./vault-core": "./src/vault-core.ts",
+    "./fs-errors": "./src/fs-errors.ts",
     "./events": "./src/events.ts",
     "./welcome-note": "./src/welcome-note.ts",
     "./database-open": "./src/database-open.ts",
