@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { test } from 'vitest'
+import { describe, test } from 'vitest'
 import { MemoryVaultFileSystem } from './memory-fs'
 import { PortableVault } from './vault-fs'
 
@@ -160,4 +160,91 @@ test('each scanned task names its parent the way the core contract fixture says 
     assert.deepEqual(links(await vault.scanTasksForPath(testCase.note.path)), testCase.expectedTasks, testCase.id)
     assert.deepEqual(links(await vault.scanTasks()), testCase.expectedTasks, testCase.id)
   }
+})
+
+// ---------------------------------------------------------------------------
+// Android cases (zennotesandroid src/bridge/template-folder.test.ts), on its
+// own fixture: a note with nested subtasks beside the templates, and a
+// listing with a fixed stamp, so the task cache serves a second scan.
+// ---------------------------------------------------------------------------
+
+function androidFixture(settings: Record<string, unknown>) {
+  const fs = new MemoryFs(), vault = new PortableVault('Fixture', fs)
+  fs.put(SETTINGS, JSON.stringify({ primaryNotesLocation: 'inbox', ...settings }))
+  fs.put('inbox/Templates/Meeting.md', '# Meeting\n\n- [ ] Agenda item\n- [ ] Follow-up\n\nRetrospective notes\n')
+  fs.put('inbox/Templates/Work/Standup.md', '# Standup\n\n- [ ] Yesterday\n')
+  fs.put('inbox/Templates Old/Kept.md', '# Kept\n\n- [ ] a folder that only shares a prefix\n')
+  fs.put('inbox/Projects/Site.md', '# Site\n\n- [ ] Launch\n  - [x] Write copy\n  - [ ] Ship\n\nRetrospective notes\n')
+  Object.assign(vault, {
+    invalidateMeta: () => {},
+    // A fixed stamp lets the task cache serve.
+    listNotes: async () => [...fs.files.keys()]
+      .filter(path => path.endsWith('.md'))
+      .map(path => ({
+        path,
+        title: path.split('/').pop()!.replace(/\.md$/, ''),
+        folder: 'inbox',
+        updatedAt: 1,
+        size: fs.files.get(path)!.bytes.byteLength
+      }))
+  })
+  return { fs, vault }
+}
+
+describe('Android cases', () => {
+  test('an unusable template folder leaves no templates stub in vault.json', async () => {
+    for (const templates of [{ folder: '../outside' }, { folder: 'inbox/.hidden' }, { folder: '' }, 'Templates', []]) {
+      const { fs, vault } = androidFixture({ templates })
+      const settings = await vault.getVaultSettings()
+      assert.equal('templates' in settings, false, JSON.stringify(templates))
+      await vault.setVaultSettings(settings)
+      assert.equal('templates' in written(fs), false, JSON.stringify(templates))
+    }
+  })
+
+  test("the template folder's checkboxes stay out of Tasks, even inside a Task folder", async () => {
+    const { fs, vault } = androidFixture({ templates: { folder: 'inbox/Templates' } })
+    const expected = ['inbox/Projects/Site.md', 'inbox/Templates Old/Kept.md']
+    assert.deepEqual(await scanned(vault), expected)
+    assert.deepEqual(await rescanned(vault, fs), expected)
+
+    const narrowed = androidFixture({ templates: { folder: 'inbox/Templates' }, tasks: { includedFolders: ['inbox'] } })
+    assert.deepEqual(await scanned(narrowed.vault), expected)
+  })
+
+  test('renaming the template folder, or a folder around it, carries the setting along', async () => {
+    const { fs, vault } = androidFixture({ templates: { folder: 'inbox/Templates' } })
+    await vault.renameFolder('inbox', 'Templates', 'Blueprints')
+    assert.deepEqual(written(fs).templates, { folder: 'inbox/Blueprints' })
+    assert.deepEqual(await scanned(vault), ['inbox/Projects/Site.md', 'inbox/Templates Old/Kept.md'])
+
+    const nested = androidFixture({ templates: { folder: 'inbox/Templates/Work' } })
+    await nested.vault.renameFolder('inbox', 'Templates', 'Library/Templates')
+    assert.deepEqual(written(nested.fs).templates, { folder: 'inbox/Library/Templates/Work' })
+
+    // A folder that only shares a name prefix leaves it alone.
+    const other = androidFixture({ templates: { folder: 'inbox/Templates' } })
+    await other.vault.renameFolder('inbox', 'Templates Old', 'Archive Old')
+    assert.deepEqual(written(other.fs).templates, { folder: 'inbox/Templates' })
+  })
+
+  test('every scanned task carries the parentId of the shared subtasks fixture, cached or read', async () => {
+    const fixtureUrl = new URL('../../bridge-contract/fixtures/task-subtasks.json', import.meta.url)
+    const contract = JSON.parse(readFileSync(fixtureUrl, 'utf8')) as { cases: SubtaskCase[] }
+    assert.ok(contract.cases.length > 0)
+    for (const contractCase of contract.cases) {
+      const { fs, vault } = androidFixture({})
+      fs.files.clear()
+      fs.put(SETTINGS, JSON.stringify({ primaryNotesLocation: 'inbox' }))
+      fs.put(contractCase.note.path, contractCase.body)
+      for (const pass of ['read', 'cached']) {
+        const tasks = (await vault.scanTasks()) as { id: string; parentId?: string }[]
+        assert.deepEqual(
+          tasks.map(task => (task.parentId ? { id: task.id, parentId: task.parentId } : { id: task.id })),
+          contractCase.expectedTasks,
+          `${contractCase.id} (${pass})`
+        )
+      }
+    }
+  })
 })

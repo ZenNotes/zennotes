@@ -653,6 +653,18 @@ describe('cached repository without crypto.randomUUID (iOS 15.0 to 15.3)', () =>
     assert.ok(renames.some((entry) => new RegExp(`^\\.zennotes/sync/write-${UUID}\\.md -> note\\.md$`).test(entry)))
     assert.deepEqual([...h.files.keys()], ['note.md'])
   })
+
+  // Android's case: a pulled Cloud change (apply), not a conflict resolution.
+  it('writes a Cloud change on a WebView without crypto.randomUUID', async () => {
+    const h = harness({ 'note.md': 'Old' })
+    const [local] = await h.repository.scan()
+    await h.repository.apply({ sequence: 2, item_id: 'item', revision: 2, type: 'upsert', path: 'note.md',
+      previous_path: null, content: content('New') }, { item_id: 'item', path: local.path, kind: local.kind,
+      revision: 1, sha256: local.content.sha256, byte_length: local.content.byte_length, media_type: local.content.media_type })
+    assert.equal(h.files.get('note.md')?.bytes.toString(), 'New')
+    assert.ok(h.writes.some((path) => /^\.zennotes\/sync\/write-[0-9a-f-]{36}\.md$/.test(path)))
+    assert.ok(h.writes.some((path) => /^\.zennotes\/sync\/rollback-[0-9a-f-]{36}\.md$/.test(path)))
+  })
 })
 
 describe('bridge calls per pulled file', () => {

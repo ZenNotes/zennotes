@@ -8,9 +8,18 @@ import type {
   CloudSyncUploadRequest,
   CloudSyncUpsertMutation
 } from '@zennotes/bridge-contract/cloud-sync'
-import { generateCloudE2eeKey, zne1CiphertextLength } from '@zennotes/shared-domain/cloud-e2ee'
+import {
+  CloudPathIndex,
+  Zne1Purpose,
+  decryptItemMeta,
+  decryptZne1,
+  generateCloudE2eeKey,
+  unwrapVaultKey,
+  zne1CiphertextLength
+} from '@zennotes/shared-domain/cloud-e2ee'
 import { CloudE2eeLockedError, CloudVaultCipher } from '@zennotes/shared-domain/cloud-e2ee-vault'
-import { CloudSyncPathRefusedError } from '@zennotes/shared-domain/cloud-sync-refusal'
+import { CloudSyncPathRefusedError, cloudSyncPathRefusal } from '@zennotes/shared-domain/cloud-sync-refusal'
+import { cloudSendTimeoutMs } from '@zennotes/shared-domain/cloud-sync-stall'
 import {
   CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES,
   MobileDirectUploadError,
@@ -19,6 +28,7 @@ import {
   rememberMobileUploadSource,
   type MobileDirectUploadApi,
   type MobileObjectUpload,
+  type MobileObjectUploadRequest,
   type MobileUploadSealer
 } from './mobile-direct-upload'
 
@@ -584,3 +594,343 @@ describe('direct uploads for end-to-end encrypted vaults', () => {
     assert.deepEqual(calls, [])
   })
 })
+
+// ---------------------------------------------------------------------------
+// Android cases (zennotesandroid src/bridge/mobile-direct-upload.test.ts).
+// Android's native sealer took the source URI and the raw chunk cipher
+// params; the package's takes base64 keys and is bound to its source when it
+// is registered, so `nativeSealer` below adapts the same native seal.
+// ---------------------------------------------------------------------------
+
+describe('Android cases: mutateWithMobileDirectUploads', () => {
+  it('preserves an existing signed content type regardless of casing', () => {
+    const options = mobileObjectUploadOptions({
+      url: 'https://objects.example.test/upload',
+      method: 'PUT',
+      headers: { 'content-type': 'image/png' },
+      base64: 'AQID',
+      byteLength: 3
+    })
+    assert.deepEqual(options.headers, { 'content-type': 'image/png' })
+  })
+
+  // Android gave these options a fixed 30 s connect and 300 s read, but
+  // never used them: its PUTs all go through ZenDirectUpload.put, which the
+  // package keeps for it (HttpTransport.putsInMemoryBodies). A host that does
+  // send them through `request` gets the iPhone's send window for both, the
+  // package's one rule; the rest of Android's case holds as it was.
+  it('builds a native binary PUT without an account bearer token or redirects', () => {
+    const options = mobileObjectUploadOptions({
+      url: 'https://objects.example.test/upload?signature=signed',
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'image/png',
+        'Content-Length': '3'
+      },
+      base64: 'AQID',
+      byteLength: 3
+    })
+
+    assert.deepEqual(options, {
+      url: 'https://objects.example.test/upload?signature=signed',
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'image/png',
+        'Content-Length': '3'
+      },
+      data: 'AQID',
+      dataType: 'file',
+      connectTimeout: cloudSendTimeoutMs(3),
+      readTimeout: cloudSendTimeoutMs(3),
+      disableRedirects: true
+    })
+    assert.equal(options.headers.Authorization, undefined)
+  })
+})
+
+describe('Android cases: a path Cloud refuses (#1004)', () => {
+  const refusedText = 'This path is not eligible for vault sync.'
+  const validation = (errors: Record<string, string[]>) =>
+    new MobileDirectUploadError(refusedText, 422, 'VALIDATION_FAILED', { errors })
+  const small = (operation: string, path: string): CloudSyncUpsertMutation =>
+    ({ ...upsertMutation(4, 'YWJjZA=='), operation_id: operation, item_id: `${operation}-item`, path })
+  const large = (operation: string, path: string): CloudSyncUpsertMutation => {
+    const byteLength = CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES + 1
+    return { ...upsertMutation(byteLength, Buffer.alloc(byteLength, 5).toString('base64')), operation_id: operation, item_id: `${operation}-item`, path }
+  }
+  const ack = (mutation: CloudSyncUpsertMutation, sequence: number) =>
+    ({ operation_id: mutation.operation_id, item_id: mutation.item_id, revision: 1, sequence })
+
+  it('names an inline mutation by its place in the whole batch, with the direct upload that went before', async () => {
+    const big = large('big', 'assets/photo.png')
+    const kept = small('kept', 'inbox/Note.md')
+    const refused = small('refused', '.zennotes/agent-edits/inbox/Note.md.json')
+    const body = { mutations: [big, kept, refused] }
+    const api = fakeApi({
+      initiateUpload: async () => uploadInstruction(big, 'https://objects.example.test/upload'),
+      completeUpload: async () => ({
+        data: { id: 'upload-1', operation_id: big.operation_id, status: 'completed' as const, result: { acknowledged: [ack(big, 4)], conflicts: [], cursor: 4 } }
+      }),
+      // The inline request carries kept and refused; Cloud names its own index 1.
+      mutate: async () => { throw validation({ 'mutations.1.path': [refusedText] }) }
+    })
+
+    const error = await mutateWithMobileDirectUploads(api, 'vault-1', body, async () => {}).catch((caught: unknown) => caught)
+
+    assert.ok(error instanceof CloudSyncPathRefusedError)
+    assert.deepEqual(error.refusal.indices, [2])
+    assert.deepEqual(error.refusal.applied, { acknowledged: [ack(big, 4)], conflicts: [], cursor: 4 })
+    assert.deepEqual(cloudSyncPathRefusal(error, body)?.indices, [2])
+  })
+
+  it('names a direct upload refused for its own path by its place in the batch, with what went before', async () => {
+    const kept = small('kept', 'inbox/Note.md')
+    const big = large('big', '.zennotes/agent-edits/assets/photo.png.json')
+    const body = { mutations: [kept, big] }
+    let uploaded = false
+    const api = fakeApi({
+      mutate: async () => ({ acknowledged: [ack(kept, 3)], conflicts: [], cursor: 3 }),
+      initiateUpload: async () => { throw validation({ path: [refusedText] }) }
+    })
+
+    const error = await mutateWithMobileDirectUploads(api, 'vault-1', body, async () => { uploaded = true })
+      .catch((caught: unknown) => caught)
+
+    assert.ok(error instanceof CloudSyncPathRefusedError)
+    assert.deepEqual(error.refusal.indices, [1])
+    assert.deepEqual(error.refusal.applied, { acknowledged: [ack(kept, 3)], conflicts: [], cursor: 3 })
+    assert.equal(uploaded, false)
+  })
+
+  it('stops as before when Cloud refuses anything but a path', async () => {
+    const big = large('big', 'assets/photo.png')
+    const other = small('other', 'inbox/Note.md')
+    const original = validation({ 'mutations.0.base_revision': ['The base revision is invalid.'] })
+    const api = fakeApi({
+      initiateUpload: async () => uploadInstruction(big, 'https://objects.example.test/upload'),
+      completeUpload: async () => ({
+        data: { id: 'upload-1', operation_id: big.operation_id, status: 'completed' as const, result: { acknowledged: [ack(big, 4)], conflicts: [], cursor: 4 } }
+      }),
+      mutate: async () => { throw original }
+    })
+
+    const error = await mutateWithMobileDirectUploads(api, 'vault-1', { mutations: [big, other] }, async () => {})
+      .catch((caught: unknown) => caught)
+
+    assert.equal(error, original)
+  })
+})
+
+describe('Android cases: encrypted vaults', () => {
+  const SIGNED_URL = 'https://objects.example.test/upload?signature=signed'
+
+  it('seals a large file natively, sends only ciphertext under a path id, and discards the sealed copy', async () => {
+    const { cipher, vaultKey } = await encryptedVault()
+    const plaintext = Buffer.alloc(CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES + 70_000, 7)
+    const files = new Map([['file:///vault/assets/photo.png', plaintext]])
+    const log: string[] = []
+    const mutation = fileBackedMutation('assets/photo.png', plaintext)
+    rememberMobileUploadSource(mutation.content, 'file:///vault/assets/photo.png', nativeSealer(files, log, 'file:///vault/assets/photo.png'))
+    const sealedLength = zne1CiphertextLength(plaintext.length)
+    let initiated: CloudSyncUploadRequest | undefined
+    let sent: Buffer | undefined
+    const uploads: MobileObjectUploadRequest[] = []
+
+    const result = await mutateWithMobileDirectUploads(fakeApi({
+      vaultCipher: async () => cipher,
+      mutate: async () => assert.fail('a large encrypted file never goes inline'),
+      initiateUpload: async (_vaultId, body) => {
+        initiated = body
+        return androidUploadInstruction(mutation, SIGNED_URL, sealedLength)
+      },
+      completeUpload: async () => completion(mutation)
+    }), 'vault-1', { mutations: [mutation] }, async (upload) => {
+      uploads.push(upload)
+      sent = files.get(upload.uri!)
+    })
+
+    assert.deepEqual(result.acknowledged.map((ack) => ack.revision), [3])
+    assert.ok(initiated && sent)
+    assert.equal(initiated.path, await cipher.pathId('assets/photo.png'))
+    assert.equal(initiated.kind, 'binary')
+    assert.deepEqual(initiated.content, {
+      encoding: 'aes-gcm', sha256: sha256(sent), byte_length: sealedLength, media_type: 'application/octet-stream'
+    })
+    const meta = await decryptItemMeta(initiated.meta!, {
+      vaultKey, vaultKeyVersion: 1, pathId: initiated.path, pathIndex: await CloudPathIndex.forVaultKey(vaultKey)
+    })
+    assert.deepEqual([meta.path, meta.kind, meta.sha256, meta.byte_length], ['assets/photo.png', 'binary', sha256(plaintext), plaintext.length])
+    assert.equal(uploads.length, 1)
+    assert.equal(uploads[0]!.base64, undefined)
+    assert.deepEqual([uploads[0]!.sha256, uploads[0]!.byteLength], [sha256(sent), sealedLength])
+    const opened = await decryptZne1(sent, { parentKey: vaultKey, purpose: Zne1Purpose.content, keyVersion: 1 })
+    assert.ok(Buffer.from(opened).equals(plaintext))
+    assert.deepEqual(log, ['seal file:///vault/assets/photo.png', 'discard file:///vault/.zennotes/sync/uploads/0.zne1'])
+  })
+
+  it('decides inline or direct by the size an encrypted vault actually sends', async () => {
+    const { cipher, vaultKey } = await encryptedVault()
+    const plaintext = Buffer.alloc(CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES - 100, 3)
+    assert.ok(zne1CiphertextLength(plaintext.length) > CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES)
+    const mutation = { ...fileBackedMutation('assets/scan.pdf', plaintext), content: inlineContent(plaintext) }
+
+    const inline: CloudSyncMutationRequest[] = []
+    await mutateWithMobileDirectUploads(fakeApi({
+      vaultCipher: async () => null,
+      mutate: async (_vaultId, body) => { inline.push(body); return emptyResponse() }
+    }), 'vault-1', { mutations: [mutation] }, async () => assert.fail('a readable vault sends this file inline'))
+    assert.equal(inline.length, 1)
+
+    let initiated: CloudSyncUploadRequest | undefined
+    const uploads: MobileObjectUploadRequest[] = []
+    await mutateWithMobileDirectUploads(fakeApi({
+      vaultCipher: async () => cipher,
+      mutate: async () => assert.fail('its ciphertext is over the inline cap'),
+      initiateUpload: async (_vaultId, body) => {
+        initiated = body
+        return androidUploadInstruction(mutation, SIGNED_URL, zne1CiphertextLength(plaintext.length))
+      },
+      completeUpload: async () => completion(mutation)
+    }), 'vault-1', { mutations: [mutation] }, async (upload) => { uploads.push(upload) })
+
+    const sealed = Buffer.from(uploads[0]!.base64!, 'base64')
+    assert.equal(sealed.length, zne1CiphertextLength(plaintext.length))
+    assert.deepEqual([uploads[0]!.sha256, uploads[0]!.byteLength], [sha256(sealed), sealed.length])
+    assert.equal(initiated?.content.sha256, sha256(sealed))
+    const opened = await decryptZne1(sealed, { parentKey: vaultKey, purpose: Zne1Purpose.content, keyVersion: 1 })
+    assert.ok(Buffer.from(opened).equals(plaintext))
+  })
+
+  it('refuses a file that changed after sync hashed it, before anything is sent', async () => {
+    const { cipher } = await encryptedVault()
+    const plaintext = Buffer.alloc(CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES + 1, 9)
+    const files = new Map([['file:///vault/big.bin', plaintext]])
+    const log: string[] = []
+    const mutation = fileBackedMutation('big.bin', plaintext)
+    const edited = (bytes: Buffer) => Buffer.concat([bytes.subarray(1), Buffer.from([1])])
+    rememberMobileUploadSource(mutation.content, 'file:///vault/big.bin', nativeSealer(files, log, 'file:///vault/big.bin', edited))
+
+    await assert.rejects(
+      mutateWithMobileDirectUploads(fakeApi({ vaultCipher: async () => cipher }), 'vault-1', { mutations: [mutation] },
+        async () => assert.fail('nothing is uploaded')),
+      (error: unknown) => error instanceof MobileDirectUploadError && error.code === 'DIRECT_UPLOAD_SIZE_MISMATCH'
+    )
+    assert.deepEqual(log, ['seal file:///vault/big.bin', 'discard file:///vault/.zennotes/sync/uploads/0.zne1'])
+  })
+
+  it('discards the sealed copy when the upload fails, and opens a conflict back to its real path', async () => {
+    const { cipher } = await encryptedVault()
+    const plaintext = Buffer.alloc(CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES + 1, 5)
+    const files = new Map([['file:///vault/big.bin', plaintext]])
+    const log: string[] = []
+    const aborted: string[] = []
+    const mutation = fileBackedMutation('big.bin', plaintext)
+    rememberMobileUploadSource(mutation.content, 'file:///vault/big.bin', nativeSealer(files, log, 'file:///vault/big.bin'))
+
+    await assert.rejects(mutateWithMobileDirectUploads(fakeApi({
+      vaultCipher: async () => cipher,
+      initiateUpload: async () => androidUploadInstruction(mutation, SIGNED_URL, zne1CiphertextLength(plaintext.length)),
+      abortUpload: async (_vaultId, uploadId) => { aborted.push(uploadId) }
+    }), 'vault-1', { mutations: [mutation] }, async () => {
+      throw new MobileDirectUploadError('Object upload failed.', 503, 'DIRECT_UPLOAD_FAILED')
+    }), /Object upload failed/)
+    assert.deepEqual(aborted, ['upload-1'])
+    assert.deepEqual(log.at(-1), 'discard file:///vault/.zennotes/sync/uploads/0.zne1')
+
+    const other = await cipher.sealMeta('Other.png', 'binary', mutation.content)
+    const result = await mutateWithMobileDirectUploads(fakeApi({
+      vaultCipher: async () => cipher,
+      initiateUpload: async () => {
+        throw new MobileDirectUploadError('Path taken.', 409, 'PATH_CONFLICT', {
+          current_revision: 4, current_path: other.pathId, current_meta: other.meta
+        })
+      }
+    }), 'vault-1', { mutations: [mutation] }, async () => assert.fail('a conflict uploads nothing'))
+    assert.deepEqual(result.conflicts.map((conflict) => [conflict.code, conflict.current_path]), [['PATH_CONFLICT', 'Other.png']])
+    assert.deepEqual(log.at(-1), 'discard file:///vault/.zennotes/sync/uploads/1.zne1')
+  })
+
+  it('stops a locked encrypted vault before anything is sent', async () => {
+    const bytes = Buffer.from('a note')
+    await assert.rejects(
+      mutateWithMobileDirectUploads(fakeApi({
+        vaultCipher: async () => { throw new CloudE2eeLockedError() },
+        mutate: async () => assert.fail('nothing is sent while locked')
+      }), 'vault-1', { mutations: [{ ...fileBackedMutation('note.md', bytes), content: inlineContent(bytes) }] },
+      async () => assert.fail('nothing is uploaded while locked')),
+      { code: 'E2EE_LOCKED' }
+    )
+  })
+})
+
+async function encryptedVault() {
+  const accountKey = generateCloudE2eeKey()
+  const encryption = await CloudVaultCipher.prepareVault('Notes', accountKey, 1)
+  return {
+    cipher: await CloudVaultCipher.open({ id: 'vault-1', encryption }, accountKey, 1),
+    vaultKey: await unwrapVaultKey(encryption.vault_key_envelope, accountKey, 1, encryption.key_id)
+  }
+}
+
+/** What ZenDirectUpload.encryptFile does on the device, from the same three inputs. */
+function nativeSeal(plaintext: Buffer, params: { header: Uint8Array; objectKey: Uint8Array; aad: Uint8Array }): Buffer {
+  const parts = [Buffer.from(params.header)]
+  const chunks = Math.max(1, Math.ceil(plaintext.length / 65_536))
+  for (let index = 0; index < chunks; index++) {
+    const nonce = Buffer.alloc(12)
+    nonce.writeUInt32BE(index, 7)
+    nonce[11] = index === chunks - 1 ? 1 : 0
+    const gcm = createCipheriv('aes-256-gcm', params.objectKey, nonce)
+    gcm.setAAD(params.aad)
+    parts.push(gcm.update(plaintext.subarray(index * 65_536, (index + 1) * 65_536)), gcm.final(), gcm.getAuthTag())
+  }
+  return Buffer.concat(parts)
+}
+
+/** Android's native sealer for the file at `uri`, over the package's base64 keys. */
+function nativeSealer(files: Map<string, Buffer>, log: string[], uri: string, read = (bytes: Buffer) => bytes): MobileUploadSealer {
+  let count = 0
+  return async (keys) => {
+    const plaintext = read(files.get(uri)!)
+    const sealed = nativeSeal(plaintext, {
+      header: Buffer.from(keys.header, 'base64'), objectKey: Buffer.from(keys.objectKey, 'base64'), aad: Buffer.from(keys.aad, 'base64')
+    })
+    const sealedUri = `file:///vault/.zennotes/sync/uploads/${count++}.zne1`
+    files.set(sealedUri, sealed)
+    log.push(`seal ${uri}`)
+    return {
+      uri: sealedUri, byteLength: sealed.length, sha256: sha256(sealed),
+      plaintextByteLength: plaintext.length, plaintextSha256: sha256(plaintext),
+      discard: async () => {
+        log.push(`discard ${sealedUri}`)
+        files.delete(sealedUri)
+      }
+    }
+  }
+}
+
+function fileBackedMutation(path: string, bytes: Buffer): CloudSyncUpsertMutation {
+  return {
+    type: 'upsert', operation_id: 'operation-1', item_id: 'item-1', base_revision: null, path, kind: 'binary',
+    content: { encoding: 'base64', data: '', sha256: sha256(bytes), byte_length: bytes.length, media_type: 'image/png' }
+  }
+}
+
+function inlineContent(bytes: Buffer): CloudSyncUpsertMutation['content'] {
+  return { encoding: 'base64', data: bytes.toString('base64'), sha256: sha256(bytes), byte_length: bytes.length, media_type: 'application/pdf' }
+}
+
+function completion(mutation: CloudSyncUpsertMutation) {
+  return {
+    data: {
+      id: 'upload-1', operation_id: mutation.operation_id, status: 'completed' as const,
+      result: { acknowledged: [{ operation_id: mutation.operation_id, item_id: mutation.item_id, revision: 3, sequence: 9 }], conflicts: [], cursor: 9 }
+    }
+  }
+}
+
+/** uploadInstruction with the byte count the service expects (the ciphertext's, for an encrypted vault). */
+function androidUploadInstruction(mutation: CloudSyncUpsertMutation, url: string, expectedBytes = mutation.content.byte_length) {
+  const instruction = uploadInstruction(mutation, url)
+  return { data: { ...instruction.data, expected_bytes: expectedBytes } }
+}

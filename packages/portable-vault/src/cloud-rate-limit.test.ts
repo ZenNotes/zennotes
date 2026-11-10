@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { afterEach, it, vi } from 'vitest'
+import { afterEach, describe, it, vi } from 'vitest'
 import { installTestHost, RecordingHttp } from '../test/test-host'
 import * as api from './cloud-sync-client'
 import { createCloudSyncClient } from './cloud-sync-client'
@@ -36,6 +36,8 @@ it('retries the same native manifest page after the complete Retry-After delay',
   assert.deepEqual(await pending, { data: { data: [], cursor: 500, next_page: null } })
   assert.equal(requests.length, 2)
   assert.equal(requests[0], requests[1])
+  // Android's assertion: the retry asks for the same page.
+  assert.equal(new URL(requests[1]!).searchParams.get('page'), '3')
 })
 
 it('cancels a native retry wait and preserves its cooldown across recreated clients', async () => {
@@ -61,4 +63,27 @@ it('cancels a native retry wait and preserves its cooldown across recreated clie
   vi.advanceTimersByTime(2000)
   assert.deepEqual(await pending, { data: [] })
   assert.equal(requests.length, 2)
+})
+
+describe('Android cases', () => {
+  it('preserves explicitly requested content-page offsets after negotiating references', async () => {
+    const requests: URL[] = []
+    installTestHost({
+      http: new RecordingHttp(async ({ url }: HttpTransportRequest): Promise<HttpTransportResponse> => {
+        const request = new URL(url)
+        requests.push(request)
+        if (request.pathname.endsWith('/account')) {
+          return { status: 200, headers: {}, data: { data: { capabilities: { content_references: true }, user: {}, device: {}, features: {}, usage: {} } } }
+        }
+        return { status: 200, headers: {}, data: { data: [], cursor: 0, next_page: null } }
+      })
+    })
+    const client = createCloudSyncClient('https://pages.example.test', 'test-token', { accountId: 'account' })
+    await client.negotiateContentReferences()
+    await client.manifest('vault', { includeContent: true, page: 3, perPage: 25 })
+    const manifest = requests.find((url) => url.pathname.endsWith('/manifest'))!
+    assert.equal(manifest.searchParams.get('page'), '3')
+    assert.equal(manifest.searchParams.get('per_page'), '25')
+    assert.equal(manifest.searchParams.get('content_mode'), 'references')
+  })
 })

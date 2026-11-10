@@ -633,6 +633,24 @@ describe('deleted Cloud vault recovery (#791)', () => {
     assert.equal(h.persisted.get(otherStateKey), otherState)
   })
 
+  // Android's case: a WebView without crypto.randomUUID (iOS 15.0 to 15.3).
+  it('archives a missing vault\'s state on a WebView without crypto.randomUUID', async () => {
+    const h = await fixture({})
+    await h.sync()
+    h.remote.changes = async () => { throw missing() }
+    h.remote.manifest = async () => { throw missing() }
+
+    Object.defineProperty(crypto, 'randomUUID', { value: undefined, configurable: true, writable: true })
+    try {
+      await assert.rejects(h.sync())
+    } finally {
+      Reflect.deleteProperty(crypto, 'randomUUID')
+    }
+
+    assert.equal(await h.api.getMobileCloudVaultLink(h.vault), null)
+    assert.ok([...h.persisted.keys()].some((path) => /\/retired-states\/.+\.[0-9a-f-]{36}\.json$/.test(path)))
+  })
+
   it('preserves complete conflict drafts in unique inactive state archives when a Cloud vault disappears', async () => {
     const h = await fixture({ 'note.md': 'local version' })
     h.remoteText('note.md', 'cloud version')
@@ -764,5 +782,29 @@ describe('backups of end-to-end encrypted Cloud vaults', () => {
       h.setKeyring(keyring)
       await assert.rejects(h.api.downloadMobileCloudBackup(h.vault, 'backup-1'), /^Error: Download backups of encrypted vaults from the ZenNotes desktop app\.$/)
     }
+  })
+})
+
+// Android's case (its 'end-to-end encrypted vaults' describe): creating an
+// encrypted vault goes through the encryption module, here with only its
+// vault creation and link check replaced, as Android's mock did.
+describe('Android cases: end-to-end encrypted vaults', () => {
+  afterEach(() => {
+    vi.doUnmock('./mobile-cloud-encryption')
+  })
+
+  it('creates an encrypted vault through the encryption layer and links this vault to it', async () => {
+    const created: string[] = []
+    vi.doMock('./mobile-cloud-encryption', async (original) => ({
+      ...(await original<typeof import('./mobile-cloud-encryption')>()),
+      assertMobileCloudVaultCanLink: async () => {},
+      createMobileEncryptedCloudVault: async (name: string) => { created.push(name); return 'vault-2' },
+      isMobileCloudVaultEncrypted: async () => false
+    }))
+    const h = await fixture({})
+    const link = await h.api.createAndLinkMobileCloudVault(h.vault, 'Journal', { encrypted: true })
+    assert.deepEqual(created, ['Journal'])
+    assert.equal(link.vault_id, 'vault-2')
+    assert.deepEqual(await h.api.getMobileCloudVaultLink(h.vault), link)
   })
 })

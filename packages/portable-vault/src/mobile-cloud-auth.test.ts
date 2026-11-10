@@ -12,9 +12,9 @@
  * `cloud-e2ee:...`); the prefix a host stores them under is its business.
  */
 import assert from 'node:assert/strict'
-import { afterEach, it, vi } from 'vitest'
+import { afterEach, describe, it, vi } from 'vitest'
 import { createTestHost, RecordingHttp, type HttpResponder } from '../test/test-host'
-import type { HttpTransportRequest, SecretStorage } from './host'
+import type { HostCloudConfig, HttpTransportRequest, SecretStorage } from './host'
 
 const account = {
   base_url: 'https://zennotes.org', connected_at: '2026-09-14T12:00:00Z',
@@ -77,7 +77,7 @@ afterEach(() => {
   vi.resetModules()
 })
 
-async function coldLaunch(saved: Map<string, string>, http: HttpResponder = noTransport) {
+async function coldLaunch(saved: Map<string, string>, http: HttpResponder = noTransport, cloud: Partial<HostCloudConfig> = {}) {
   const lifecycle: string[] = []
   let lifetime = new AbortController()
   const stop = () => { lifecycle.push('stop'); lifetime.abort() }
@@ -101,6 +101,7 @@ async function coldLaunch(saved: Map<string, string>, http: HttpResponder = noTr
       returnedToApp: resume
     }
   })
+  host.shell.cloud = { ...host.shell.cloud, ...cloud }
   // The fresh module reads the fresh host module, so install into that one.
   const { installPortableHost } = await import('./host')
   installPortableHost({ ...host, secrets: keychain })
@@ -239,4 +240,30 @@ it('keeps only the new account key when a different account signs in', async () 
   api.openUrl('zennotes://auth?code=abc123&state=test-state')
   assert.equal(((await switched) as { account: { user: { email: string } } }).account.user.email, 'Second@Example.test')
   assert.deepEqual([...saved.keys()].filter((key) => key.includes('cloud-e2ee')), [keyName('second@example.test')])
+})
+
+// Android cases (zennotesandroid src/bridge/mobile-cloud-auth.test.ts). Its
+// key-store, sign-in and sign-out key cases run in cloud-account-keys.test.ts
+// under Android's hashed scheme; this one also holds the revoke request to
+// the exact shape Android sends, whatever Cloud answers.
+describe('Android cases', () => {
+  it('revokes this device and forgets every encryption key when signing out', async () => {
+    const unlockedKey = { format: 1 as const, key: Buffer.alloc(32, 7).toString('base64'), version: 1 }
+    for (const status of [204, 401, 500]) {
+      const saved = new Map([['credential', credential]])
+      const requests: HttpTransportRequest[] = []
+      const api = await coldLaunch(saved, async (request) => { requests.push(request); return { status, headers: {}, data: {} } },
+        { platform: 'android', accountKeyScheme: 'hashed' })
+      await api.mobileCloudAccountKeyStore({ base_url: account.base_url, account }).save(unlockedKey)
+      saved.set(`e2ee-account-key.${'f'.repeat(64)}`, JSON.stringify(unlockedKey))
+
+      assert.deepEqual(await api.logoutMobileCloudAccount(), { state: 'disconnected', account: null })
+      assert.deepEqual(requests, [{
+        method: 'DELETE', url: 'https://zennotes.org/api/v1/devices/current',
+        headers: { Accept: 'application/json', Authorization: 'Bearer test-only' },
+        connectTimeout: 10_000, readTimeout: 10_000, disableRedirects: true
+      }])
+      assert.equal(saved.size, 0, `answer ${status}`)
+    }
+  })
 })
