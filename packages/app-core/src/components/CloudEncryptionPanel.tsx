@@ -4,8 +4,8 @@ import type {
   CloudEncryptionSecretInput,
   CloudEncryptionStatus,
 } from "@zennotes/bridge-contract/cloud-sync";
-import type { ZenBridge } from "@zennotes/bridge-contract/bridge";
-import { cloudPassphraseProblem } from "@zennotes/shared-domain/cloud-e2ee-passphrase";
+import type { BrowserEncryptionPrefs, ZenBridge } from "@zennotes/bridge-contract/bridge";
+import { CLOUD_BROWSER_UNLOCK_NOTICE, cloudPassphraseProblem } from "@zennotes/shared-domain/cloud-e2ee-passphrase";
 import { confirmApp } from "../lib/confirm-requests";
 import type { CloudErrorCopy } from "@zennotes/shared-domain/cloud-error-copy";
 import { CloudErrorMessage, cloudErrorCopy } from "./CloudErrorMessage";
@@ -34,6 +34,7 @@ export function CloudEncryptionPanel({
   const [status, setStatus] = useState<CloudEncryptionStatus | null>(null);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [error, setError] = useState<CloudErrorCopy | null>(null);
+  const [browser, setBrowser] = useState<BrowserEncryptionPrefs | null>(null);
   const supported = typeof bridge.getCloudEncryptionStatus === "function";
 
   const refresh = useCallback(async () => {
@@ -43,6 +44,7 @@ export function CloudEncryptionPanel({
       setStatus(next);
       onStatusChange?.(next);
       setError(null);
+      if (bridge.getBrowserEncryptionPrefs) setBrowser(await bridge.getBrowserEncryptionPrefs());
     } catch (cause) {
       setError(cloudErrorCopy(cause, "ZenNotes couldn't check end-to-end encryption. Try again in a moment.", bridge));
     }
@@ -74,6 +76,16 @@ export function CloudEncryptionPanel({
   const finished = (): void => {
     setDialog(null);
     void refresh();
+  };
+
+  // ZenNotes in the browser only: said once, where a passphrase is first asked.
+  const notice =
+    browser && !browser.noticeSeen ? <BrowserTrustNotice url={browser.securityUrl} /> : undefined;
+  const toggleLockOnClose = (): void => {
+    if (!browser) return;
+    void bridge.setBrowserLockOnClose?.(!browser.lockOnClose).then(setBrowser, (cause: unknown) =>
+      setError(cloudErrorCopy(cause, "ZenNotes couldn't change when encryption locks. Try again.", bridge)),
+    );
   };
 
   return (
@@ -124,12 +136,15 @@ export function CloudEncryptionPanel({
           </>
         )}
       </div>
+      {browser && status.keyset && (
+        <LockOnCloseSwitch checked={browser.lockOnClose} onToggle={toggleLockOnClose} />
+      )}
 
       {dialog === "setup" && (
-        <EncryptionSetupDialog bridge={bridge} onCancel={() => setDialog(null)} onDone={finished} />
+        <EncryptionSetupDialog bridge={bridge} notice={notice} onCancel={() => setDialog(null)} onDone={finished} />
       )}
       {dialog === "unlock" && (
-        <EncryptionUnlockDialog bridge={bridge} onCancel={() => setDialog(null)} onDone={finished} />
+        <EncryptionUnlockDialog bridge={bridge} notice={notice} onCancel={() => setDialog(null)} onDone={finished} />
       )}
       {dialog === "change" && (
         <EncryptionChangePassphraseDialog bridge={bridge} onCancel={() => setDialog(null)} onDone={finished} />
@@ -141,12 +156,47 @@ export function CloudEncryptionPanel({
   );
 }
 
+function BrowserTrustNotice({ url }: { url: string }): JSX.Element {
+  return (
+    <p data-browser-trust-notice="">
+      {CLOUD_BROWSER_UNLOCK_NOTICE}{" "}
+      <a className="font-medium text-accent underline" href={url} target="_blank" rel="noreferrer">
+        What this means
+      </a>
+    </p>
+  );
+}
+
+function LockOnCloseSwitch({ checked, onToggle }: { checked: boolean; onToggle: () => void }): JSX.Element {
+  const id = useId();
+  return (
+    <label htmlFor={id} className="flex items-start gap-2 text-sm text-ink-800">
+      <input
+        id={id}
+        type="checkbox"
+        data-cloud-lock-on-close=""
+        checked={checked}
+        onChange={onToggle}
+        className="mt-1 h-4 w-4"
+      />
+      <span>
+        Lock when I close this tab
+        <span className="block text-xs leading-5 text-ink-500">
+          Forgets the key. Notes already here stay in this browser's storage.
+        </span>
+      </span>
+    </label>
+  );
+}
+
 function EncryptionSetupDialog({
   bridge,
+  notice,
   onCancel,
   onDone,
 }: {
   bridge: ZenBridge;
+  notice?: React.ReactNode;
   onCancel: () => void;
   onDone: () => void;
 }): JSX.Element {
@@ -161,6 +211,7 @@ function EncryptionSetupDialog({
           titleId={titleId}
           title="Choose an encryption passphrase"
           intro="This passphrase unlocks your encrypted vaults on each device. It is not your account password, and ZenNotes never sees it."
+          extra={notice}
           submitLabel="Continue"
           busyLabel="Preparing…"
           onCancel={onCancel}
@@ -198,10 +249,12 @@ function EncryptionSetupDialog({
 
 function EncryptionUnlockDialog({
   bridge,
+  notice,
   onCancel,
   onDone,
 }: {
   bridge: ZenBridge;
+  notice?: React.ReactNode;
   onCancel: () => void;
   onDone: () => void;
 }): JSX.Element {
@@ -212,6 +265,7 @@ function EncryptionUnlockDialog({
         titleId={titleId}
         title="Unlock encryption on this device"
         intro="Enter the encryption passphrase you chose when you set up encryption, or use your recovery key."
+        extra={notice}
         submitLabel="Unlock"
         busyLabel="Unlocking…"
         onCancel={onCancel}
@@ -377,6 +431,7 @@ function NewPassphraseStep({
   titleId,
   title,
   intro,
+  extra,
   submitLabel,
   busyLabel,
   onCancel,
@@ -385,6 +440,7 @@ function NewPassphraseStep({
   titleId: string;
   title: string;
   intro: string;
+  extra?: React.ReactNode;
   submitLabel: string;
   busyLabel: string;
   onCancel: () => void;
@@ -413,6 +469,7 @@ function NewPassphraseStep({
       <Modal.Header titleId={titleId} title={title} />
       <div className="space-y-4 px-5 pt-2 text-sm leading-6 text-ink-600">
         <p>{intro}</p>
+        {extra}
         <div>
           <label htmlFor={firstId} className="font-medium text-ink-800">
             Passphrase
@@ -473,6 +530,7 @@ function SecretStep({
   titleId,
   title,
   intro,
+  extra,
   submitLabel,
   busyLabel,
   onCancel,
@@ -481,6 +539,7 @@ function SecretStep({
   titleId: string;
   title: string;
   intro: string;
+  extra?: React.ReactNode;
   submitLabel: string;
   busyLabel: string;
   onCancel: () => void;
@@ -510,6 +569,7 @@ function SecretStep({
       <Modal.Header titleId={titleId} title={title} />
       <div className="space-y-4 px-5 pt-2 text-sm leading-6 text-ink-600">
         <p>{intro}</p>
+        {extra}
         {mode === "passphrase" ? (
           <div>
             <label htmlFor={fieldId} className="font-medium text-ink-800">

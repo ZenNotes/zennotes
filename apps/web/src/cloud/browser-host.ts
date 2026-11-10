@@ -7,10 +7,10 @@
  *
  * Capabilities are the phones' minus a self-hosted remote workspace and the
  * folder pickers, with Harper on and ZenNotes Cloud on: the browser signs in
- * as a `web` device (cloud-account.ts) and syncs readable vaults, with large
- * attachments downloaded when they are opened (cloud-sync-stubs.ts in the
- * package). Try mode's vault lives only in this browser until it is kept in
- * Cloud.
+ * as a `web` device (cloud-account.ts) and syncs readable and end-to-end
+ * encrypted vaults, with large attachments downloaded when they are opened
+ * (cloud-sync-stubs.ts in the package). Try mode's vault lives only in this
+ * browser until it is kept in Cloud.
  */
 import type { ZenAppInfo } from '@zennotes/bridge-contract/bridge'
 import type { LocalVaultEntry, VaultInfo } from '@zennotes/bridge-contract/ipc'
@@ -26,10 +26,12 @@ import type {
 import appPackage from '../../package.json'
 import { BROWSER_SIGN_IN_LIFETIME_MS, browserDeviceName, cloudCallbackUrl } from './cloud-account'
 import { revocationAwareTransport } from './cloud-session'
+import { deriveInWorker } from './argon2-client'
+import { browserSecrets } from './browser-keys'
 import { keepsAttachments } from './browser-storage'
 import { listBrowserVaults, type BrowserVaultEntry } from './browser-vaults'
 import { fetchTransport } from './http-fetch'
-import { idbHostStorage, idbSecretStorage } from './idb-storage'
+import { idbHostStorage } from './idb-storage'
 import { OpfsVaultFileSystem, workerTransport } from './opfs-fs'
 import { saveBlob } from './download-folder'
 
@@ -294,8 +296,9 @@ export function createBrowserHost(openDefault: () => Promise<void>, hooks: Brows
     http: revocationAwareTransport(withOpfsUploads(fetchTransport), () => hooks.revoked()),
     storage: idbHostStorage('storage'),
     preferences: idbHostStorage('preferences'),
-    secrets: idbSecretStorage(),
+    secrets: browserSecrets,
     vaults,
-    cloudStubs: { enabled: () => !keepsAttachments() }
+    cloudStubs: { enabled: () => !keepsAttachments() },
+    passphraseKdf: deriveInWorker
   }
 }

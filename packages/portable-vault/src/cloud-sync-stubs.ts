@@ -23,11 +23,14 @@
  * - Every read of an attachment's bytes goes through `hydrateCloudStub`
  *   (opening it, copying or duplicating it, exporting, publishing), which
  *   downloads the recorded revision, checks its hash and writes the real file
- *   in the stub's place only while the stub is still there.
+ *   in the stub's place only while the stub is still there. An encrypted
+ *   vault's stub also records the ciphertext: that is what the download is
+ *   checked against, and only plaintext matching the stub's own hash is placed.
  */
 import type { CloudSyncContentReference } from '@zennotes/bridge-contract/cloud-sync'
 import { cloudSyncPathKey, normalizeCloudSyncPath } from '@zennotes/shared-domain/cloud-sync'
-import { validateCloudSyncDownloadInstruction } from '@zennotes/shared-domain/cloud-sync-content'
+import { ZNE1_HEADER_BYTES, fromBase64, toBase64 } from '@zennotes/shared-domain/cloud-e2ee'
+import { validateCloudSyncDownloadInstruction, type CloudContentDecryptor } from '@zennotes/shared-domain/cloud-sync-content'
 import { retryCloudTransfer } from '@zennotes/shared-domain/cloud-sync-stall'
 import type { CloudSyncState, CloudSyncTrackedItem } from '@zennotes/shared-domain/cloud-sync-engine'
 import { randomUUID } from './uuid'
@@ -97,6 +100,10 @@ export interface CloudStubFiles {
   mkdir(path: string): Promise<void>
   deleteFile(path: string): Promise<void>
   statVerified(path: string): Promise<'file' | 'directory' | null>
+  /** End-to-end encrypted vaults: the first bytes of a staged download, and
+   *  its chunk loop into a new path (SyncFastPath's two). */
+  readHeader?(path: string, length: number): Promise<string>
+  decryptFile?(options: { from: string; to: string; header: string; objectKey: string; aad: string }): Promise<{ byteLength: number; sha256: string }>
 }
 
 export interface CloudStubDownloads {
@@ -106,6 +113,8 @@ export interface CloudStubDownloads {
   vaultId: string
   allowInsecureLoopback?: boolean
   signal?: AbortSignal
+  /** Given for a stub of an encrypted vault: opens the download's header. */
+  decryptor?: CloudContentDecryptor
 }
 
 const STAGING_DIRECTORY = '.zennotes/sync/downloads'
@@ -115,7 +124,7 @@ const inFlight = new Map<string, Promise<boolean>>()
  * Downloads the revision a stub at `path` records and writes it there, once
  * per path at a time. Answers true when the file at `path` now holds the real
  * bytes (hydrated now or already), false when there is no stub there (a real
- * file, or nothing). Encrypted revisions wait for Phase 5's in-tab opener.
+ * file, or nothing).
  */
 export function hydrateCloudStub(files: CloudStubFiles, downloads: CloudStubDownloads, path: string): Promise<boolean> {
   const key = `${downloads.vaultId}\n${cloudSyncPathKey(normalizeCloudSyncPath(path))}`
@@ -129,11 +138,13 @@ export function hydrateCloudStub(files: CloudStubFiles, downloads: CloudStubDown
 async function hydrateOnce(files: CloudStubFiles, downloads: CloudStubDownloads, path: string): Promise<boolean> {
   const stub = await files.readCloudStub(path)
   if (!stub) return false
-  if (stub.encrypted) {
-    throw new Error('This attachment is end-to-end encrypted, which ZenNotes in the browser cannot open yet.')
-  }
+  const open = stub.encrypted ? stubOpener(files, downloads.decryptor) : null
   await files.mkdir(STAGING_DIRECTORY)
   const staging = `${STAGING_DIRECTORY}/${randomUUID()}`
+  // An encrypted vault's download is ciphertext; it stays beside the staged
+  // file and is removed once opened, so only checked plaintext can be placed.
+  const download = open ? `${staging}.sealed` : staging
+  const expected = stub.encrypted ?? stub
   try {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const instruction = validateCloudSyncDownloadInstruction(
@@ -150,15 +161,16 @@ async function hydrateOnce(files: CloudStubFiles, downloads: CloudStubDownloads,
           await files.download({
             url: instruction.download.url,
             headers: instruction.download.headers,
-            to: staging,
-            byteLength: stub.byte_length,
-            sha256: stub.sha256
+            to: download,
+            byteLength: expected.byte_length,
+            sha256: expected.sha256
           })
         } catch (error) {
-          await files.deleteFile(staging).catch(() => {})
+          await files.deleteFile(download).catch(() => {})
           throw error
         }
       }, { signal: downloads.signal, isTransportFailure: isUnansweredDownload })
+      if (open) await open(download, staging, stub)
       // Placed only while the stub is still the one read above: a sync that
       // replaced or moved it meanwhile wins, and this download is dropped.
       if (await files.replaceCloudStub(staging, path, stub)) return true
@@ -168,6 +180,24 @@ async function hydrateOnce(files: CloudStubFiles, downloads: CloudStubDownloads,
     throw new Error('Cloud download could not be refreshed.')
   } finally {
     await files.deleteFile(staging).catch(() => {})
+    if (download !== staging) await files.deleteFile(download).catch(() => {})
+  }
+}
+
+/** Checked before anything downloads: an encrypted stub needs its vault's key
+ *  and this host's chunk loop. */
+function stubOpener(files: CloudStubFiles, decryptor: CloudContentDecryptor | undefined) {
+  if (!decryptor) throw new Error('This encrypted attachment has no key to open it.')
+  const { readHeader, decryptFile } = files
+  if (!readHeader || !decryptFile) throw new Error('This device cannot open end-to-end encrypted Cloud files.')
+  return async (from: string, to: string, stub: CloudStubRecord): Promise<void> => {
+    const keys = await decryptor.openContentHeader(fromBase64(await readHeader.call(files, from, ZNE1_HEADER_BYTES)))
+    const opened = await decryptFile.call(files, {
+      from, to, header: toBase64(keys.header), objectKey: toBase64(keys.objectKey), aad: toBase64(keys.aad)
+    })
+    if (opened.sha256 !== stub.sha256 || opened.byteLength !== stub.byte_length) {
+      throw new Error('Decrypted Cloud file is not the file its metadata names.')
+    }
   }
 }
 

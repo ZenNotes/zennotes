@@ -8,6 +8,8 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Button } from '@renderer/components/ui/Button'
+import type { CloudEncryptionSecretInput } from '@zennotes/bridge-contract/cloud-sync'
+import { CLOUD_BROWSER_UNLOCK_NOTICE } from '@zennotes/shared-domain/cloud-e2ee-passphrase'
 import { Card, show, useLetterKey, vimModeFromPrefs } from './screens'
 
 function useAction(run: () => Promise<void>): { busy: boolean; error: string | null; act: () => void } {
@@ -151,6 +153,8 @@ export interface PickableCloudVault {
   id: string
   name: string
   encrypted: boolean
+  /** Encrypted and this browser holds no key: the name is a placeholder. */
+  locked: boolean
   /** Already in this browser. */
   here: boolean
 }
@@ -183,8 +187,7 @@ function VaultPickerScreen({
       (found) => {
         if (!live) return
         setVaults(found)
-        const first = found.findIndex((vault) => !vault.encrypted)
-        setCursor(first < 0 ? 0 : first)
+        setCursor(0)
       },
       (cause: unknown) => live && setLoadError(cause instanceof Error ? cause.message : String(cause))
     )
@@ -243,7 +246,7 @@ function VaultPickerScreen({
               <button
                 type="button"
                 data-cloud-vault-id={vault.id}
-                disabled={vault.encrypted || busy !== null}
+                disabled={busy !== null}
                 onFocus={() => setCursor(index)}
                 onClick={() => run(vault.id, () => onOpen(vault))}
                 className="flex w-full items-center justify-between gap-3 rounded-lg border border-paper-300 bg-paper-100 px-3 py-2 text-left text-sm text-ink-900 hover:bg-paper-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60"
@@ -252,11 +255,13 @@ function VaultPickerScreen({
                 <span className="flex-none text-xs text-ink-500">
                   {busy === vault.id
                     ? 'Opening…'
-                    : vault.encrypted
-                      ? 'Encrypted: use the app for now'
+                    : vault.locked
+                      ? 'Encrypted: unlock to open'
                       : vault.here
                         ? 'In this browser'
-                        : 'Open'}
+                        : vault.encrypted
+                          ? 'Encrypted'
+                          : 'Open'}
                 </span>
               </button>
             </li>
@@ -309,6 +314,181 @@ export function showVaultPicker(
   }
 ): void {
   show(root, <VaultPickerScreen {...props} />)
+}
+
+// ---------------------------------------------------------------------------
+// Unlocking an encrypted vault
+// ---------------------------------------------------------------------------
+
+export interface UnlockScreenProps {
+  /** The vault being opened, when its real name is known. */
+  vaultName: string | null
+  email: string
+  /** The security page's section, while the first-unlock notice is due. */
+  noticeUrl: string | null
+  lockOnClose: boolean
+  /** Rejects with the words to show; the person stays here to try again. */
+  onUnlock: (secret: CloudEncryptionSecretInput, lockOnClose: boolean) => Promise<void>
+  onOtherVaults: () => void
+  onSignOut: () => Promise<void>
+}
+
+function UnlockScreen({ vaultName, email, noticeUrl, lockOnClose: initialLock, onUnlock, onOtherVaults, onSignOut }: UnlockScreenProps): JSX.Element {
+  const [mode, setMode] = useState<'passphrase' | 'recovery'>('passphrase')
+  const [passphrase, setPassphrase] = useState('')
+  const [words, setWords] = useState('')
+  const [lockOnClose, setLockOnClose] = useState(initialLock)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const passphraseField = useRef<HTMLInputElement>(null)
+  const wordsField = useRef<HTMLTextAreaElement>(null)
+  const signOut = useAction(onSignOut)
+  const vim = vimModeFromPrefs()
+  const value = mode === 'passphrase' ? passphrase : words.trim()
+
+  const focusField = useCallback(() => {
+    const field = mode === 'passphrase' ? passphraseField.current : wordsField.current
+    field?.focus()
+    field?.select()
+  }, [mode])
+
+  useEffect(() => {
+    focusField()
+  }, [focusField])
+
+  const submit = (): void => {
+    if (!value || busy) return
+    setBusy(true)
+    setError(null)
+    void onUnlock(mode === 'passphrase' ? { passphrase } : { recoveryWords: words }, lockOnClose).then(
+      () => setBusy(false),
+      (cause: unknown) => {
+        setBusy(false)
+        setError(cause instanceof Error ? cause.message : String(cause))
+        // Back in the field, what was typed selected, to retype at once.
+        setTimeout(focusField, 0)
+      }
+    )
+  }
+
+  const toggleMode = useCallback(() => setMode((current) => (current === 'passphrase' ? 'recovery' : 'passphrase')), [])
+  const toggleLock = useCallback(() => setLockOnClose((current) => !current), [])
+  useLetterKey('r', toggleMode, vim)
+  useLetterKey('l', toggleLock, vim)
+  useLetterKey('i', focusField, vim)
+  useLetterKey('b', onOtherVaults, vim)
+  const leaveField = (event: React.KeyboardEvent<HTMLElement>): void => {
+    if (vim && event.key === 'Escape') (event.target as HTMLElement).blur()
+  }
+
+  return (
+    <Card title={vaultName ? `Unlock “${vaultName}”` : 'Unlock your encrypted vaults'}>
+      <p className="mt-2 text-sm leading-relaxed text-ink-600">
+        Signed in as <span className="font-medium text-ink-900">{email}</span>. Your passphrase never leaves this
+        browser.
+      </p>
+      {noticeUrl ? (
+        <p data-browser-trust-notice="" className="mt-3 text-sm leading-relaxed text-ink-600">
+          {CLOUD_BROWSER_UNLOCK_NOTICE}{' '}
+          <a className="font-medium text-accent underline" href={noticeUrl} target="_blank" rel="noreferrer">
+            What this means
+          </a>
+        </p>
+      ) : null}
+      <form
+        className="mt-4 space-y-3"
+        onSubmit={(event) => {
+          event.preventDefault()
+          submit()
+        }}
+      >
+        {mode === 'passphrase' ? (
+          <div>
+            <label className="text-sm font-medium text-ink-800" htmlFor="zn-unlock-passphrase">
+              Encryption passphrase
+            </label>
+            <input
+              id="zn-unlock-passphrase"
+              ref={passphraseField}
+              type="password"
+              value={passphrase}
+              autoComplete="current-password"
+              spellCheck={false}
+              onChange={(event) => setPassphrase(event.target.value)}
+              onKeyDown={leaveField}
+              className="mt-1.5 w-full rounded-lg border border-paper-300 bg-paper-50 px-3 py-2 text-sm text-ink-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            />
+          </div>
+        ) : (
+          <div>
+            <label className="text-sm font-medium text-ink-800" htmlFor="zn-unlock-recovery">
+              Recovery key (24 words)
+            </label>
+            <textarea
+              id="zn-unlock-recovery"
+              ref={wordsField}
+              value={words}
+              rows={4}
+              autoComplete="off"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              onChange={(event) => setWords(event.target.value)}
+              onKeyDown={(event) => {
+                leaveField(event)
+                if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+                  event.preventDefault()
+                  submit()
+                }
+              }}
+              className="mt-1.5 w-full resize-none rounded-lg border border-paper-300 bg-paper-50 px-3 py-2 font-mono text-sm text-ink-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            />
+          </div>
+        )}
+        <label className="flex items-start gap-2 text-sm text-ink-800" htmlFor="zn-unlock-lock-on-close">
+          <input
+            id="zn-unlock-lock-on-close"
+            type="checkbox"
+            checked={lockOnClose}
+            onChange={(event) => setLockOnClose(event.target.checked)}
+            onKeyDown={leaveField}
+            className="mt-0.5 h-4 w-4"
+          />
+          <span>
+            Lock when I close this tab
+            <span className="block text-xs leading-5 text-ink-500">
+              Forgets the key. Notes already here stay in this browser’s storage.
+            </span>
+          </span>
+        </label>
+        <ErrorLine message={error} />
+        <div className="flex flex-wrap items-center gap-3 pt-1">
+          <Button type="submit" variant="primary" size="md" disabled={!value || busy}>
+            {busy ? 'Unlocking…' : 'Unlock'}
+          </Button>
+          <Button type="button" variant="ghost" size="md" disabled={busy} onClick={toggleMode}>
+            {mode === 'passphrase' ? 'Use recovery key instead' : 'Use passphrase instead'}
+          </Button>
+        </div>
+      </form>
+      <ErrorLine message={signOut.error} />
+      <div className="mt-4 flex items-center justify-between gap-3">
+        <KeyHint>Esc leaves the field, then r recovery, l lock, b vaults, i back</KeyHint>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" disabled={busy} onClick={onOtherVaults}>
+            Other vaults
+          </Button>
+          <Button variant="ghost" size="sm" disabled={busy || signOut.busy} onClick={signOut.act}>
+            {signOut.busy ? 'Signing out…' : 'Sign out'}
+          </Button>
+        </div>
+      </div>
+    </Card>
+  )
+}
+
+export function showUnlock(root: HTMLElement, props: UnlockScreenProps): void {
+  show(root, <UnlockScreen {...props} />)
 }
 
 // ---------------------------------------------------------------------------

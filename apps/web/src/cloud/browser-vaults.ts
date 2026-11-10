@@ -31,6 +31,8 @@ export interface BrowserVaultEntry {
   kind: 'try' | 'cloud'
   vaultId?: string
   account?: BrowserVaultAccount
+  /** End-to-end encrypted in Cloud: opens only once this tab holds its key. */
+  encrypted?: boolean
   lastOpenedAt: number
 }
 

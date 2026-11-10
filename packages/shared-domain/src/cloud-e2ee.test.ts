@@ -13,6 +13,8 @@ import {
   ZNE1_SEALED_CHUNK_BYTES,
   beginZne1Encryption,
   canonicalCloudPath,
+  createZne1ChunkDecryptor,
+  createZne1ChunkEncryptor,
   createZne1Decryptor,
   createZne1Encryptor,
   decryptItemMeta,
@@ -431,6 +433,47 @@ describe('path ids and metadata', () => {
     const envelope = await encryptVaultName('Journal 2026', { vaultKey: PARENT_KEY, vaultKeyVersion: 1 })
     expect(await decryptVaultName(envelope, { vaultKey: PARENT_KEY })).toBe('Journal 2026')
     await expectCode(decryptVaultName(envelope, { vaultKey: OTHER_KEY }), 'wrong-key')
+  })
+})
+
+describe('the chunk loop alone, as a host given only the object key runs it', () => {
+  for (const size of SIZES) {
+    it(`seals and opens ${size} bytes exactly as the whole-object functions do`, async () => {
+      const plaintext = pattern(size)
+      const options = { parentKey: PARENT_KEY, purpose: Purpose.content, keyVersion: 1, salt: SALT }
+      const expected = await encryptZne1(plaintext, options)
+      const params = await beginZne1Encryption(options)
+      const sealer = await createZne1ChunkEncryptor(params)
+      const parts: Uint8Array[] = [sealer.header]
+      let start = 0
+      do {
+        const end = Math.min(start + ZNE1_CHUNK_BYTES, size)
+        parts.push(await sealer.encryptChunk(plaintext.subarray(start, end), end === size))
+        start = end
+      } while (start < size)
+      const sealed = Uint8Array.from(parts.flatMap((part) => [...part]))
+      expect(toHex(sealed)).toBe(toHex(expected))
+
+      const opener = await createZne1ChunkDecryptor(params)
+      const opened: number[] = []
+      for (let at = ZNE1_HEADER_BYTES; at < sealed.byteLength; at += ZNE1_SEALED_CHUNK_BYTES) {
+        const end = Math.min(at + ZNE1_SEALED_CHUNK_BYTES, sealed.byteLength)
+        opened.push(...(await opener.decryptChunk(sealed.subarray(at, end), end === sealed.byteLength)))
+      }
+      expect(toHex(Uint8Array.from(opened))).toBe(toHex(plaintext))
+    })
+  }
+
+  it('refuses a tampered chunk and a chunk past the last one', async () => {
+    const params = await beginZne1Encryption({ parentKey: PARENT_KEY, purpose: Purpose.content, keyVersion: 1, salt: SALT })
+    const sealer = await createZne1ChunkEncryptor(params)
+    const chunk = await sealer.encryptChunk(pattern(100), true)
+    const flipped = chunk.slice()
+    flipped[0]! ^= 1
+    await expect((await createZne1ChunkDecryptor(params)).decryptChunk(flipped, true)).rejects.toMatchObject({ code: 'tampered' })
+    const opener = await createZne1ChunkDecryptor(params)
+    await opener.decryptChunk(chunk, true)
+    await expect(opener.decryptChunk(chunk, true)).rejects.toMatchObject({ code: 'tampered' })
   })
 })
 

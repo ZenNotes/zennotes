@@ -28,6 +28,7 @@ import {
   type CloudAccountKeyStore,
   type CloudE2eeKeyring,
   type CloudEncryptionSecret,
+  type CloudPassphraseKeyDerivation,
   type PendingCloudEncryptionSetup
 } from '@zennotes/shared-domain/cloud-e2ee-account'
 import {
@@ -39,6 +40,7 @@ import {
   mobileCloudCredentialScope,
   mobileCloudKeyring
 } from './mobile-cloud-auth'
+import { portableHost } from './host'
 import { randomUUID } from './uuid'
 
 export const ENCRYPTED_VAULT_BACKUP_DOWNLOAD_MESSAGE =
@@ -63,6 +65,8 @@ export interface MobileCloudEncryptionDependencies {
   /** The signed-in account's client, or null while no account is signed in. */
   client(): Promise<MobileCloudEncryptionClient | null>
   keys(): Promise<MobileCloudEncryptionKeys>
+  /** Where Argon2id runs, when the host keeps it off the page. */
+  kdf?(): CloudPassphraseKeyDerivation | undefined
 }
 
 const NOT_AVAILABLE: CloudEncryptionStatus = { available: false, keyset: false, unlocked: false }
@@ -122,7 +126,7 @@ export function createMobileCloudEncryption(deps: MobileCloudEncryptionDependenc
     /** Derives the keys and returns the recovery words; nothing reaches ZenNotes Cloud until finishSetup. */
     async prepareSetup(passphrase: string): Promise<CloudEncryptionRecoveryPrompt> {
       const { client, store, scope } = await connection()
-      return remember(scope, await prepareCloudEncryptionSetup(client.keysetApi(), store, String(passphrase ?? '')))
+      return remember(scope, await prepareCloudEncryptionSetup(client.keysetApi(), store, String(passphrase ?? ''), deps.kdf?.()))
     },
 
     finishSetup: finish,
@@ -130,23 +134,31 @@ export function createMobileCloudEncryption(deps: MobileCloudEncryptionDependenc
     async unlock(secret: CloudEncryptionSecretInput): Promise<void> {
       const checked = encryptionSecret(secret)
       const { client, store, keyring } = await connection()
-      await unlockCloudEncryption(client.keysetApi(), store, checked)
+      await unlockCloudEncryption(client.keysetApi(), store, checked, deps.kdf?.())
       keyring.forget()
     },
 
     async changePassphrase(current: CloudEncryptionSecretInput, next: string): Promise<void> {
       const checked = encryptionSecret(current)
       const { client, store } = await connection()
-      await changeCloudEncryptionPassphrase(client.keysetApi(), store, checked, String(next ?? ''))
+      await changeCloudEncryptionPassphrase(client.keysetApi(), store, checked, String(next ?? ''), deps.kdf?.())
     },
 
     async prepareNewRecoveryKey(current: CloudEncryptionSecretInput): Promise<CloudEncryptionRecoveryPrompt> {
       const checked = encryptionSecret(current)
       const { client, store, scope } = await connection()
-      return remember(scope, await prepareNewCloudRecoveryKey(client.keysetApi(), store, checked))
+      return remember(scope, await prepareNewCloudRecoveryKey(client.keysetApi(), store, checked, deps.kdf?.()))
     },
 
     finishNewRecoveryKey: finish,
+
+    /** Whether this device holds the account key now. No request: a host asks
+     *  before it opens an encrypted vault, online or not. */
+    async isUnlocked(): Promise<boolean> {
+      if (!deps.enabled || !(await deps.client())) return false
+      const { store } = await deps.keys()
+      return (await store.load()) !== null
+    },
 
     /** Forgets this device's account key; encrypted vaults stop syncing until it unlocks again. */
     async lock(): Promise<void> {
@@ -230,10 +242,12 @@ const encryption = createMobileCloudEncryption({
       keyring: mobileCloudKeyring(credential),
       scope: mobileCloudCredentialScope(credential)
     }
-  }
+  },
+  kdf: () => portableHost().passphraseKdf
 })
 
 export const getMobileCloudEncryptionStatus = (): Promise<CloudEncryptionStatus> => encryption.status()
+export const isMobileCloudEncryptionUnlocked = (): Promise<boolean> => encryption.isUnlocked()
 export const prepareMobileCloudEncryptionSetup = (passphrase: string): Promise<CloudEncryptionRecoveryPrompt> =>
   encryption.prepareSetup(passphrase)
 export const finishMobileCloudEncryptionSetup = (setupId: string): Promise<void> => encryption.finishSetup(setupId)

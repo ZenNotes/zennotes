@@ -13,13 +13,15 @@
  *
  * The wipe removes each Cloud vault's OPFS folder and its folder-move
  * journal, every Cloud record in IndexedDB (link, sync state, scan cache, the
- * credential, pending sign-ins, account keys, the vault registry entries),
+ * credential, pending sign-ins, account keys wherever they are kept, the
+ * vault registry entries),
  * app-core's workspace state in localStorage, and runtime caches that are not
  * the app's own build. Try mode's local vault is not the account's and stays,
  * unless it was kept in Cloud.
  */
 import type { HttpTransport, HttpTransportRequest, HttpTransportResponse } from '@zennotes/portable-vault/host'
 import { announceAccount } from './cloud-account'
+import { forgetKeptAccountKeys, forgetBrowserEncryptionPrefs } from './browser-keys'
 import { idbDelete, idbKeys, openBrowserDb } from './idb'
 import {
   listBrowserVaults,
@@ -160,9 +162,11 @@ export async function wipeBrowserCloudData(
   if (!options.entries) {
     // The whole account: every link, state and scan cache, the credential,
     // pending sign-ins and account keys, and the key that sealed them.
+    forgetKeptAccountKeys()
     await clearStore('storage')
     await clearStore('secrets')
     await clearStore('keys')
+    await forgetBrowserEncryptionPrefs()
     for (const key of await idbKeys('preferences')) {
       if (key.startsWith('zn-browser:opened:')) await idbDelete('preferences', key).catch(() => undefined)
     }

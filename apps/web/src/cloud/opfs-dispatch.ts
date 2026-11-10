@@ -28,6 +28,9 @@ export type OpfsOp =
   | 'writeStub'
   | 'replaceStub'
   | 'evictToStub'
+  | 'readHead'
+  | 'decryptFile'
+  | 'sealFile'
 
 export interface OpfsRequest {
   id: number
@@ -55,7 +58,7 @@ export interface OpfsDispatcherDeps {
   fetch?: typeof fetch
 }
 
-const READS = new Set<OpfsOp>(['open', 'read', 'stat', 'list', 'readStub', 'fingerprint'])
+const READS = new Set<OpfsOp>(['open', 'read', 'stat', 'list', 'readStub', 'fingerprint', 'readHead'])
 
 export interface OpfsDispatcher {
   handle(request: OpfsRequest): Promise<OpfsResponse>
@@ -142,6 +145,12 @@ export function createOpfsDispatcher(deps: OpfsDispatcherDeps): OpfsDispatcher {
           args[1] as Parameters<OpfsVaultStore['evictToStub']>[1],
           args[2] as Parameters<OpfsVaultStore['evictToStub']>[2]
         )
+      case 'readHead':
+        return await store.readHead(path, Number(args[1] ?? 0))
+      case 'decryptFile':
+        return await store.decryptFile(args[0] as Parameters<OpfsVaultStore['decryptFile']>[0])
+      case 'sealFile':
+        return await store.sealFile(path, String(args[1] ?? ''), args[2] as Parameters<OpfsVaultStore['sealFile']>[2])
       default:
         throw new OpfsError('ZN-OPFS-STORAGE', `Unknown vault operation ${String(op)}`, 'NotSupportedError')
     }

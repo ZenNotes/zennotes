@@ -24,12 +24,13 @@
  * 5. The PDF export window (`?exportNote=`) reads a vault without owning it.
  * 6. Install the bridge and Cloud sign-in, then finish a callback, or open a
  *    vault under its Web Lock (or show "open in another tab" with Use here),
- *    and render the app.
+ *    and render the app. An end-to-end encrypted vault opens only once this
+ *    tab holds its key: signed out or locked, it asks first.
  */
 import '@renderer/styles/index.css'
 import './cloud.css'
-import { installZenBridge, type ZenBridge } from '@zennotes/bridge-contract/bridge'
-import type { CloudAccount, CloudSyncRunSummary } from '@zennotes/bridge-contract/cloud-sync'
+import { installZenBridge, type BrowserEncryptionPrefs, type ZenBridge } from '@zennotes/bridge-contract/bridge'
+import type { CloudAccount, CloudEncryptionSecretInput, CloudSyncRunSummary } from '@zennotes/bridge-contract/cloud-sync'
 import { DEMO_TOUR_START_PATH } from '@zennotes/shared-domain/demo-tour'
 import { bootPortableVault, createPortableBridge, activePortableVault } from '@zennotes/portable-vault/bridge'
 import {
@@ -54,8 +55,9 @@ import {
   syncMobileCloudVault
 } from '@zennotes/portable-vault/cloud-sync'
 import { stopMobileCloudRequests } from '@zennotes/portable-vault/cloud-sync-client'
+import { isMobileCloudEncryptionUnlocked, unlockMobileCloudEncryption } from '@zennotes/portable-vault/cloud-encryption'
 import { onVaultChange, requestOpenNote } from '@zennotes/portable-vault/events'
-import { CLOUD_SIGN_IN_EXPIRED_MESSAGE } from '@zennotes/shared-domain/cloud-error-copy'
+import { CLOUD_SIGN_IN_EXPIRED_MESSAGE, describeCloudError } from '@zennotes/shared-domain/cloud-error-copy'
 import appPackage from '../../package.json'
 import {
   closeBrowserVault,
@@ -64,6 +66,15 @@ import {
   openBrowserVault,
   type BrowserHostHooks
 } from './browser-host'
+import {
+  encryptionNoticeSeen,
+  forgetKeptAccountKeys,
+  loadLockOnClose,
+  locksOnClose,
+  markEncryptionNoticeSeen,
+  setLockOnClose
+} from './browser-keys'
+import { runningRelease } from './browser-release'
 import {
   browserStorageStatus,
   bytesOverPressure,
@@ -105,6 +116,7 @@ import {
   showSignIn,
   showSignInFailed,
   showSigningIn,
+  showUnlock,
   showVaultPicker,
   type PickableCloudVault
 } from './cloud-screens'
@@ -338,8 +350,23 @@ async function downloadCurrentVault(): Promise<void> {
   )
 }
 
-const ENCRYPTED_NOT_YET =
-  'Encrypted vaults open in the browser in a later release. Use the ZenNotes app for this vault for now.'
+/** Where the security page explains what unlocking in a browser trusts. */
+async function securityPageUrl(): Promise<string> {
+  const status = await getMobileCloudAccountStatus().catch(() => null)
+  return `${status?.account?.base_url ?? 'https://zennotes.org'}/security#browser`
+}
+
+async function browserEncryptionPrefs(): Promise<BrowserEncryptionPrefs> {
+  return { lockOnClose: locksOnClose(), noticeSeen: await encryptionNoticeSeen(), securityUrl: await securityPageUrl() }
+}
+
+/** An encrypted vault lost its key while open (locked or signed out): the
+ *  tab goes back through the gate instead of staying on the notes. */
+function leaveLockedVault(): void {
+  if (!target?.entry.encrypted || wiping) return
+  yielding = true
+  location.replace(`/?vault=${encodeURIComponent(target.entry.key)}`)
+}
 
 /** The portable bridge, with what a browser does its own way. */
 function browserBridge(base: ZenBridge): ZenBridge {
@@ -376,22 +403,44 @@ function browserBridge(base: ZenBridge): ZenBridge {
       await finalPush(15_000)
       const status = await base.logoutCloudAccount()
       announceAccount({ type: 'signed-out' })
+      leaveLockedVault()
       return status
     },
-    // Phase 5 opens encrypted vaults in the browser; until then they are
-    // never linked here.
     linkCloudVault: async (vaultId) => {
       const vault = (await base.listCloudVaults()).find((candidate) => candidate.id === vaultId)
-      if (vault?.encryption) throw new Error(ENCRYPTED_NOT_YET)
       const link = await base.linkCloudVault(vaultId)
-      await rememberCloudLink(link.vault_id, vault?.name)
+      await rememberCloudLink(link.vault_id, vault?.name, !!vault?.encryption)
       return link
     },
     createAndLinkCloudVault: async (name, options) => {
-      if (options?.encrypted) throw new Error(ENCRYPTED_NOT_YET)
       const link = await base.createAndLinkCloudVault(name, options)
-      await rememberCloudLink(link.vault_id, name)
+      await rememberCloudLink(link.vault_id, name, options?.encrypted === true)
       return link
+    },
+    unlockCloudEncryption: async (secret) => {
+      await base.unlockCloudEncryption!(secret)
+      await markEncryptionNoticeSeen()
+    },
+    finishCloudEncryptionSetup: async (setupId) => {
+      await base.finishCloudEncryptionSetup!(setupId)
+      await markEncryptionNoticeSeen()
+    },
+    lockCloudEncryption: async () => {
+      // Pushed while the key can still seal it; what cannot go waits here.
+      await finalPush(15_000)
+      await base.lockCloudEncryption!()
+      announceAccount({ type: 'locked' })
+      leaveLockedVault()
+    },
+    getBrowserEncryptionPrefs: browserEncryptionPrefs,
+    setBrowserLockOnClose: async (lock) => {
+      await setLockOnClose(lock)
+      return browserEncryptionPrefs()
+    },
+    getBrowserRelease: () => runningRelease(),
+    openBrowserUnlock: async () => {
+      await flushEditors()
+      location.assign(`/?unlock=1${target ? `&vault=${encodeURIComponent(target.entry.key)}` : ''}`)
     },
     getBrowserStorageStatus: async () => browserStorageStatus(await cloudOnlyAttachmentCount()),
     requestBrowserStoragePersistence: async () => {
@@ -429,7 +478,7 @@ function browserBridge(base: ZenBridge): ZenBridge {
 
 /** A vault linked from app-core's Cloud settings becomes one of this
  *  browser's Cloud vaults, under the account that linked it. */
-async function rememberCloudLink(vaultId: string, name: string | undefined): Promise<void> {
+async function rememberCloudLink(vaultId: string, name: string | undefined, encrypted: boolean): Promise<void> {
   if (!target) return
   const status = await getMobileCloudAccountStatus()
   if (status.state !== 'connected' || !status.account) return
@@ -439,6 +488,7 @@ async function rememberCloudLink(vaultId: string, name: string | undefined): Pro
     vaultId,
     name: name ?? target.entry.name,
     account: accountOf(status.account),
+    encrypted: encrypted || undefined,
     lastOpenedAt: Date.now()
   }
   target.entry = entry
@@ -500,6 +550,7 @@ const hooks: BrowserHostHooks = {
 /** Stops everything this tab does with the vault, before its files go. */
 async function closeForWipe(): Promise<void> {
   wiping = true
+  forgetKeptAccountKeys()
   stopMobileCloudRequests()
   try {
     const { stopCloudAutoSync } = await import('@renderer/lib/cloud-auto-sync')
@@ -538,7 +589,11 @@ async function waitForWipe(): Promise<void> {
   }
 }
 
+let listeningForAccount = false
+
 function listenForAccountChanges(): void {
+  if (listeningForAccount) return
+  listeningForAccount = true
   onAccountAnnouncement((message) => {
     if (message.type === 'wiped') {
       if (wiping) return
@@ -548,7 +603,10 @@ function listenForAccountChanges(): void {
       })
       return
     }
+    // A key this tab held only in memory goes with the other tab's lock.
+    if (message.type !== 'signed-in') forgetKeptAccountKeys()
     void refreshMobileCloudAccountStatus().catch(() => undefined)
+    if (message.type !== 'signed-in' && target?.entry.encrypted) void flushEditors().then(leaveLockedVault)
   })
 }
 
@@ -670,7 +728,7 @@ async function startApp(entry: BrowserVaultEntry, held: HeldVault, joinVaultId?:
   }
   installLeaveGuard()
   listenForAccountChanges()
-  if (entry.kind === 'cloud') skipOnboardingForCloudVault()
+  if (entry.kind === 'cloud') await skipOnboardingForCloudVault()
 
   const { renderZenNotesApp } = await import('@zennotes/app-core/main')
   renderZenNotesApp(appRoot)
@@ -706,16 +764,21 @@ async function startApp(entry: BrowserVaultEntry, held: HeldVault, joinVaultId?:
  * profile opening a Cloud vault starts as onboarded; Try mode keeps the
  * wizard.
  */
-function skipOnboardingForCloudVault(): void {
+async function skipOnboardingForCloudVault(): Promise<void> {
   const key = 'zen:prefs:v2'
   try {
     const raw = localStorage.getItem(key)
     const prefs = raw ? (JSON.parse(raw) as Record<string, unknown>) : {}
-    if (prefs.hasCompletedOnboarding === true) return
-    localStorage.setItem(key, JSON.stringify({ ...prefs, hasCompletedOnboarding: true }))
+    if (prefs.hasCompletedOnboarding !== true) {
+      localStorage.setItem(key, JSON.stringify({ ...prefs, hasCompletedOnboarding: true }))
+    }
   } catch {
-    // storage blocked: the wizard shows, and nothing is lost
+    // storage blocked: the store is told below, for this tab
   }
+  // A built app can load the store with a chunk the host screens share, so
+  // it may have read the preference before the line above wrote it.
+  const { useStore } = await import('@renderer/store')
+  if (!useStore.getState().hasCompletedOnboarding) useStore.setState({ hasCompletedOnboarding: true })
 }
 
 /** Opens `entry` under its lock, or offers Use here when another tab has it. */
@@ -888,15 +951,83 @@ async function keepTryVaultInCloud(): Promise<void> {
 
 async function loadPickableVaults(): Promise<PickableCloudVault[]> {
   const here = new Set((await listBrowserVaults()).map((entry) => entry.vaultId).filter(Boolean))
+  const unlocked = await isMobileCloudEncryptionUnlocked()
   return (await listMobileCloudVaults()).map((vault) => ({
     id: vault.id,
     name: vault.name,
     encrypted: !!vault.encryption,
+    locked: !!vault.encryption && !unlocked,
     here: here.has(vault.id)
   }))
 }
 
-async function openCloudVault(vault: { id: string; name: string }, account: CloudAccount): Promise<void> {
+/** Unlocks with the passphrase or the recovery key, keeping the key where
+ *  the person chose. Argon2id runs in its own worker (argon2-client.ts). */
+async function unlockHere(secret: CloudEncryptionSecretInput, lockOnClose: boolean): Promise<void> {
+  try {
+    if (lockOnClose !== locksOnClose()) await setLockOnClose(lockOnClose)
+    await unlockMobileCloudEncryption(secret)
+  } catch (error) {
+    throw new Error(describeCloudError(error, "That didn't work. Try again.").message)
+  }
+  await markEncryptionNoticeSeen()
+}
+
+async function signOutFromScreen(): Promise<void> {
+  await logoutMobileCloudAccount()
+  announceAccount({ type: 'signed-out' })
+  location.replace('/')
+}
+
+/** Shows the unlock screen; resolves once this tab holds the key. */
+async function askToUnlock(account: CloudAccount, vaultName: string | null): Promise<void> {
+  const noticeUrl = (await encryptionNoticeSeen()) ? null : await securityPageUrl()
+  await new Promise<void>((resolve) => {
+    showUnlock(appRoot, {
+      vaultName,
+      email: account.user.email,
+      noticeUrl,
+      lockOnClose: locksOnClose(),
+      onUnlock: async (secret, lockOnClose) => {
+        await unlockHere(secret, lockOnClose)
+        resolve()
+      },
+      onOtherVaults: () => location.assign('/?choose=1'),
+      onSignOut: signOutFromScreen
+    })
+  })
+}
+
+/**
+ * Whether an encrypted vault may open in this tab: signed in and holding the
+ * key, asking for whichever is missing first. Its copy here is plain files,
+ * so this keeps it off the screen, not out of the browser's storage.
+ */
+async function passEncryptionGate(entry: BrowserVaultEntry): Promise<boolean> {
+  await installAccountOnly()
+  listenForAccountChanges()
+  const status = await getMobileCloudAccountStatus()
+  if (status.state !== 'connected' || !status.account) {
+    showSignIn(appRoot, signIn, `“${entry.name}” is end-to-end encrypted. Sign in to unlock it.`)
+    onAccountAnnouncement((message) => {
+      if (message.type === 'signed-in') showSignedInElsewhere(appRoot)
+    })
+    return false
+  }
+  if (await isMobileCloudEncryptionUnlocked()) return true
+  // Another tab signing out or locking meanwhile starts this over.
+  const stop = onAccountAnnouncement((message) => {
+    if (message.type !== 'signed-in') location.reload()
+  })
+  try {
+    await askToUnlock(status.account, entry.name)
+  } finally {
+    stop()
+  }
+  return true
+}
+
+async function openCloudVault(vault: { id: string; name: string; encrypted?: boolean }, account: CloudAccount): Promise<void> {
   const key = cloudVaultKey(vault.id)
   const existing = await findBrowserVault(key)
   if (existing) {
@@ -909,6 +1040,7 @@ async function openCloudVault(vault: { id: string; name: string }, account: Clou
     kind: 'cloud',
     vaultId: vault.id,
     account: accountOf(account),
+    encrypted: vault.encrypted || undefined,
     lastOpenedAt: Date.now()
   }
   history.replaceState(null, '', `/?vault=${encodeURIComponent(key)}`)
@@ -921,6 +1053,16 @@ async function openHome(): Promise<void> {
   const entries = await listBrowserVaults()
   const params = new URLSearchParams(location.search)
   const wanted = params.get('vault')
+  // "Unlock Encryption in This Browser": the screen, then back where it was.
+  if (params.get('unlock') === '1') {
+    history.replaceState(null, '', wanted ? `/?vault=${encodeURIComponent(wanted)}` : '/')
+    await installAccountOnly()
+    const account = (await getMobileCloudAccountStatus()).account
+    if (account && !(await isMobileCloudEncryptionUnlocked())) {
+      await askToUnlock(account, null)
+      clearScreen()
+    }
+  }
   // "Open a ZenNotes Cloud Vault Here": the list, not the last vault.
   const choosing = params.get('choose') === '1'
   if (choosing) history.replaceState(null, '', '/')
@@ -933,7 +1075,8 @@ async function openHome(): Promise<void> {
       [...cloudEntries].sort((left, right) => right.lastOpenedAt - left.lastOpenedAt)[0]
   if (entry) {
     // Signed in or not: a copy that was signed out (an expired sign-in) opens
-    // as it is, and app-core asks to connect again.
+    // as it is, and app-core asks to connect again. An encrypted one asks first.
+    if (entry.encrypted && !(await passEncryptionGate(entry))) return
     await openEntry(entry)
     return
   }
@@ -955,23 +1098,32 @@ async function openHome(): Promise<void> {
     return
   }
   const account = status.account
-  showVaultPicker(appRoot, {
-    email: account.user.email,
-    load: loadPickableVaults,
-    onOpen: async (vault) => {
-      if (vault.encrypted) throw new Error(ENCRYPTED_NOT_YET)
-      await openCloudVault(vault, account)
-    },
-    onCreate: async (name) => {
-      const created = (await (await authenticatedClient()).createVault(name)).data
-      await openCloudVault({ id: created.id, name: created.name || name }, account)
-    },
-    onSignOut: async () => {
-      await logoutMobileCloudAccount()
-      announceAccount({ type: 'signed-out' })
-      location.replace('/')
-    }
-  })
+  const showPicker = (): void => {
+    showVaultPicker(appRoot, {
+      email: account.user.email,
+      load: loadPickableVaults,
+      onOpen: async (vault) => {
+        if (!vault.locked) {
+          await openCloudVault(vault, account)
+          return
+        }
+        await askToUnlock(account, null)
+        // Names can be read now. One encrypted vault is the one asked for;
+        // with several, the placeholder gave no way to choose, so the list
+        // comes back with the real names.
+        const encrypted = (await listMobileCloudVaults()).filter((candidate) => candidate.encryption)
+        const only = encrypted.length === 1 ? encrypted[0] : undefined
+        if (only) await openCloudVault({ id: only.id, name: only.name, encrypted: true }, account)
+        else showPicker()
+      },
+      onCreate: async (name) => {
+        const created = (await (await authenticatedClient()).createVault(name)).data
+        await openCloudVault({ id: created.id, name: created.name || name }, account)
+      },
+      onSignOut: signOutFromScreen
+    })
+  }
+  showPicker()
 }
 
 async function openTry(): Promise<void> {
@@ -985,6 +1137,14 @@ async function openTry(): Promise<void> {
   const entry: BrowserVaultEntry = existing ?? { key: TRY_VAULT_KEY, name: TRY_VAULT_NAME, kind: 'try', lastOpenedAt: Date.now() }
   if (!existing) await saveBrowserVault(entry)
   await openEntry(entry)
+}
+
+function openedByThisApp(): boolean {
+  try {
+    return !!window.opener && (window.opener as Window).location.origin === location.origin
+  } catch {
+    return false
+  }
 }
 
 async function boot(): Promise<void> {
@@ -1005,12 +1165,20 @@ async function boot(): Promise<void> {
   }
   await ensureServiceWorkerControl()
   await loadKeepAttachments()
+  await loadLockOnClose()
 
   const params = new URLSearchParams(location.search)
   const exportNotePath = params.get('exportNote')
   if (exportNotePath && !callback) {
     const key = params.get('vault') ?? (location.pathname === '/try' ? TRY_VAULT_KEY : await currentBrowserVaultKey()) ?? TRY_VAULT_KEY
-    const name = (await findBrowserVault(key))?.name ?? TRY_VAULT_NAME
+    const exported = await findBrowserVault(key)
+    // A locked vault stays off the screen: only the tab that has it open
+    // opens its print window.
+    if (exported?.encrypted && !openedByThisApp()) {
+      showBootError(appRoot, 'Open this note in ZenNotes to export it.')
+      return
+    }
+    const name = exported?.name ?? TRY_VAULT_NAME
     const [{ createExportBridge }, { renderExportNoteWindow }] = await Promise.all([
       import('./export-bridge'),
       import('../export-window')

@@ -27,9 +27,11 @@ Non-goals for v1: hiding sizes (content is not padded), hiding access patterns, 
 
 Encryption protects against anyone who reads the service's database, object storage, backups, recovery copies or logs: ZenNotes staff, hosting providers, an attacker who breaches either, or a legal demand. They get ciphertext and the metadata above.
 
-A malicious server can refuse service, delete data, roll an item back to an older revision, hide items, and guess the passphrase offline against the stored keyset at Argon2id cost per guess. It cannot read or forge content, move content between files, attach one file's metadata to another path, or swap vault keys between vaults without the client noticing.
+A malicious server can refuse service, delete data, roll an item back to an older revision, hide items, and guess the passphrase offline against the stored keyset at Argon2id cost per guess. Against the installed apps, whose code is a signed build that changes only when the person updates it, it cannot read or forge content, move content between files, attach one file's metadata to another path, or swap vault keys between vaults without the client noticing.
 
-Out of scope: an unlocked or compromised device (the vault on disk is plain Markdown by design), malware in the app process, and shoulder surfing.
+A browser session is weaker against a malicious server, and only against that. ZenNotes in the browser (app.zennotes.org) runs this same encryption code, but the browser downloads the code from the service whenever it changes, so the service delivers what handles the passphrase and the decrypted notes. A compromised service, or one compelled to, could serve a changed app that reads a vault once it is unlocked in a browser. Someone who only reads the service's stored data gets ciphertext, as with the apps. People who want protection from ZenNotes itself unlock encrypted vaults only in the installed apps: the first unlock in a browser says so and links to the security page. The app origin serves nothing but the app, from a release whose files are published with their hashes, and Settings shows the running release and the hash of its manifest. A page cannot prove its own integrity, so that display helps someone compare a release; it is not a defense.
+
+Out of scope: an unlocked or compromised device (the vault on disk is plain Markdown by design), malware in the app process, and shoulder surfing. A browser's copy of a vault is plain files in the origin's private storage, as on a phone's disk: locking forgets the key and keeps the vault off the screen, and does not remove those files.
 
 ## Keys
 
@@ -44,7 +46,7 @@ VK -- HKDF -------> K_path (path index key)
 - PK = Argon2id(password = UTF-8 of the NFKC-normalized passphrase, salt = 16 random bytes, memory = 65536 KiB, iterations = 3, parallelism = 4, version 0x13, output 32 bytes). The parameters live in the keyset so they can be raised later.
 - AK, every VK and the recovery key are 32 bytes from the platform CSPRNG.
 - Changing the passphrase re-wraps AK. A new recovery key re-wraps AK. Nothing else is re-encrypted.
-- Devices keep the unwrapped AK in the platform keychain: Electron safeStorage on desktop, a Keychain item with `WhenUnlockedThisDeviceOnly` on iOS, the Android Keystore. Vault keys are unwrapped when needed and kept in memory. Signing out deletes AK from the device.
+- Devices keep the unwrapped AK in the platform keychain: Electron safeStorage on desktop, a Keychain item with `WhenUnlockedThisDeviceOnly` on iOS, the Android Keystore. A browser has no keychain: it keeps AK in IndexedDB, sealed with AES-GCM under a key generated in that browser as non-extractable, or, with "Lock when I close this tab", only in that tab's memory. Vault keys are unwrapped when needed and kept in memory. Signing out deletes AK from the device.
 
 The passphrase is separate from the account password. Accounts that sign in with Google have no password, and the server receives the account password at every sign-in, so it cannot double as the secret.
 
@@ -217,6 +219,8 @@ Streams that bypass the JSON layer encrypt and decrypt in chunks:
 
 - Desktop direct uploads encrypt to a private temp file first, so the ciphertext's length and hash exist before the upload is initiated. Reference downloads decrypt in the network branch of `cloud-sync-download.ts`, before the plaintext hash check, never in the local-copy path.
 - iPhone and Android do the same inside `ZenDirectUpload` with CryptoKit and javax.crypto. JavaScript parses the header, checks the commitment and derives the object key; native code runs only the chunk loop and the hashes. Shared test vectors keep the three implementations byte-identical.
+- The browser does the same in its OPFS worker, with WebCrypto: the page parses the header, checks the commitment and derives the object key; the worker runs only the chunk loop and the hashes, into a private temp in the vault's storage. Argon2id runs in a worker of its own, ended after each derivation so its memory is freed.
+- A browser downloads large attachments when they are opened. A stub for one in an encrypted vault records the stored ciphertext's hash and length as well as the plaintext's; hydrating checks the download against the first, decrypts, then checks the plaintext against the second.
 
 Desktop keeps every key in the main process; the renderer asks for setup, unlock and status over IPC. Before it stores an account key, the desktop secret store must write atomically with 0600 permissions and must never treat an unreadable file as empty.
 
@@ -225,6 +229,7 @@ Desktop keeps every key in the main process; the renderer asks for setup, unlock
 - **Set up** (Settings, Cloud, End-to-end encryption, labeled beta): choose a passphrase (typed twice, with a strength meter and an enforced minimum), then see the 24-word recovery key with copy, save and print, and confirm it by typing three of its words. Setup ends by offering to encrypt the current vault.
 - **Encrypt this vault**: needs a fully synced vault with no open conflicts. It warns that the old vault's Cloud version history and backups are not carried over and offers a backup download first. It creates a new encrypted vault with the same name, links the folder to it, uploads everything, then marks the old vault superseded and deletes it through the existing deletion path. Other devices linked to the old vault get 410 `VAULT_SUPERSEDED` with the new vault's id and offer to unlock and switch; files that already match are adopted without downloading.
 - **New device**: linking an encrypted vault asks for the passphrase or the recovery key, once per device.
+- **Browser**: an encrypted vault opens only once the tab holds the key, so a locked or signed-out browser asks first. The unlock screen offers "Lock when I close this tab"; the first unlock carries the notice from the threat model.
 - **Change passphrase** and **New recovery key**: ask for the current passphrase or the recovery key, then re-wrap AK.
 - **Lost both**: the website reset above.
 - **Keyboard**: command palette entries for unlocking and for encrypting the current vault, reachable like every other Cloud action.
@@ -244,6 +249,7 @@ Desktop keeps every key in the main process; the renderer asks for setup, unlock
 - Service feature tests for every rule above, and for backups and restores carrying `meta`.
 - Desktop driven over CDP with two isolated profiles: set up, encrypt a vault, unlock the second profile, sync both ways, rename, a conflict, a 50 MB attachment, Restore from date, a backup download.
 - iPhone and Android against a local website: unlock, sync both ways, large files through the native path.
+- The browser against a local website, in each engine: unlock, a wrong passphrase, sync both ways with a desktop profile, an attachment hydrating, "Lock when I close this tab", and removing the browser from Connected apps.
 
 ## Later
 

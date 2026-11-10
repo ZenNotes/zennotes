@@ -7,9 +7,11 @@
 import { useCallback, useEffect, useState } from "react";
 import type {
   BrowserAttachmentsResult,
+  BrowserRelease,
   BrowserStorageStatus,
   ZenBridge,
 } from "@zennotes/bridge-contract/bridge";
+import { browserReleaseText } from "../lib/browser-cloud";
 import { Button } from "./ui/Button";
 
 export function hostHasBrowserStorage(bridge: ZenBridge): boolean {
@@ -41,6 +43,12 @@ export function CloudBrowserPanel({ bridge }: { bridge: ZenBridge }): JSX.Elemen
   const [status, setStatus] = useState<BrowserStorageStatus | null>(null);
   const [busy, setBusy] = useState<Busy>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [release, setRelease] = useState<BrowserRelease | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    void bridge.getBrowserRelease?.().then(setRelease, () => setRelease(null));
+  }, [bridge]);
 
   const refresh = useCallback(async () => {
     try {
@@ -129,7 +137,7 @@ export function CloudBrowserPanel({ bridge }: { bridge: ZenBridge }): JSX.Elemen
           </button>
         </div>
       </div>
-      <div className="px-5 py-5">
+      <div className={release ? "border-b border-paper-300/45 px-5 py-5" : "px-5 py-5"}>
         <p data-cloud-browser-attachments="" className="text-xs leading-5 text-ink-500">
           {status.cloudOnlyAttachments === 0
             ? "Every attachment of this vault is in this browser."
@@ -173,6 +181,28 @@ export function CloudBrowserPanel({ bridge }: { bridge: ZenBridge }): JSX.Elemen
           </p>
         )}
       </div>
+      {release && (
+        <div data-cloud-browser-release="" className="px-5 py-5">
+          <div className="text-sm font-medium text-ink-900">Running release</div>
+          <p data-cloud-browser-release-name="" className="mt-1 break-all font-mono text-xs leading-5 text-ink-500">
+            {release.release}
+          </p>
+          <div className="mt-3 text-sm font-medium text-ink-900">Manifest SHA-256</div>
+          <p data-cloud-browser-manifest="" className="mt-1 break-all font-mono text-xs leading-5 text-ink-500">
+            {release.manifestSha256 ?? "This build has no manifest."}
+          </p>
+          <div className="mt-3">
+            <Button
+              variant="ghost"
+              onClick={() => {
+                void navigator.clipboard.writeText(browserReleaseText(release)).then(() => setCopied(true));
+              }}
+            >
+              {copied ? "Copied" : "Copy"}
+            </Button>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

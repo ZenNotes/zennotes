@@ -19,7 +19,9 @@
  * files in slices, streams signed downloads into staging and checks them, and
  * hands a verified File to an upload, so large files never sit whole in the
  * page. That gives the browser the phones' scan cache, content references and
- * staged publishing (CachedCloudSyncRepository).
+ * staged publishing (CachedCloudSyncRepository). An encrypted vault's large
+ * files are opened and sealed by the same worker, in chunks: it gets each
+ * file's object key (what the phones' native loops get) and never a vault key.
  *
  * Attachments on open: the Cloud layer writes large binary attachments as
  * stubs (portable-vault cloud-sync-stubs.ts). Every read of a file's bytes
@@ -30,6 +32,7 @@
 import { base64ToBytes, bytesToBase64 } from '@zennotes/portable-vault/base64'
 import { CLOUD_STUB_MAX_BYTES, decodeCloudStub, type CloudStubRecord } from '@zennotes/portable-vault/cloud-stub-format'
 import { CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES } from '@zennotes/portable-vault/direct-upload'
+import { randomUUID } from '@zennotes/portable-vault/uuid'
 import type {
   CloudDownloadToFile,
   CloudFileFingerprint,
@@ -43,12 +46,12 @@ import type {
 import type { OpfsDispatcher, OpfsOp, OpfsOpenResult, OpfsRequest, OpfsResponse } from './opfs-dispatch'
 import { deserializeOpfsError, isOpfsNotFound, OPFS_CLOSED, OPFS_QUOTA, OPFS_STUB, OpfsError } from './opfs-errors'
 import type { OpfsFileSnapshot } from './opfs-handles'
-import type { OpfsEntry, OpfsFingerprint, OpfsStat } from './opfs-store'
+import type { OpfsEntry, OpfsFingerprint, OpfsSealedFile, OpfsStat } from './opfs-store'
 import { vaultAssetUrl } from './opfs-paths'
 
 const URI_PREFIX = 'opfs-vault:'
-const ENCRYPTED_NOT_YET =
-  'This vault is end-to-end encrypted, which ZenNotes in the browser cannot open yet. Use the ZenNotes app for it for now.'
+/** Where a large file waits, sealed, for its direct upload. */
+const SEALED_UPLOADS = '.zennotes/sync/uploads'
 
 /** Hydrates the stub at a path: true when the file now holds its bytes. */
 export type StubHydrator = (relPath: string) => Promise<boolean>
@@ -372,15 +375,25 @@ export class OpfsVaultFileSystem implements PortableVaultFiles, SyncFastPath {
   }
 
   async readHeader(relPath: string, length: number): Promise<string> {
-    return bytesToBase64((await this.bytes(relPath)).subarray(0, length))
+    return bytesToBase64((await this.transport.call('readHead', [relPath, length])) as Uint8Array)
   }
 
-  async decryptFile(_options: { from: string; to: string } & Zne1NativeKeys): Promise<{ byteLength: number; sha256: string }> {
-    throw new Error(ENCRYPTED_NOT_YET)
+  async decryptFile(options: { from: string; to: string } & Zne1NativeKeys): Promise<{ byteLength: number; sha256: string }> {
+    return (await this.changing(() => this.transport.call('decryptFile', [options]))) as { byteLength: number; sha256: string }
   }
 
-  async sealForUpload(_sourceUri: string, _keys: Zne1NativeKeys): Promise<Zne1NativeSealedFile> {
-    throw new Error(ENCRYPTED_NOT_YET)
+  async sealForUpload(sourceUri: string, keys: Zne1NativeKeys): Promise<Zne1NativeSealedFile> {
+    const path = this.pathForUri(sourceUri)
+    if (path === null) throw new Error('That upload source is not in this vault.')
+    const to = `${SEALED_UPLOADS}/${randomUUID()}.sealed`
+    const sealed = (await this.changing(() => this.transport.call('sealFile', [path, to, keys]))) as OpfsSealedFile
+    return {
+      ...sealed,
+      uri: this.uriFor(to),
+      discard: async () => {
+        await this.deleteFile(to).catch(() => undefined)
+      }
+    }
   }
 
   async writeCloudStub(relPath: string, stub: CloudStubRecord): Promise<void> {

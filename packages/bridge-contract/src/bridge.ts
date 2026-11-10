@@ -208,6 +208,26 @@ export interface BrowserAttachmentsResult {
   status: BrowserStorageStatus
 }
 
+/** How this browser keeps the unlocked encryption key. */
+export interface BrowserEncryptionPrefs {
+  /** The key lives only in this tab's memory: closing or reloading locks. */
+  lockOnClose: boolean
+  /** An unlock has already happened here, so the first-unlock notice is done. */
+  noticeSeen: boolean
+  /** The security page's section on what unlocking in a browser trusts. */
+  securityUrl: string
+}
+
+/** What this tab is running. */
+export interface BrowserRelease {
+  /** The release folder it was served from, or a local build's version. */
+  release: string
+  /** Null when no manifest is served (a local run, or offline before first read). */
+  manifestVersion: string | null
+  /** SHA-256 of the release manifest, hashed in this browser. */
+  manifestSha256: string | null
+}
+
 export interface ZenBridge {
   getCapabilities(): ZenCapabilities
   getAppInfo(): ZenAppInfo
@@ -570,6 +590,16 @@ export interface ZenBridge {
   /** ZenNotes in the browser: shows the account's Cloud vaults to open one
    *  more in this browser (each vault opens in a tab of its own). */
   chooseCloudVaultInBrowser?(): Promise<void>
+  /** ZenNotes in the browser: how the unlocked encryption key is kept here
+   *  and what the unlock screen should say. Only the browser host has these. */
+  getBrowserEncryptionPrefs?(): Promise<BrowserEncryptionPrefs>
+  /** On: the key is held only in this tab's memory. Off: sealed in this
+   *  browser's storage. Moves a key already unlocked. */
+  setBrowserLockOnClose?(lock: boolean): Promise<BrowserEncryptionPrefs>
+  /** ZenNotes in the browser: the release this tab runs and its manifest hash. */
+  getBrowserRelease?(): Promise<BrowserRelease>
+  /** ZenNotes in the browser: goes to the unlock screen, then back here. */
+  openBrowserUnlock?(): Promise<void>
   getPathForFile(file: File): string | null
   /** Open a folder as a temporary session (drag a folder onto the app to read
    *  it without turning it into a vault). Desktop-only. */

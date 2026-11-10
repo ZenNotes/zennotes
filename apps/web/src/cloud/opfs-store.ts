@@ -46,6 +46,19 @@ import type {
   OpfsSyncAccessHandle
 } from './opfs-handles'
 import { createSHA256 } from 'hash-wasm'
+import {
+  CloudE2eeError,
+  ZNE1_CHUNK_BYTES,
+  ZNE1_HEADER_BYTES,
+  ZNE1_SEALED_CHUNK_BYTES,
+  ZNE1_TAG_BYTES,
+  constantTimeEqual,
+  createZne1ChunkDecryptor,
+  createZne1ChunkEncryptor,
+  fromBase64,
+  type Bytes,
+  type Zne1ChunkCipherParams
+} from '@zennotes/shared-domain/cloud-e2ee'
 import { CLOUD_STUB_MAX_BYTES, decodeCloudStub, encodeCloudStub, type CloudStubRecord } from '@zennotes/portable-vault/cloud-stub-format'
 import {
   assertStorableName,
@@ -86,14 +99,37 @@ export interface OpfsFingerprint {
   stub?: CloudStubRecord
 }
 
+/** What the sync fast path gets to open or seal one ZNE1 file, as base64: the
+ *  phones' native loops take the same three (Zne1NativeKeys). */
+export interface OpfsZne1Keys {
+  header: string
+  objectKey: string
+  aad: string
+}
+
+export interface OpfsSealedFile {
+  byteLength: number
+  sha256: string
+  plaintextByteLength: number
+  plaintextSha256: string
+}
+
 /** Bytes hashed per read of a large file. */
 const HASH_CHUNK_BYTES = 8 * 1024 * 1024
+/** ZNE1 chunks read per pass over a large file; memory stays near this. */
+const ZNE1_CHUNKS_PER_READ = 64
+/** Staged by sealFile, and swept when the vault next opens. */
+const STAGING_FOLDERS = ['.zennotes/sync/downloads', '.zennotes/sync/uploads']
 /** A signed download that sends nothing for this long is dropped and
  *  retried by the caller. */
 const DOWNLOAD_STALL_MS = 60_000
 
 function hex(bytes: ArrayBuffer): string {
   return [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
+}
+
+function chunkParams(keys: OpfsZne1Keys): Zne1ChunkCipherParams {
+  return { header: fromBase64(keys.header), objectKey: fromBase64(keys.objectKey), aad: fromBase64(keys.aad) }
 }
 
 function stubsEqual(left: CloudStubRecord, right: CloudStubRecord): boolean {
@@ -183,6 +219,7 @@ export class OpfsVaultStore {
   async prepare(): Promise<{ foldsCase: boolean }> {
     await this.finishInterruptedMoves()
     await this.sweepTemps(this.root)
+    await this.sweepStaging()
     return { foldsCase: await this.probeCase() }
   }
 
@@ -835,6 +872,131 @@ export class OpfsVaultStore {
     }
   }
 
+  /** Up to `length` leading bytes of a file, without reading the rest. */
+  async readHead(path: string, length: number): Promise<Uint8Array> {
+    const file = await this.fileAt(path)
+    if (!file.slice) return new Uint8Array(await file.arrayBuffer()).subarray(0, length)
+    return new Uint8Array(await file.slice(0, Math.min(length, file.size)).arrayBuffer())
+  }
+
+  /**
+   * Opens a staged ZNE1 file into `to`, a new path (SyncFastPath.decryptFile).
+   * Chunks are authenticated one by one into a temp file, which is moved into
+   * place only after the last one, so a tampered or short file leaves nothing.
+   * The header was checked against its key on the page; here it must still be
+   * the header at the front of this file.
+   */
+  async decryptFile(options: { from: string; to: string } & OpfsZne1Keys): Promise<{ byteLength: number; sha256: string }> {
+    await this.fence()
+    if (options.from === options.to) throw new OpfsError(OPFS_EXISTS, 'Cloud decryption needs a separate destination.', 'InvalidModificationError')
+    const params = chunkParams(options)
+    const file = await this.fileAt(options.from)
+    if (!file.slice) throw new OpfsError('ZN-OPFS-STORAGE', 'This browser cannot read large files in parts.', 'NotSupportedError')
+    if (file.size < ZNE1_HEADER_BYTES + ZNE1_TAG_BYTES) throw new CloudE2eeError('malformed', 'The encrypted data is too short.')
+    const head = new Uint8Array(await file.slice(0, ZNE1_HEADER_BYTES).arrayBuffer())
+    if (!constantTimeEqual(head, params.header)) throw new CloudE2eeError('tampered', 'The encrypted data changed while it was being opened.')
+    const loop = await createZne1ChunkDecryptor(params)
+    const hasher = await createSHA256()
+    hasher.init()
+    let written = 0
+    const slab = ZNE1_SEALED_CHUNK_BYTES * ZNE1_CHUNKS_PER_READ
+    await this.writeNewFile(options.to, async (sink) => {
+      for (let offset = ZNE1_HEADER_BYTES; offset < file.size; offset += slab) {
+        const end = Math.min(offset + slab, file.size)
+        const bytes = new Uint8Array(await file.slice!(offset, end).arrayBuffer())
+        for (let at = 0; at < bytes.byteLength; at += ZNE1_SEALED_CHUNK_BYTES) {
+          const stop = Math.min(at + ZNE1_SEALED_CHUNK_BYTES, bytes.byteLength)
+          const opened = await loop.decryptChunk(bytes.subarray(at, stop), offset + stop === file.size)
+          hasher.update(opened)
+          await sink.write(opened)
+          written += opened.byteLength
+        }
+      }
+    })
+    return { byteLength: written, sha256: hasher.digest('hex') }
+  }
+
+  /**
+   * Seals a vault file into `to` for an encrypted vault's direct upload
+   * (SyncFastPath.sealForUpload): the service must be told the ciphertext's
+   * length and hash before the bytes go. Reports the plaintext's too, so the
+   * caller refuses a file that changed since sync read it. Never a stub.
+   */
+  async sealFile(from: string, to: string, keys: OpfsZne1Keys): Promise<OpfsSealedFile> {
+    await this.fence()
+    const params = chunkParams(keys)
+    const file = await this.fileAt(from)
+    if (!file.slice) throw new OpfsError('ZN-OPFS-STORAGE', 'This browser cannot read large files in parts.', 'NotSupportedError')
+    if (file.size <= CLOUD_STUB_MAX_BYTES && decodeCloudStub(new Uint8Array(await file.arrayBuffer()))) {
+      throw new OpfsError(OPFS_STUB, `“${from}” is only in ZenNotes Cloud on this device.`, 'CloudStubError', { path: from })
+    }
+    const loop = await createZne1ChunkEncryptor(params)
+    const plain = await createSHA256()
+    const sealed = await createSHA256()
+    plain.init()
+    sealed.init()
+    let byteLength = 0
+    const put = async (sink: { write(bytes: Uint8Array): Promise<void> }, bytes: Bytes): Promise<void> => {
+      sealed.update(bytes)
+      await sink.write(bytes)
+      byteLength += bytes.byteLength
+    }
+    const slab = ZNE1_CHUNK_BYTES * ZNE1_CHUNKS_PER_READ
+    await this.writeNewFile(to, async (sink) => {
+      await put(sink, params.header)
+      // An empty file is one empty chunk.
+      if (file.size === 0) await put(sink, await loop.encryptChunk(new Uint8Array(0), true))
+      for (let offset = 0; offset < file.size; offset += slab) {
+        const end = Math.min(offset + slab, file.size)
+        const bytes = new Uint8Array(await file.slice!(offset, end).arrayBuffer())
+        plain.update(bytes)
+        for (let at = 0; at < bytes.byteLength; at += ZNE1_CHUNK_BYTES) {
+          const stop = Math.min(at + ZNE1_CHUNK_BYTES, bytes.byteLength)
+          await put(sink, await loop.encryptChunk(bytes.subarray(at, stop), offset + stop === file.size))
+        }
+      }
+    })
+    return { byteLength, sha256: sealed.digest('hex'), plaintextByteLength: file.size, plaintextSha256: plain.digest('hex') }
+  }
+
+  /** Streams a new file into `to` through a temp file, moved into place only
+   *  when `produce` finishes; anything else leaves no file behind. */
+  private async writeNewFile(
+    to: string,
+    produce: (sink: { write(bytes: Uint8Array): Promise<void> }) => Promise<void>
+  ): Promise<void> {
+    const segments = splitVaultPath(to)
+    if (segments.length === 0) throw new OpfsError(OPFS_IS_DIRECTORY, 'The vault root is a folder.', 'TypeMismatchError')
+    for (const segment of segments) assertStorableName(segment, to)
+    const parent = await this.directory(segments.slice(0, -1), true, to)
+    const name = segments[segments.length - 1]!
+    if (await this.child(parent, name, to)) throw new OpfsError(OPFS_EXISTS, `“${to}” already exists.`, 'InvalidModificationError')
+    const tempName = `${TEMP_PREFIX}${this.randomId()}`
+    let temp: OpfsFileHandle
+    try {
+      temp = await parent.getFileHandle(tempName, { create: true })
+    } catch (error) {
+      throw toOpfsError(error, to)
+    }
+    try {
+      const sink = await this.openSink(temp, `${to}#temp`)
+      try {
+        await produce(sink)
+      } finally {
+        await sink.close()
+      }
+      await this.fence()
+      this.closeHandlesOn(to)
+      if (typeof temp.move !== 'function') {
+        throw new OpfsError('ZN-OPFS-STORAGE', 'This browser cannot replace files in place.', 'NotSupportedError')
+      }
+      await temp.move(parent, name)
+    } catch (error) {
+      await parent.removeEntry(tempName).catch(() => undefined)
+      throw toOpfsError(error, to)
+    }
+  }
+
   /** Writes a stub file (attachments on open). */
   async writeStub(path: string, stub: CloudStubRecord): Promise<void> {
     await this.write(path, encodeCloudStub(stub))
@@ -897,6 +1059,18 @@ export class OpfsVaultStore {
         if (name.startsWith(TEMP_PREFIX)) await dir.removeEntry(name).catch(() => undefined)
       } else if (!name.startsWith(TEMP_PREFIX)) {
         await this.sweepTemps(handle)
+      }
+    }
+  }
+
+  /** What a closed tab left in the sync staging folders: sealed uploads and
+   *  half-finished downloads. No sync is running while the vault opens. */
+  private async sweepStaging(): Promise<void> {
+    for (const path of STAGING_FOLDERS) {
+      const found = await this.locate(path).catch(() => null)
+      if (found?.handle.kind !== 'directory') continue
+      for (const [name] of await listChildren(found.handle).catch(() => [] as Array<[string, OpfsHandle]>)) {
+        await found.handle.removeEntry(name, { recursive: true }).catch(() => undefined)
       }
     }
   }

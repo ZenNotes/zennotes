@@ -78,10 +78,16 @@ import {
 } from './vault-folder'
 import {
   canChooseCloudVaultInBrowser,
+  canCopyBrowserRelease,
+  canManageBrowserEncryption,
   canKeepVaultInCloud,
   canManageBrowserAttachments,
   chooseCloudVaultInBrowser,
+  copyBrowserRelease,
   downloadAttachmentsToBrowser,
+  lockBrowserEncryption,
+  toggleBrowserLockOnClose,
+  unlockBrowserEncryption,
   freeUpBrowserSpace,
   keepVaultInCloud,
   toggleKeepAttachmentsInBrowser
@@ -2704,6 +2710,38 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       host: canManageBrowserAttachments,
       when: () => !!getState().vault,
       run: () => freeUpBrowserSpace()
+    },
+    {
+      id: 'cloud.browser.unlock-encryption',
+      title: 'Unlock Encryption in This Browser…',
+      category: 'Vault',
+      keywords: 'cloud browser encryption e2ee unlock passphrase recovery key encrypted vault',
+      host: canManageBrowserEncryption,
+      run: () => unlockBrowserEncryption()
+    },
+    {
+      id: 'cloud.browser.lock-encryption',
+      title: 'Lock Encryption in This Browser',
+      category: 'Vault',
+      keywords: 'cloud browser encryption e2ee lock forget key encrypted vault close',
+      host: canManageBrowserEncryption,
+      run: () => lockBrowserEncryption()
+    },
+    {
+      id: 'cloud.browser.lock-on-close',
+      title: 'Toggle Locking Encryption When This Tab Closes',
+      category: 'Vault',
+      keywords: 'cloud browser encryption e2ee lock close tab forget key memory shared',
+      host: canManageBrowserEncryption,
+      run: () => toggleBrowserLockOnClose()
+    },
+    {
+      id: 'cloud.browser.copy-release',
+      title: 'Copy Running Release and Manifest Hash',
+      category: 'Vault',
+      keywords: 'cloud browser release version build manifest hash sha256 verify security copy',
+      host: canCopyBrowserRelease,
+      run: () => copyBrowserRelease()
     },
     {
       id: 'cli.check-updates',

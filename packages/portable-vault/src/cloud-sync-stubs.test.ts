@@ -144,7 +144,7 @@ afterEach(() => {
   vi.resetModules()
 })
 
-async function fixture(options: { stubs?: boolean } = {}) {
+async function fixture(options: { stubs?: boolean; encrypted?: boolean } = {}) {
   const bucket = new Map<string, Uint8Array>()
   const folder = new StubbingFolder(bucket)
   const items = new Map<string, CloudSyncManifestItem>()
@@ -152,6 +152,9 @@ async function fixture(options: { stubs?: boolean } = {}) {
   const feed: CloudSyncChange[] = []
   const uploaded: CloudSyncMutation[] = []
   const downloadRequests: string[] = []
+  const unanswered = new Set<string>()
+  /** Readable while the fixture's sync pulls; ciphertext once a test says so. */
+  const sealedDownloads = { on: false }
   let cursor = 0
   let nextId = 1
 
@@ -209,10 +212,13 @@ async function fixture(options: { stubs?: boolean } = {}) {
       const item = items.get(itemId)
       const bytes = bodies.get(`${itemId}:${revision}`)
       assert.ok(item && bytes)
+      if (sealedDownloads.on && unanswered.has(itemId)) throw new Error('the service would not say')
       return {
         data: {
           item_id: itemId, revision,
-          content: { encoding: item.kind === 'text' ? 'utf8' : 'base64', sha256: sha256(bytes), byte_length: bytes.byteLength, media_type: item.media_type },
+          content: sealedDownloads.on
+            ? { encoding: 'aes-gcm', sha256: 'c'.repeat(64), byte_length: bytes.byteLength + 90, media_type: 'application/octet-stream' }
+            : { encoding: item.kind === 'text' ? 'utf8' : 'base64', sha256: sha256(bytes), byte_length: bytes.byteLength, media_type: item.media_type },
           download: { method: 'GET', url: `https://bucket.example.test/${itemId}/${revision}`, headers: {}, expires_at: new Date(Date.now() + 600_000).toISOString() }
         }
       }
@@ -263,7 +269,7 @@ async function fixture(options: { stubs?: boolean } = {}) {
     getMobileCloudAccountStatus: async () => ({ state: 'connected', account: { base_url: 'https://sync.example.test' } }),
     mobileCloudAccountKeyStore: () => ({ load: async () => null, save: async () => {}, clear: async () => {} }),
     mobileCloudCredentialScope: () => 'test-scope',
-    mobileCloudKeyring: () => ({ remember() {}, forget() {}, forVault: async () => null })
+    mobileCloudKeyring: () => ({ remember() {}, forget() {}, forVault: async () => (options.encrypted ? {} : null) })
   }))
   const host = { ...createTestHost(), ...(options.stubs === false ? {} : { cloudStubs: { enabled: () => true } }) }
   const { installPortableHost } = await import('./host')
@@ -276,7 +282,7 @@ async function fixture(options: { stubs?: boolean } = {}) {
   const persisted = host.storage.values
   const stateKey = () => [...persisted.keys()].find((path) => path.includes('/states/'))
   return {
-    api, vault, folder, items, uploaded, downloadRequests, remoteFile,
+    api, vault, folder, items, uploaded, downloadRequests, remoteFile, unanswered, sealedDownloads,
     sync: () => api.syncMobileCloudVault(vault),
     clearUploads: () => { uploaded.length = 0 },
     clearState: () => { const key = stateKey(); if (key) persisted.delete(key) },
@@ -489,6 +495,19 @@ describe('attachments on open: eviction', () => {
     await h.sync()
     assert.deepEqual(h.uploaded.map((mutation) => [mutation.type, 'path' in mutation ? mutation.path : null]), [['upsert', 'assets/edited.png']])
     assert.ok(h.folder.stub('assets/kept.png'))
+  })
+
+  it('records an encrypted file’s ciphertext in its stub, or leaves the file when the service would not say', async () => {
+    const h = await fixture({ stubs: false, encrypted: true })
+    h.remoteFile('assets/kept.png', bytesOf(2 * MiB, 30))
+    const quiet = h.remoteFile('assets/quiet.png', bytesOf(2 * MiB, 31))
+    await h.sync()
+    h.sealedDownloads.on = true
+    h.unanswered.add(quiet.item_id)
+    const result = await h.api.evictMobileCloudAttachments(h.vault)
+    assert.equal(result.stubbed, 1)
+    assert.deepEqual(h.folder.stub('assets/kept.png')?.encrypted, { sha256: 'c'.repeat(64), byte_length: 2 * MiB + 90 })
+    assert.equal(h.folder.stub('assets/quiet.png'), null)
   })
 
   it('takes them in the order the host gives, until enough is free', async () => {

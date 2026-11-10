@@ -57,6 +57,13 @@ export interface CloudKeysetApi {
 /** Proof that the person knows one of the account's two secrets. */
 export type CloudEncryptionSecret = { passphrase: string } | { recoveryWords: string }
 
+/**
+ * How a host runs Argon2id. By default in place; the browser runs it in a
+ * worker of its own (64 MiB and about 100 ms it should not spend on the page).
+ * Whatever runs it must give the bytes `derivePassphraseKey` gives.
+ */
+export type CloudPassphraseKeyDerivation = (passphrase: string, kdf: CloudE2eeKdfParams) => Promise<Uint8Array>
+
 function storedKey(accountKey: Uint8Array, version: number): StoredCloudAccountKey {
   return { format: 1, key: toBase64(accountKey), version }
 }
@@ -68,10 +75,14 @@ async function requireKeyset(api: CloudKeysetApi): Promise<CloudEncryptionKeyset
 }
 
 /** Opens the account key with either secret. A wrong secret is reported plainly. */
-async function openAccountKey(keyset: CloudEncryptionKeyset, secret: CloudEncryptionSecret): Promise<Bytes> {
+async function openAccountKey(
+  keyset: CloudEncryptionKeyset,
+  secret: CloudEncryptionSecret,
+  derive: CloudPassphraseKeyDerivation
+): Promise<Bytes> {
   try {
     if ('passphrase' in secret) {
-      const passphraseKey = await derivePassphraseKey(secret.passphrase, keyset.kdf as CloudE2eeKdfParams)
+      const passphraseKey = await derive(secret.passphrase, keyset.kdf as CloudE2eeKdfParams)
       return await unwrapAccountKey(keyset.passphrase_envelope, passphraseKey, 'passphrase')
     }
     const recoveryKey = recoveryKeyFromWords(secret.recoveryWords)
@@ -102,7 +113,8 @@ export interface PendingCloudEncryptionSetup {
 export async function prepareCloudEncryptionSetup(
   api: CloudKeysetApi,
   store: CloudAccountKeyStore,
-  passphrase: string
+  passphrase: string,
+  derive: CloudPassphraseKeyDerivation = derivePassphraseKey
 ): Promise<PendingCloudEncryptionSetup> {
   const problem = cloudPassphraseProblem(passphrase)
   if (problem) throw new CloudE2eeError('invalid-key', problem)
@@ -112,7 +124,7 @@ export async function prepareCloudEncryptionSetup(
   const accountKey = generateCloudE2eeKey()
   const recoveryKey = generateCloudE2eeKey()
   const kdf = newCloudE2eeKdfParams()
-  const passphraseKey = await derivePassphraseKey(passphrase, kdf)
+  const passphraseKey = await derive(passphrase, kdf)
   const body: CloudEncryptionKeysetCreate = {
     format: 1,
     account_key_version: ACCOUNT_KEY_VERSION,
@@ -138,10 +150,11 @@ export async function prepareCloudEncryptionSetup(
 export async function unlockCloudEncryption(
   api: CloudKeysetApi,
   store: CloudAccountKeyStore,
-  secret: CloudEncryptionSecret
+  secret: CloudEncryptionSecret,
+  derive: CloudPassphraseKeyDerivation = derivePassphraseKey
 ): Promise<void> {
   const keyset = await requireKeyset(api)
-  const accountKey = await openAccountKey(keyset, secret)
+  const accountKey = await openAccountKey(keyset, secret, derive)
   await store.save(storedKey(accountKey, keyset.account_key_version))
 }
 
@@ -154,15 +167,16 @@ export async function changeCloudEncryptionPassphrase(
   api: CloudKeysetApi,
   store: CloudAccountKeyStore,
   current: CloudEncryptionSecret,
-  next: string
+  next: string,
+  derive: CloudPassphraseKeyDerivation = derivePassphraseKey
 ): Promise<void> {
   const problem = cloudPassphraseProblem(next)
   if (problem) throw new CloudE2eeError('invalid-key', problem)
   const keyset = await requireKeyset(api)
-  const accountKey = await openAccountKey(keyset, current)
+  const accountKey = await openAccountKey(keyset, current, derive)
   await assertSameStoredKey(store, accountKey)
   const kdf = newCloudE2eeKdfParams()
-  const passphraseKey = await derivePassphraseKey(next, kdf)
+  const passphraseKey = await derive(next, kdf)
   await api.updateKeyset({
     expected_revision: keyset.revision,
     kdf,
@@ -175,10 +189,11 @@ export async function changeCloudEncryptionPassphrase(
 export async function prepareNewCloudRecoveryKey(
   api: CloudKeysetApi,
   store: CloudAccountKeyStore,
-  current: CloudEncryptionSecret
+  current: CloudEncryptionSecret,
+  derive: CloudPassphraseKeyDerivation = derivePassphraseKey
 ): Promise<PendingCloudEncryptionSetup> {
   const keyset = await requireKeyset(api)
-  const accountKey = await openAccountKey(keyset, current)
+  const accountKey = await openAccountKey(keyset, current, derive)
   await assertSameStoredKey(store, accountKey)
   const recoveryKey = generateCloudE2eeKey()
   const envelope = await wrapAccountKey(accountKey, recoveryKey, 'recovery')

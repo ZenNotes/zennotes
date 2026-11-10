@@ -15,6 +15,7 @@ import type {
   CloudSyncSettingsChoice,
   CloudSyncSettingsConflict,
   CloudSyncContentReference,
+  CloudSyncEncryptedContent,
   CloudVaultLink
 } from '@zennotes/bridge-contract/cloud-sync'
 import {
@@ -178,7 +179,8 @@ function stubPolicy(path?: string): ((reference: Pick<CloudSyncContentReference,
  */
 export async function hydrateMobileCloudStub(vault: PortableVault, relPath: string): Promise<boolean> {
   const files = stubFiles(vault.fs)
-  if (!files || !(await files.readCloudStub(relPath))) return false
+  const stub = files ? await files.readCloudStub(relPath) : null
+  if (!files || !stub) return false
   const link = await getMobileCloudVaultLink(vault)
   if (!link) {
     throw new Error('This attachment is only in ZenNotes Cloud, and this vault is no longer linked to it.')
@@ -187,11 +189,14 @@ export async function hydrateMobileCloudStub(vault: PortableVault, relPath: stri
   if (!(await client.negotiateContentReferences())) {
     throw new Error('ZenNotes Cloud could not send this attachment. Try again in a moment.')
   }
+  // Throws while this device is locked: an encrypted attachment stays a stub.
+  const decryptor = stub.encrypted ? await client.contentDecryptor(link.vault_id) : null
   return hydrateCloudStub(files, {
     vaultId: link.vault_id,
     download: (vaultId, itemId, revision) => client.download(vaultId, itemId, revision),
     allowInsecureLoopback: client.allowInsecureLoopbackDownloads,
-    signal: mobileCloudRequestSignal()
+    signal: mobileCloudRequestSignal(),
+    ...(decryptor ? { decryptor } : {})
   }, relPath)
 }
 
@@ -298,6 +303,11 @@ export async function evictMobileCloudAttachments(
   const vaultKey = files.syncKey
   const state = (await linkedState(vaultKey)) as CloudSyncState | null | undefined
   if (!state) return { stubbed: 0, freedBytes: 0 }
+  // A stub of an encrypted vault must name its ciphertext, which sync state
+  // does not keep, so the service is asked for it (below). Signed out it
+  // could not be, and nothing could hydrate the stub anyway.
+  if ((await getMobileCloudAccountStatus()).state !== 'connected') return { stubbed: 0, freedBytes: 0 }
+  const ciphertextOf = await ciphertextLookup(vault)
   const threshold = portableHost().cloudStubs?.thresholdBytes ?? CLOUD_STUB_THRESHOLD_BYTES
   const candidates = new Map<string, VaultDirEntry>()
   await walkSyncedFiles(files, async (path, entry) => {
@@ -314,14 +324,42 @@ export async function evictMobileCloudAttachments(
     if (!entry) continue
     const local = await files.readForSync(path, false)
     if (local.stub) continue
-    const stub = evictableStubFor(state, path, local, threshold)
-    if (!stub) continue
+    const found = evictableStubFor(state, path, local, threshold)
+    if (!found) continue
+    const encrypted = ciphertextOf ? await ciphertextOf(found) : null
+    // No answer for an encrypted file: it stays here this time.
+    if (ciphertextOf && !encrypted) continue
+    const stub = encrypted ? { ...found, encrypted } : found
     if (await files.evictToCloudStub(path, { size: entry.size, mtime: entry.mtime, sha256: local.sha256 }, stub)) {
       stubbed += 1
       freedBytes += entry.size
     }
   }
   return { stubbed, freedBytes }
+}
+
+/**
+ * For an encrypted vault, what the service stores for a revision (the stub's
+ * `encrypted`), read from its download answer: null for a readable vault, or a
+ * lookup that answers null when the service would not say. A wrong answer
+ * from a hostile service costs only a failed hydration, since the plaintext
+ * is still checked against the stub's own hash.
+ */
+async function ciphertextLookup(
+  vault: PortableVault
+): Promise<((stub: CloudStubRecord) => Promise<CloudSyncEncryptedContent | null>) | null> {
+  const link = await getMobileCloudVaultLink(vault)
+  if (!link || !(await isMobileCloudVaultEncrypted(link.vault_id))) return null
+  const client = await authenticatedClient()
+  if (!(await client.negotiateContentReferences())) return async () => null
+  return async (stub) => {
+    try {
+      const { content } = (await client.download(link.vault_id, stub.item_id, stub.revision)).data
+      return content.encoding === 'aes-gcm' ? { sha256: content.sha256, byte_length: content.byte_length } : null
+    } catch {
+      return null
+    }
+  }
 }
 
 /** The pending settings question, if sync parked a cloud version. It lives

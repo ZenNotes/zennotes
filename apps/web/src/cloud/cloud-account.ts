@@ -64,6 +64,8 @@ const ACCOUNT_CHANNEL = 'zennotes:cloud-account'
 export type AccountAnnouncement =
   | { type: 'signed-in'; email: string }
   | { type: 'signed-out' }
+  /** Encryption was locked in another tab: this one's key goes too. */
+  | { type: 'locked' }
   /** This browser's copy of the account was removed (revoked, or another
    *  account signed in): every tab stops and shows why. */
   | { type: 'wiped'; reason: 'revoked' | 'account-switch' }
@@ -84,7 +86,7 @@ export function onAccountAnnouncement(listener: (message: AccountAnnouncement) =
   const channel = new BroadcastChannel(ACCOUNT_CHANNEL)
   channel.onmessage = (event: MessageEvent<AccountAnnouncement>) => {
     const type = (event.data as { type?: unknown } | null)?.type
-    if (type === 'signed-in' || type === 'signed-out' || type === 'wiped') listener(event.data)
+    if (type === 'signed-in' || type === 'signed-out' || type === 'locked' || type === 'wiped') listener(event.data)
   }
   return () => channel.close()
 }

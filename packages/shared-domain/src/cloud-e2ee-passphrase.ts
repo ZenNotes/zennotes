@@ -20,3 +20,7 @@ export function cloudPassphraseProblem(passphrase: string): string | null {
   }
   return null
 }
+
+/** The first-unlock notice in a browser (docs/specs/cloud-e2ee.md, Threat model). */
+export const CLOUD_BROWSER_UNLOCK_NOTICE =
+  'A browser downloads ZenNotes from the website each time it changes, so unlocking here trusts that website in a way the installed apps do not.'

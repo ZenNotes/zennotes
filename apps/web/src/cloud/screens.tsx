@@ -65,6 +65,9 @@ export function useLetterKey(letter: string, action: () => void, enabled: boolea
     if (!enabled) return
     const onKey = (event: KeyboardEvent): void => {
       if (event.metaKey || event.ctrlKey || event.altKey || event.repeat) return
+      // A letter typed into a field is that field's.
+      const typingIn = (event.target as HTMLElement | null)?.tagName
+      if (typingIn === 'INPUT' || typingIn === 'TEXTAREA') return
       if (event.key === letter) {
         event.preventDefault()
         action()

@@ -422,6 +422,12 @@ export interface CloudAttachmentStubs {
   thresholdBytes?: number
 }
 
+/**
+ * Runs Argon2id for the account's passphrase off the page (the browser's
+ * worker). Absent, the key work runs in place, as on the phones.
+ */
+export type HostPassphraseKdf = import('@zennotes/shared-domain/cloud-e2ee-account').CloudPassphraseKeyDerivation
+
 export interface PortableHost {
   shell: HostShell
   lifecycle: AppLifecycle
@@ -433,6 +439,7 @@ export interface PortableHost {
   secrets: SecretStorage
   vaults: HostVaults
   cloudStubs?: CloudAttachmentStubs
+  passphraseKdf?: HostPassphraseKdf
 }
 
 let installed: PortableHost | null = null

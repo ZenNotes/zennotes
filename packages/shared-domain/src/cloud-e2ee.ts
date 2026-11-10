@@ -344,7 +344,15 @@ export interface Zne1Encryptor {
 }
 
 export async function createZne1Encryptor(options: Zne1EncryptOptions): Promise<Zne1Encryptor> {
-  const params = await beginZne1Encryption(options)
+  return createZne1ChunkEncryptor(await beginZne1Encryption(options))
+}
+
+/**
+ * The chunk loop alone, for a host whose keys were derived elsewhere: the
+ * browser's vault worker gets exactly what the phones' native loops get
+ * (`Zne1ChunkCipherParams`) and never sees a parent key.
+ */
+export async function createZne1ChunkEncryptor(params: Zne1ChunkCipherParams): Promise<Zne1Encryptor> {
   const key = await importChunkKey(params.objectKey)
   let index = 0
   let finished = false
@@ -383,11 +391,17 @@ export async function createZne1Decryptor(
   options: Zne1DecryptOptions
 ): Promise<Zne1Decryptor> {
   const params = await beginZne1Decryption(data, options)
+  const loop = await createZne1ChunkDecryptor(params)
+  return { header: params.parsed, decryptChunk: loop.decryptChunk }
+}
+
+/** The chunk loop alone; see createZne1ChunkEncryptor. The caller has checked
+ *  the object's header against its key (openContentHeader). */
+export async function createZne1ChunkDecryptor(params: Zne1ChunkCipherParams): Promise<Pick<Zne1Decryptor, 'decryptChunk'>> {
   const key = await importChunkKey(params.objectKey)
   let index = 0
   let finished = false
   return {
-    header: params.parsed,
     async decryptChunk(sealed, last) {
       if (finished) throw new CloudE2eeError('tampered', 'The encrypted data continues past its last chunk.')
       const size = sealed.byteLength

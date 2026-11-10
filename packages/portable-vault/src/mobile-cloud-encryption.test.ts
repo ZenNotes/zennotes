@@ -81,6 +81,31 @@ it('stays out of Settings and refuses encrypted vaults until this build opts in'
   await assert.rejects(encryption.assertCanLink('sealed'), /cannot open/)
 })
 
+it('runs the passphrase through the host’s key derivation, and says whether this device is unlocked', async () => {
+  const { derivePassphraseKey } = await import('@zennotes/shared-domain/cloud-e2ee')
+  const h = account()
+  const asked: string[] = []
+  const encryption = createMobileCloudEncryption({
+    enabled: true,
+    client: async () => h.client as never,
+    keys: async () => ({ store: h.store, keyring: { remember() {}, forget() {}, forVault: async () => null }, scope: 'one' }),
+    kdf: () => async (passphrase, kdf) => {
+      asked.push(passphrase)
+      return derivePassphraseKey(passphrase, kdf)
+    }
+  })
+  assert.equal(await encryption.isUnlocked(), false)
+  const prompt = await encryption.prepareSetup(PASSPHRASE)
+  await encryption.finishSetup(prompt.setupId)
+  assert.equal(await encryption.isUnlocked(), true)
+  await encryption.lock()
+  assert.equal(await encryption.isUnlocked(), false)
+  await encryption.unlock({ passphrase: PASSPHRASE })
+  assert.equal(await encryption.isUnlocked(), true)
+  await assert.rejects(encryption.unlock({ passphrase: 'not the passphrase at all' }), /didn't work/)
+  assert.deepEqual(asked, [PASSPHRASE, PASSPHRASE, 'not the passphrase at all'])
+})
+
 it('reports nothing available while signed out', async () => {
   const encryption = createMobileCloudEncryption({
     enabled: true, client: async () => null, keys: async () => assert.fail('no keys while signed out')
