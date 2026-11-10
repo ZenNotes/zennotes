@@ -35,6 +35,7 @@ import { CachedCloudSyncRepository, type ScanCache } from './cloud-sync-reposito
 import type { PortableVault } from './vault-fs'
 import { hasSyncFastPath, portableHost } from './host'
 import { trackCloudSyncChanges } from './cloud-sync-refresh'
+import { reconcileLayoutForCloudJoin } from './cloud-layout'
 import {
   MOBILE_END_TO_END_ENCRYPTION,
   authenticatedClient,
@@ -98,7 +99,16 @@ export async function linkMobileCloudVault(
   // An encrypted vault's name and content need the account key, so linking
   // a locked device stops here instead of at the first sync.
   await assertMobileCloudVaultCanLink(vaultId)
-  return service.link(hostVault(vault), vaultId)
+  const link = await service.link(hostVault(vault), vaultId)
+  // Joining an established cloud vault: align this vault's physical layout
+  // with the cloud tree before the first sync merges them (zennotesandroid#17).
+  // Best-effort: a failure here leaves the old behavior, never a broken link.
+  try {
+    await reconcileLayoutForCloudJoin(vault, link.vault_id)
+  } catch {
+    // The link itself succeeded; sync proceeds against the unmoved layout.
+  }
+  return link
 }
 
 export async function createAndLinkMobileCloudVault(

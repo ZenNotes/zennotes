@@ -344,8 +344,22 @@ describe('mobile Cloud adapter wiring', () => {
     assert.equal(h.text('notes/b.md'), 'Edited on desktop')
   })
 
+  it('keeps a new link when reading the cloud tree for its layout fails', async () => {
+    const h = await fixture()
+    const manifest = h.remote.manifest
+    h.remote.manifest = async () => { throw new Error('offline') }
+    const link = await h.api.linkMobileCloudVault(h.vault, 'vault-2')
+    h.remote.manifest = manifest
+    assert.equal(link.vault_id, 'vault-2')
+    assert.deepEqual(await h.api.getMobileCloudVaultLink(h.vault), link)
+  })
+
   it('detects remote changes from a one-item metadata manifest without scanning local files', async () => {
     const h = await fixture()
+    // Linking read the cloud tree's paths once, to match its layout
+    // (cloud-layout.ts); the probe itself lists nothing.
+    assert.deepEqual(h.manifestRequests, [{ includeContent: false, page: 1, perPage: 250 }])
+    h.manifestRequests.length = 0
     assert.equal(await h.api.hasMobileCloudVaultChanges(h.vault), true)
     assert.deepEqual(h.manifestRequests, [])
     await h.sync()
