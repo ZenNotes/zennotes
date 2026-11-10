@@ -19,10 +19,12 @@
  * 1. Refuse any origin but the configured one (and loopback for local runs).
  * 2. Take the sign-in callback out of the address bar before anything runs.
  * 3. Firefox private windows have no OPFS: say so and stop.
- * 4. Take control by the service worker, or `/_vault/...` URLs would reach
+ * 4. A shared computer's copy left by a session that was closed without
+ *    signing out is wiped, before anything reads it or is drawn.
+ * 5. Take control by the service worker, or `/_vault/...` URLs would reach
  *    the network.
- * 5. The PDF export window (`?exportNote=`) reads a vault without owning it.
- * 6. Install the bridge and Cloud sign-in, then finish a callback, or open a
+ * 6. The PDF export window (`?exportNote=`) reads a vault without owning it.
+ * 7. Install the bridge and Cloud sign-in, then finish a callback, or open a
  *    vault under its Web Lock (or show "open in another tab" with Use here),
  *    and render the app. An end-to-end encrypted vault opens only once this
  *    tab holds its key: signed out or locked, it asks first.
@@ -30,7 +32,7 @@
 import '@renderer/styles/index.css'
 import './cloud.css'
 import { installZenBridge, type BrowserEncryptionPrefs, type ZenBridge } from '@zennotes/bridge-contract/bridge'
-import type { CloudAccount, CloudEncryptionSecretInput, CloudSyncRunSummary } from '@zennotes/bridge-contract/cloud-sync'
+import type { CloudAccount, CloudAccountStatus, CloudEncryptionSecretInput, CloudSyncRunSummary } from '@zennotes/bridge-contract/cloud-sync'
 import { DEMO_TOUR_START_PATH } from '@zennotes/shared-domain/demo-tour'
 import { bootPortableVault, createPortableBridge, activePortableVault } from '@zennotes/portable-vault/bridge'
 import {
@@ -112,19 +114,39 @@ import {
 import {
   showAccountSwitch,
   showRemoved,
+  showSharedDiscard,
+  showSharedEnded,
+  showSharedOpenElsewhere,
   showSignedInElsewhere,
   showSignIn,
   showSignInFailed,
   showSigningIn,
   showUnlock,
   showVaultPicker,
-  type PickableCloudVault
+  type PickableCloudVault,
+  type SharedEndedReason
 } from './cloud-screens'
-import { clearLocalState, wipeBrowserCloudData } from './cloud-session'
+import {
+  clearForSharedSession,
+  clearLocalState,
+  finishLocalScrub,
+  wipeBrowserCloudData,
+  wipeEverythingInBrowser
+} from './cloud-session'
 import { buildVaultArchive, saveBlob, archiveFolderName } from './download-folder'
 import { idbDelete, idbGet, idbPut } from './idb'
 import { idbHostStorage } from './idb-storage'
 import { clearScreen, showBootError, showNoStorage, showVaultTaken } from './screens'
+import { renderSharedBanner } from './shared-banner'
+import {
+  beginSharedSession,
+  isSharedSession,
+  leaveSharedSession,
+  readSharedSessionRecord,
+  rememberSharedIntent,
+  settleSharedSession,
+  sharedIntent
+} from './shared-session'
 import { ensureServiceWorkerControl, serveVaultToWorker, warmServiceWorkerCache, watchForUpdates } from './sw-register'
 import { renderTryBanner, removeTryBanner } from './try-banner'
 import { takeVaultHere, tryAcquireVault, vaultLocksSupported, type HeldVault } from './vault-lock'
@@ -137,6 +159,12 @@ const WIPING_KEY = 'zn-browser:wiping'
 const AFTER_SIGN_IN_LIFETIME_MS = 60 * 60 * 1000
 /** The Cloud vault Try mode's notes go into. */
 const KEPT_TRY_VAULT_NAME = 'My Notes'
+/** Why a shared computer's session ended, as the next page shows it. */
+const SHARED_ENDED_FLAGS: Record<string, SharedEndedReason> = {
+  'shared-signed-out': 'signed-out',
+  'shared-signed-out-offline': 'signed-out-offline',
+  'shared-expired': 'expired'
+}
 
 const root = document.getElementById('root')
 const bannerHost = document.getElementById('zn-host-banner')
@@ -220,6 +248,8 @@ const afterReady: Array<() => void> = []
  *  nothing changed while it ran. */
 let changeCounter = 0
 let syncing = 0
+/** The open vault changed and no sync has carried that to Cloud yet. */
+let unsyncedHere = false
 
 function whenRendererReady(run: () => void): void {
   if (rendererReady) run()
@@ -304,7 +334,10 @@ async function trackedSync<T>(run: () => Promise<T>): Promise<T> {
   syncing += 1
   try {
     const result = await run()
-    if (key && changeCounter === before) await markVaultUnsynced(key, false).catch(() => undefined)
+    if (key && changeCounter === before) {
+      unsyncedHere = false
+      await markVaultUnsynced(key, false).catch(() => undefined)
+    }
     return result
   } finally {
     syncing -= 1
@@ -350,6 +383,12 @@ async function downloadCurrentVault(): Promise<void> {
   )
 }
 
+/** The website, when no account is left to say which one. */
+function cloudSiteUrl(): string {
+  const development = (import.meta.env.VITE_ZENNOTES_CLOUD_DEV_URL as string | undefined)?.trim().replace(/\/+$/, '')
+  return development || 'https://zennotes.org'
+}
+
 /** Where the security page explains what unlocking in a browser trusts. */
 async function securityPageUrl(): Promise<string> {
   const status = await getMobileCloudAccountStatus().catch(() => null)
@@ -357,7 +396,12 @@ async function securityPageUrl(): Promise<string> {
 }
 
 async function browserEncryptionPrefs(): Promise<BrowserEncryptionPrefs> {
-  return { lockOnClose: locksOnClose(), noticeSeen: await encryptionNoticeSeen(), securityUrl: await securityPageUrl() }
+  return {
+    lockOnClose: locksOnClose(),
+    noticeSeen: await encryptionNoticeSeen(),
+    securityUrl: await securityPageUrl(),
+    ...(isSharedSession() ? { sharedComputer: true } : {})
+  }
 }
 
 /** An encrypted vault lost its key while open (locked or signed out): the
@@ -399,6 +443,7 @@ function browserBridge(base: ZenBridge): ZenBridge {
       return summary
     },
     logoutCloudAccount: async () => {
+      if (isSharedSession()) return leaveSharedComputer()
       // Push what is waiting while the sign-in still works; the copy stays.
       await finalPush(15_000)
       const status = await base.logoutCloudAccount()
@@ -438,6 +483,7 @@ function browserBridge(base: ZenBridge): ZenBridge {
       return browserEncryptionPrefs()
     },
     getBrowserRelease: () => runningRelease(),
+    isSharedComputerSession: () => isSharedSession(),
     openBrowserUnlock: async () => {
       await flushEditors()
       location.assign(`/?unlock=1${target ? `&vault=${encodeURIComponent(target.entry.key)}` : ''}`)
@@ -448,12 +494,14 @@ function browserBridge(base: ZenBridge): ZenBridge {
       return browserStorageStatus(await cloudOnlyAttachmentCount())
     },
     setBrowserKeepAttachments: async (keep) => {
+      if (isSharedSession()) return browserStorageStatus(await cloudOnlyAttachmentCount())
       await setKeepAttachments(keep)
       // Kept from now on: what is still only in Cloud comes down too.
       if (keep && target) void hydrateAllMobileCloudStubs(activePortableVault()).catch(() => undefined)
       return browserStorageStatus(await cloudOnlyAttachmentCount())
     },
     downloadBrowserAttachments: async () => {
+      if (isSharedSession()) throw new Error('On a shared computer, attachments download when you open them.')
       if (!target) throw new Error('No vault is open.')
       const result = await hydrateAllMobileCloudStubs(activePortableVault())
       return { changed: result.hydrated, failed: result.failed.length, status: await browserStorageStatus(await cloudOnlyAttachmentCount()) }
@@ -542,6 +590,14 @@ const hooks: BrowserHostHooks = {
   revoked() {
     void removeThisBrowser('revoked')
   },
+  signInEnded() {
+    sharedSignInEnded = true
+    // In the app, its own refusal handling signs out. A host screen has none.
+    if (isSharedSession() && !rendererReady) void leaveSharedComputer()
+  },
+  deviceRevocationAnswered(revoked) {
+    deviceRevocationReached = revoked
+  },
   switchTo(entry) {
     void flushEditors().then(() => location.assign(`/?vault=${encodeURIComponent(entry.key)}`))
   }
@@ -572,7 +628,8 @@ async function removeThisBrowser(reason: 'revoked'): Promise<void> {
   removing = true
   await idbPut('preferences', WIPING_KEY, String(Date.now())).catch(() => undefined)
   try {
-    await wipeBrowserCloudData({ closeOpenVault: closeForWipe }, { reason })
+    if (isSharedSession()) await wipeEverythingInBrowser({ closeOpenVault: closeForWipe })
+    else await wipeBrowserCloudData({ closeOpenVault: closeForWipe }, { reason })
   } finally {
     await idbDelete('preferences', WIPING_KEY).catch(() => undefined)
   }
@@ -580,11 +637,100 @@ async function removeThisBrowser(reason: 'revoked'): Promise<void> {
   location.replace('/')
 }
 
+// A shared computer's sign-out: what is waiting goes to Cloud first, or the
+// person is asked; then this browser leaves the account and everything goes.
+
+/** Cloud answered this sign-in with a plain 401: it ended, so nothing can
+ *  push any more. */
+let sharedSignInEnded = false
+/** Whether the sign-out reached Cloud; null until it was tried. */
+let deviceRevocationReached: boolean | null = null
+let leavingShared: Promise<CloudAccountStatus> | null = null
+
+async function unsyncedVaultNames(): Promise<string[]> {
+  const names: string[] = []
+  for (const entry of await listBrowserVaults()) {
+    if (entry.kind === 'cloud' && (await isVaultUnsynced(entry.key))) names.push(entry.name)
+  }
+  return names
+}
+
+/** In the app, its own dialog. On a host screen (the vault picker, the
+ *  unlock screen), a screen; staying goes back to where the person was. */
+async function confirmDiscardingChanges(vaults: string[]): Promise<boolean> {
+  if (!rendererReady) {
+    return new Promise((resolve) => {
+      showSharedDiscard(appRoot, { vaults, onDiscard: async () => resolve(true), onStay: () => location.reload() })
+    })
+  }
+  const { confirmApp } = await import('@renderer/lib/confirm-requests')
+  const names = vaults.join(', ')
+  return confirmApp(
+    sharedSignInEnded
+      ? {
+          title: 'Your sign-in ended',
+          description: `${names} ${vaults.length === 1 ? 'has' : 'have'} changes that never reached ZenNotes Cloud. Download the vault first if you need them.`,
+          confirmLabel: 'Remove them',
+          cancelLabel: 'Keep this open',
+          danger: true
+        }
+      : {
+          title: 'Sign out without these changes?',
+          description: `${names} ${vaults.length === 1 ? 'has' : 'have'} changes that never reached ZenNotes Cloud. Signing out removes them.`,
+          confirmLabel: 'Remove them and sign out',
+          cancelLabel: 'Stay signed in',
+          danger: true
+        }
+  )
+}
+
+async function endSharedSession(): Promise<CloudAccountStatus> {
+  if (sharedSignInEnded) await flushEditors()
+  else await finalPush(15_000)
+  const unsynced = await unsyncedVaultNames()
+  if (unsynced.length > 0 && !(await confirmDiscardingChanges(unsynced))) return getMobileCloudAccountStatus()
+
+  // From here a late "removed from your account" answer is this sign-out's own.
+  removing = true
+  const expired = sharedSignInEnded
+  await logoutMobileCloudAccount().catch((error: unknown) => {
+    console.warn('[zen] signing out of Cloud failed', error)
+  })
+  await idbPut('preferences', WIPING_KEY, String(Date.now())).catch(() => undefined)
+  try {
+    await wipeEverythingInBrowser({ closeOpenVault: closeForWipe })
+    setSessionFlag(
+      REMOVED_FLAG,
+      expired ? 'shared-expired' : deviceRevocationReached === true ? 'shared-signed-out' : 'shared-signed-out-offline'
+    )
+  } catch (error) {
+    // The session's record is still there, and the sign-in is gone: the next
+    // load starts the wipe over before it draws anything.
+    console.warn('[zen] removing this browser\'s copy did not finish', error)
+  }
+  location.replace('/')
+  return await new Promise<CloudAccountStatus>(() => {})
+}
+
+function leaveSharedComputer(): Promise<CloudAccountStatus> {
+  leavingShared ??= endSharedSession().finally(() => {
+    leavingShared = null
+  })
+  return leavingShared
+}
+
 /** A wipe another tab started finishes before this one reads the registry. */
 async function waitForWipe(): Promise<void> {
   for (let waited = 0; waited < 30_000; waited += 250) {
     const started = Number(await idbGet<string>('preferences', WIPING_KEY).catch(() => undefined))
     if (!Number.isFinite(started) || started <= 0 || Date.now() - started > 120_000) return
+    await new Promise((resolve) => setTimeout(resolve, 250))
+  }
+}
+
+async function waitForSharedRecordGone(): Promise<void> {
+  for (let waited = 0; waited < 30_000; waited += 250) {
+    if (!(await readSharedSessionRecord().catch(() => null))) return
     await new Promise((resolve) => setTimeout(resolve, 250))
   }
 }
@@ -598,6 +744,12 @@ function listenForAccountChanges(): void {
     if (message.type === 'wiped') {
       if (wiping) return
       void closeForWipe().then(() => {
+        if (message.reason === 'shared-ended') {
+          // Not this tab's sign-out to report: it starts over.
+          leaveSharedSession()
+          location.reload()
+          return
+        }
         setSessionFlag(REMOVED_FLAG, message.reason)
         location.replace('/')
       })
@@ -616,7 +768,8 @@ function installLeaveGuard(): void {
     // Unsaved text in an editor, or a sync pushing right now: the browser
     // asks in its own words. Saved changes stay in this browser either way.
     const dirty = rendererReady && (window as unknown as { __znDirty?: boolean }).__znDirty === true
-    if (dirty || syncing > 0) {
+    // On a shared computer closing also removes changes still waiting to sync.
+    if (dirty || syncing > 0 || (isSharedSession() && unsyncedHere)) {
       event.preventDefault()
       event.returnValue = ''
     }
@@ -697,6 +850,7 @@ async function startApp(entry: BrowserVaultEntry, held: HeldVault, joinVaultId?:
   onVaultChange((event) => {
     if (event.scope === 'resync') return
     changeCounter += 1
+    unsyncedHere = true
     void markVaultUnsynced(entry.key, true).catch(() => undefined)
   })
   await setCurrentBrowserVaultKey(entry.key)
@@ -714,7 +868,11 @@ async function startApp(entry: BrowserVaultEntry, held: HeldVault, joinVaultId?:
     whenWorkspaceReady(() => requestOpenNote(requestedNote))
   }
 
-  if (entry.kind === 'try') {
+  if (isSharedSession()) {
+    renderSharedBanner(bannerRoot, async () => {
+      await leaveSharedComputer()
+    })
+  } else if (entry.kind === 'try') {
     renderTryBanner(bannerRoot, {
       onDownload: async () => {
         try {
@@ -809,8 +967,9 @@ async function installAccountOnly(): Promise<void> {
   await configureMobileCloudAuth(appPackage.version)
 }
 
-async function signIn(): Promise<void> {
-  await connectMobileCloudAccount()
+async function signIn(shared: boolean): Promise<void> {
+  rememberSharedIntent(shared)
+  await connectMobileCloudAccount(undefined, shared ? { shared: true } : undefined)
 }
 
 async function setAfterSignIn(action: 'keep-try'): Promise<void> {
@@ -849,7 +1008,7 @@ async function finishSignIn(callback: CallbackCapture): Promise<void> {
   showSigningIn(appRoot)
   await installAccountOnly()
   if (!callback.hasCode) {
-    showSignInFailed(appRoot, 'The sign-in was cancelled or did not finish. Sign in again to open your notes here.', signIn)
+    showSignInFailed(appRoot, 'The sign-in was cancelled or did not finish. Sign in again to open your notes here.', signIn, sharedIntent())
     return
   }
   let account: CloudAccount
@@ -864,17 +1023,21 @@ async function finishSignIn(callback: CallbackCapture): Promise<void> {
       showSignedInElsewhere(appRoot)
       return
     }
-    showSignInFailed(appRoot, signInFailureMessage(error), signIn)
+    showSignInFailed(appRoot, signInFailureMessage(error), signIn, sharedIntent())
     return
   }
 
-  // One account per browser: another account's vaults leave first.
-  const { others } = vaultsOfAccount(await listBrowserVaults(), accountOf(account))
+  // One account per browser: another account's vaults leave first. A shared
+  // computer's sign-in starts empty, so even this account's earlier copy goes.
+  const shared = account.device.shared === true
+  const vaultsHere = await listBrowserVaults()
+  const others = shared ? vaultsHere.filter((entry) => entry.kind === 'cloud') : vaultsOfAccount(vaultsHere, accountOf(account)).others
   const continueSignedIn = async (): Promise<void> => {
+    if (shared) await beginSharedSession()
     announceAccount({ type: 'signed-in', email: account.user.email })
     location.replace((await peekAfterSignIn()) ? '/try' : '/')
   }
-  if (others.length === 0) {
+  if (others.length === 0 && !shared) {
     await continueSignedIn()
     return
   }
@@ -883,7 +1046,8 @@ async function finishSignIn(callback: CallbackCapture): Promise<void> {
   const replace = async (): Promise<void> => {
     await idbPut('preferences', WIPING_KEY, String(Date.now())).catch(() => undefined)
     try {
-      await wipeBrowserCloudData({ closeOpenVault: closeForWipe }, { entries: others, reason: 'account-switch' })
+      if (shared) await clearForSharedSession({ closeOpenVault: closeForWipe })
+      else await wipeBrowserCloudData({ closeOpenVault: closeForWipe }, { entries: others, reason: 'account-switch' })
     } finally {
       await idbDelete('preferences', WIPING_KEY).catch(() => undefined)
     }
@@ -898,6 +1062,7 @@ async function finishSignIn(callback: CallbackCapture): Promise<void> {
     previousEmail: others[0]!.account?.email ?? 'the previous account',
     nextEmail: account.user.email,
     unsyncedVaults: unsynced,
+    sharedComputer: shared,
     onReplace: replace,
     onCancel: async () => {
       await logoutMobileCloudAccount()
@@ -974,6 +1139,10 @@ async function unlockHere(secret: CloudEncryptionSecretInput, lockOnClose: boole
 }
 
 async function signOutFromScreen(): Promise<void> {
+  if (isSharedSession()) {
+    await leaveSharedComputer()
+    return
+  }
   await logoutMobileCloudAccount()
   announceAccount({ type: 'signed-out' })
   location.replace('/')
@@ -988,6 +1157,7 @@ async function askToUnlock(account: CloudAccount, vaultName: string | null): Pro
       email: account.user.email,
       noticeUrl,
       lockOnClose: locksOnClose(),
+      sharedComputer: isSharedSession(),
       onUnlock: async (secret, lockOnClose) => {
         await unlockHere(secret, lockOnClose)
         resolve()
@@ -1087,9 +1257,15 @@ async function openHome(): Promise<void> {
     showRemoved(appRoot, removed, signIn)
     return
   }
+  const sharedEnded = removed ? SHARED_ENDED_FLAGS[removed] : undefined
+  if (sharedEnded) {
+    clearLocalState({ everything: true })
+    showSharedEnded(appRoot, sharedEnded, cloudSiteUrl(), signIn)
+    return
+  }
   const status = await getMobileCloudAccountStatus()
   if (status.state !== 'connected' || !status.account) {
-    showSignIn(appRoot, signIn)
+    showSignIn(appRoot, signIn, null, sharedIntent())
     // A sign-in this tab started can finish in another (the verification
     // link opens one): that tab says so here.
     onAccountAnnouncement((message) => {
@@ -1163,6 +1339,21 @@ async function boot(): Promise<void> {
     showNoStorage(appRoot, storage)
     return
   }
+  await finishLocalScrub()
+  const sharedSession = await settleSharedSession(async () => {
+    await idbPut('preferences', WIPING_KEY, String(Date.now())).catch(() => undefined)
+    await wipeEverythingInBrowser({ closeOpenVault: () => {} })
+  })
+  if (sharedSession === 'open-elsewhere') {
+    showSharedOpenElsewhere(appRoot)
+    // Once the person signs out over there, this tab is free to start over.
+    const stop = onAccountAnnouncement((message) => {
+      if (message.type !== 'wiped') return
+      stop()
+      void waitForSharedRecordGone().then(() => location.reload())
+    })
+    return
+  }
   await ensureServiceWorkerControl()
   await loadKeepAttachments()
   await loadLockOnClose()
@@ -1185,6 +1376,12 @@ async function boot(): Promise<void> {
     ])
     installZenBridge(await createExportBridge(key, name))
     renderExportNoteWindow(appRoot, exportNotePath)
+    // The note on screen is part of what signing out removes.
+    if (isSharedSession()) {
+      onAccountAnnouncement((message) => {
+        if (message.type === 'wiped') window.close()
+      })
+    }
     return
   }
 

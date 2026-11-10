@@ -326,6 +326,21 @@ describe('signing in from a web page (the browser)', () => {
     await assert.rejects(third.api.completeMobileCloudSignIn(`${callbackUrl}#code=abc123&state=${state}`), /expired/)
   })
 
+  it('carries a shared computer across tabs and sends it at exchange', async () => {
+    const saved = new Map<string, string>()
+    const exchanges: HttpTransportRequest[] = []
+    const first = await browserLaunch(saved)
+    await first.api.connectMobileCloudAccount('https://zennotes.org', { shared: true })
+    const state = new URL(first.opened[0]!).searchParams.get('state')!
+    const second = await browserLaunch(saved, async (options) => {
+      exchanges.push(options)
+      return { status: 200, headers: {}, data: { token: 'test-only', user: webAccount.user, device: { ...webAccount.device, shared: true } } }
+    })
+    const status = await second.api.completeMobileCloudSignIn(`${callbackUrl}#code=abc123&state=${state}`)
+    assert.equal((exchanges[0]!.data as Record<string, unknown>).shared, true)
+    assert.equal(status.account?.device.shared, true)
+  })
+
   it('refuses a callback for another page or with the code in the query', async () => {
     const { api } = await browserLaunch(new Map())
     await assert.rejects(api.completeMobileCloudSignIn(`https://evil.example/auth/callback#code=abc&state=s`), /not complete/)

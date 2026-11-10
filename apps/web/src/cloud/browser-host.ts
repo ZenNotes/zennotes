@@ -25,7 +25,7 @@ import type {
 } from '@zennotes/portable-vault/host'
 import appPackage from '../../package.json'
 import { BROWSER_SIGN_IN_LIFETIME_MS, browserDeviceName, cloudCallbackUrl } from './cloud-account'
-import { revocationAwareTransport } from './cloud-session'
+import { revocationAwareTransport, watchDeviceRevocation } from './cloud-session'
 import { deriveInWorker } from './argon2-client'
 import { browserSecrets } from './browser-keys'
 import { keepsAttachments } from './browser-storage'
@@ -99,6 +99,10 @@ export interface BrowserHostHooks {
   returnedToApp(): void
   /** Cloud said this browser was removed from the account. */
   revoked(): void
+  /** Cloud refused the sign-in without removing this browser: it expired. */
+  signInEnded(): void
+  /** The answer to signing out: whether Cloud removed this browser. */
+  deviceRevocationAnswered(revoked: boolean): void
   /** Open another of this browser's vaults (a page load of its own). */
   switchTo(entry: BrowserVaultEntry): void
 }
@@ -293,7 +297,10 @@ export function createBrowserHost(openDefault: () => Promise<void>, hooks: Brows
   return {
     shell,
     lifecycle,
-    http: revocationAwareTransport(withOpfsUploads(fetchTransport), () => hooks.revoked()),
+    http: watchDeviceRevocation(
+      revocationAwareTransport(withOpfsUploads(fetchTransport), () => hooks.revoked(), () => hooks.signInEnded()),
+      (revoked) => hooks.deviceRevocationAnswered(revoked)
+    ),
     storage: idbHostStorage('storage'),
     preferences: idbHostStorage('preferences'),
     secrets: browserSecrets,

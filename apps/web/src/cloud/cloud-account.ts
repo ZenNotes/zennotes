@@ -61,14 +61,17 @@ export function browserDeviceName(userAgent: string): string {
 
 const ACCOUNT_CHANNEL = 'zennotes:cloud-account'
 
+export type BrowserWipeReason = 'revoked' | 'account-switch' | 'shared-ended'
+
 export type AccountAnnouncement =
   | { type: 'signed-in'; email: string }
   | { type: 'signed-out' }
   /** Encryption was locked in another tab: this one's key goes too. */
   | { type: 'locked' }
-  /** This browser's copy of the account was removed (revoked, or another
-   *  account signed in): every tab stops and shows why. */
-  | { type: 'wiped'; reason: 'revoked' | 'account-switch' }
+  /** This browser's copy of the account was removed (revoked, another
+   *  account signed in, or a shared computer's session ended): every tab
+   *  stops and shows why. */
+  | { type: 'wiped'; reason: BrowserWipeReason }
 
 export function announceAccount(message: AccountAnnouncement): void {
   if (typeof BroadcastChannel === 'undefined') return

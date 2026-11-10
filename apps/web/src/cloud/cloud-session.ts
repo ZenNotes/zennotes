@@ -10,6 +10,9 @@
  *   signing in again picks up where it was.
  * - Signing into another account wipes the previous account's vaults, after
  *   asking when some of them hold changes Cloud never got.
+ * - A shared computer's session ending (signing out, or a load that finds it
+ *   closed without signing out, shared-session.ts) removes everything ZenNotes
+ *   keeps in this browser.
  *
  * The wipe removes each Cloud vault's OPFS folder and its folder-move
  * journal, every Cloud record in IndexedDB (link, sync state, scan cache, the
@@ -20,9 +23,9 @@
  * unless it was kept in Cloud.
  */
 import type { HttpTransport, HttpTransportRequest, HttpTransportResponse } from '@zennotes/portable-vault/host'
-import { announceAccount } from './cloud-account'
+import { announceAccount, type BrowserWipeReason } from './cloud-account'
 import { forgetKeptAccountKeys, forgetBrowserEncryptionPrefs } from './browser-keys'
-import { idbDelete, idbKeys, openBrowserDb } from './idb'
+import { idbDelete, idbGet, idbKeys, idbPut, openBrowserDb, type BrowserStore } from './idb'
 import {
   listBrowserVaults,
   removeBrowserVaults,
@@ -32,6 +35,7 @@ import {
 } from './browser-vaults'
 import { originOpfsRoot } from './opfs-handles'
 import { VAULTS_DIR } from './opfs-paths'
+import { forgetSharedSessionRecord, SHARED_SESSION_RECORD_KEY } from './shared-session'
 
 export type RevocationReason = 'revoked'
 
@@ -51,13 +55,40 @@ function sendsCredential(request: HttpTransportRequest): boolean {
  * hears this browser was removed starts the wipe. The answer still goes back
  * to the caller, so the request fails as it would anyway.
  */
-export function revocationAwareTransport(base: HttpTransport, onRevoked: () => void): HttpTransport {
+export function revocationAwareTransport(
+  base: HttpTransport,
+  onRevoked: () => void,
+  onSignInEnded: () => void = () => {}
+): HttpTransport {
   return {
     ...base,
     async request(options): Promise<HttpTransportResponse> {
       const response = await base.request(options)
-      if (sendsCredential(options) && isRevocationAnswer(response.status, response.data)) onRevoked()
+      if (sendsCredential(options)) {
+        if (isRevocationAnswer(response.status, response.data)) onRevoked()
+        else if (response.status === 401) onSignInEnded()
+      }
       return response
+    }
+  }
+}
+
+/** Whether a sign-out reached Cloud, for what the signed-out screen can say.
+ *  The shared flow ends a sign-in whatever the answer, so it cannot tell. */
+export function watchDeviceRevocation(base: HttpTransport, onAnswer: (revoked: boolean) => void): HttpTransport {
+  const isRevocation = (options: HttpTransportRequest): boolean =>
+    options.method === 'DELETE' && /\/api\/v1\/devices\/current$/.test(options.url)
+  return {
+    ...base,
+    async request(options): Promise<HttpTransportResponse> {
+      try {
+        const response = await base.request(options)
+        if (isRevocation(options)) onAnswer((response.status >= 200 && response.status < 300) || response.status === 401)
+        return response
+      } catch (error) {
+        if (isRevocation(options)) onAnswer(false)
+        throw error
+      }
     }
   }
 }
@@ -97,7 +128,7 @@ async function deleteVaultFolder(key: string): Promise<void> {
   await idbDelete('fence', key).catch(() => undefined)
 }
 
-async function clearStore(store: 'storage' | 'secrets' | 'keys'): Promise<void> {
+async function clearStore(store: BrowserStore): Promise<void> {
   const db = await openBrowserDb()
   await new Promise<void>((resolve, reject) => {
     const transaction = db.transaction(store, 'readwrite')
@@ -112,12 +143,12 @@ async function clearStore(store: 'storage' | 'secrets' | 'keys'): Promise<void> 
  *  command history), which names notes. The wipe clears it, and the next
  *  boot clears it again: the app still running in the wiped tab writes its
  *  workspace back on the way out. */
-export function clearLocalState(): void {
+export function clearLocalState(options: { everything?: boolean; keepTabSession?: boolean } = {}): void {
   try {
     for (const key of Object.keys(localStorage)) {
-      if (!KEPT_LOCAL_KEYS.has(key)) localStorage.removeItem(key)
+      if (options.everything || !KEPT_LOCAL_KEYS.has(key)) localStorage.removeItem(key)
     }
-    sessionStorage.clear()
+    if (!options.keepTabSession) sessionStorage.clear()
   } catch {
     // storage blocked: nothing kept there either
   }
@@ -145,7 +176,7 @@ async function cloudEntries(only?: readonly BrowserVaultEntry[]): Promise<Browse
  */
 export async function wipeBrowserCloudData(
   hooks: WipeHooks,
-  options: { entries?: readonly BrowserVaultEntry[]; reason: 'revoked' | 'account-switch' }
+  options: { entries?: readonly BrowserVaultEntry[]; reason: 'revoked' | 'account-switch'; keepTabSession?: boolean }
 ): Promise<void> {
   await hooks.closeOpenVault()
   // Other tabs close their workers and stop, before their folders go.
@@ -181,8 +212,94 @@ export async function wipeBrowserCloudData(
     }
   }
   await setCurrentBrowserVaultKey(null)
-  clearLocalState()
+  clearLocalState(options.keepTabSession ? { keepTabSession: true } : {})
   await clearRuntimeCaches()
+}
+
+// ---------------------------------------------------------------------------
+// Shared computers
+// ---------------------------------------------------------------------------
+
+/** A shared sign-in starts clean: nothing stored for an earlier sign-in here
+ *  (its vaults, its key) carries into a session that promises to leave nothing. */
+export async function clearForSharedSession(hooks: WipeHooks): Promise<void> {
+  const entries = await cloudEntries()
+  if (entries.length > 0) await wipeBrowserCloudData(hooks, { entries, reason: 'account-switch', keepTabSession: true })
+  await clearStore('storage')
+  await clearStore('secrets')
+  await clearStore('keys')
+  await forgetBrowserEncryptionPrefs()
+}
+
+const LOCAL_SCRUB_KEY = 'zn-browser:scrub-local'
+
+/** A folder an open file handle still pins can take a moment to come free. */
+async function removeWithRetries(remove: () => Promise<void>): Promise<void> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await remove()
+      return
+    } catch (error) {
+      if ((error as { name?: string } | null)?.name === 'NotFoundError') return
+      if (attempt >= 5) throw error
+      await new Promise((resolve) => setTimeout(resolve, 200 * attempt))
+    }
+  }
+}
+
+/** Every folder ZenNotes wrote to this origin's OPFS, listed from OPFS itself
+ *  so a vault the registry never heard of goes too. */
+async function deleteAllOfOpfs(): Promise<void> {
+  const root = await originOpfsRoot()
+  const vaults = await root.getDirectoryHandle(VAULTS_DIR, { create: false }).catch(() => null)
+  if (vaults) {
+    const names: string[] = []
+    for await (const [name] of vaults.entries()) if (name !== '.zn-journal') names.push(name)
+    for (const name of names) await removeWithRetries(() => deleteVaultFolder(name))
+  }
+  const left: string[] = []
+  for await (const [name] of root.entries()) left.push(name)
+  for (const name of left) await removeWithRetries(() => root.removeEntry(name, { recursive: true }))
+}
+
+/** Every IndexedDB record but the session's own, which goes last. */
+async function clearEveryStore(): Promise<void> {
+  await clearStore('storage')
+  await clearStore('secrets')
+  await clearStore('keys')
+  await clearStore('fence')
+  for (const key of await idbKeys('preferences')) {
+    if (key !== SHARED_SESSION_RECORD_KEY) await idbDelete('preferences', key)
+  }
+}
+
+/**
+ * Removes everything ZenNotes keeps in this browser: every vault in OPFS
+ * (Try's too), all of IndexedDB, localStorage, this tab's sessionStorage and
+ * runtime caches. The session's record goes last, so a wipe cut short by a
+ * closed tab starts over on the next load. The service worker's build caches
+ * stay: they hold only the app's own public files.
+ */
+export async function wipeEverythingInBrowser(hooks: WipeHooks): Promise<void> {
+  await hooks.closeOpenVault()
+  announceAccount({ type: 'wiped', reason: 'shared-ended' satisfies BrowserWipeReason })
+  await deleteAllOfOpfs()
+  forgetKeptAccountKeys()
+  await forgetBrowserEncryptionPrefs()
+  await clearEveryStore()
+  clearLocalState({ everything: true })
+  await clearRuntimeCaches()
+  // The app dying in this tab writes its workspace to localStorage once more
+  // on its way out, after this point: the next load clears it again.
+  await idbPut('preferences', LOCAL_SCRUB_KEY, '1')
+  await forgetSharedSessionRecord()
+}
+
+/** What the last wipe could not reach: see above. Runs on every load. */
+export async function finishLocalScrub(): Promise<void> {
+  if ((await idbGet<string>('preferences', LOCAL_SCRUB_KEY).catch(() => undefined)) !== '1') return
+  clearLocalState({ everything: true, keepTabSession: true })
+  await idbDelete('preferences', LOCAL_SCRUB_KEY).catch(() => undefined)
 }
 
 async function sha256Hex(value: string): Promise<string> {

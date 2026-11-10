@@ -12,9 +12,12 @@
  * - Under storage pressure synced attachments go back to stubs, the ones
  *   opened longest ago first (the time of the last open or download, kept
  *   here per vault).
+ * - On a shared computer attachments are always stubs and download per
+ *   session, and nothing asks the browser to keep what sign-out removes.
  */
 import type { BrowserStorageStatus } from '@zennotes/bridge-contract/bridge'
 import { idbGet, idbPut, idbUpdate } from './idb'
+import { isSharedSession } from './shared-session'
 
 const KEEP_ATTACHMENTS_KEY = 'zn-browser:keep-attachments'
 const PERSIST_ASKED_KEY = 'zn-browser:persist-asked'
@@ -39,7 +42,7 @@ export async function loadKeepAttachments(): Promise<boolean> {
 }
 
 export function keepsAttachments(): boolean {
-  return keepAttachmentsLoaded && keepAttachments
+  return keepAttachmentsLoaded && keepAttachments && !isSharedSession()
 }
 
 export async function setKeepAttachments(keep: boolean): Promise<void> {
@@ -76,7 +79,8 @@ export async function browserStorageStatus(cloudOnlyAttachments: number): Promis
     usageBytes: estimate.usage,
     quotaBytes: estimate.quota,
     keepAttachments: keepsAttachments(),
-    cloudOnlyAttachments
+    cloudOnlyAttachments,
+    ...(isSharedSession() ? { sharedComputer: true } : {})
   }
 }
 
@@ -93,6 +97,7 @@ export async function requestPersistence(): Promise<boolean> {
 
 /** After a Cloud vault's first sync: ask once per browser. */
 export async function persistAfterFirstSync(): Promise<void> {
+  if (isSharedSession()) return
   const asked = await idbGet<string>('preferences', PERSIST_ASKED_KEY).catch(() => undefined)
   if (asked) return
   await idbPut('preferences', PERSIST_ASKED_KEY, new Date().toISOString()).catch(() => undefined)

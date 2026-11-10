@@ -288,6 +288,62 @@ describe('CloudAuthFlow logout revokes the device', () => {
   })
 })
 
+describe('CloudAuthFlow on a shared computer', () => {
+  const device = { id: 'browser-1', name: 'Chrome on macOS', platform: 'web' as const }
+  const user = { name: 'Ada', email: 'ada@example.com' }
+
+  function setupShared(answer: unknown) {
+    const storage = new MemoryCloudAuthStorage()
+    const exchange = vi.fn(async () => answer)
+    const revoke = vi.fn(async () => {})
+    const flow = new CloudAuthFlow({
+      platform: 'web',
+      appVersion: '2.85.0',
+      deviceName: 'Chrome on macOS',
+      storage,
+      openExternal: vi.fn(async () => {}),
+      exchange,
+      revoke,
+      now: () => new Date('2026-08-10T12:00:00.000Z'),
+      randomState: () => 'fixed-state',
+      randomVerifier: () => 'dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk'
+    })
+    return { exchange, flow, revoke, storage }
+  }
+
+  it('remembers the choice with the pending sign-in and sends it at exchange', async () => {
+    const { exchange, flow, storage } = setupShared({ token: 'secret-token', user, device: { ...device, shared: true } })
+    await flow.connect('https://zennotes.org', { shared: true })
+    expect(storage.pending).toMatchObject({ shared: true })
+
+    const status = await flow.complete({ code: 'OneTimeCode', state: 'fixed-state' })
+
+    expect(exchange).toHaveBeenCalledWith('https://zennotes.org', expect.objectContaining({ platform: 'web', shared: true }))
+    expect(status.account?.device.shared).toBe(true)
+  })
+
+  it('sends nothing for an ordinary sign-in, since only a browser may send it', async () => {
+    const { exchange, flow, storage } = setupShared({ token: 'secret-token', user, device })
+    await flow.connect('https://zennotes.org')
+    expect(storage.pending).not.toHaveProperty('shared')
+
+    await flow.complete({ code: 'OneTimeCode', state: 'fixed-state' })
+
+    expect(exchange.mock.calls[0]?.at(1)).not.toHaveProperty('shared')
+  })
+
+  it('refuses a service that did not record it, and ends the token it handed out', async () => {
+    const { flow, revoke, storage } = setupShared({ token: 'long-lived', user, device })
+    await flow.connect('https://zennotes.org', { shared: true })
+
+    await expect(flow.complete({ code: 'OneTimeCode', state: 'fixed-state' })).rejects.toThrow()
+
+    expect(revoke).toHaveBeenCalledWith('https://zennotes.org', 'long-lived')
+    expect(storage.credential).toBeNull()
+    expect(storage.pending).toBeNull()
+  })
+})
+
 describe('cloud auth input validation', () => {
   it('derives the RFC 7636 S256 challenge from a verifier', async () => {
     await expect(

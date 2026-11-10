@@ -82,6 +82,8 @@ import {
   canManageBrowserEncryption,
   canKeepVaultInCloud,
   canManageBrowserAttachments,
+  canKeepBrowserAttachments,
+  canChooseBrowserLockOnClose,
   chooseCloudVaultInBrowser,
   copyBrowserRelease,
   downloadAttachmentsToBrowser,
@@ -89,7 +91,9 @@ import {
   toggleBrowserLockOnClose,
   unlockBrowserEncryption,
   freeUpBrowserSpace,
+  isSharedComputerSession,
   keepVaultInCloud,
+  signOutOfSharedComputer,
   toggleKeepAttachmentsInBrowser
 } from './browser-cloud'
 import { promptImageWidth } from './image-resize'
@@ -2689,7 +2693,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: 'Toggle Keeping Attachments in This Browser',
       category: 'Vault',
       keywords: 'cloud browser attachments images pdf download keep offline storage space stub',
-      host: canManageBrowserAttachments,
+      host: canKeepBrowserAttachments,
       when: () => !!getState().vault,
       run: () => toggleKeepAttachmentsInBrowser()
     },
@@ -2698,7 +2702,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: 'Download All Attachments to This Browser',
       category: 'Vault',
       keywords: 'cloud browser attachments images pdf download offline storage fetch all',
-      host: canManageBrowserAttachments,
+      host: canKeepBrowserAttachments,
       when: () => !!getState().vault,
       run: () => downloadAttachmentsToBrowser()
     },
@@ -2732,8 +2736,16 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: 'Toggle Locking Encryption When This Tab Closes',
       category: 'Vault',
       keywords: 'cloud browser encryption e2ee lock close tab forget key memory shared',
-      host: canManageBrowserEncryption,
+      host: canChooseBrowserLockOnClose,
       run: () => toggleBrowserLockOnClose()
+    },
+    {
+      id: 'cloud.browser.sign-out-shared',
+      title: 'Sign Out of This Shared Computer…',
+      category: 'Vault',
+      keywords: 'cloud browser shared public computer sign out log out leave remove wipe notes',
+      host: isSharedComputerSession,
+      run: () => signOutOfSharedComputer()
     },
     {
       id: 'cloud.browser.copy-release',

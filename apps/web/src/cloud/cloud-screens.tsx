@@ -47,9 +47,52 @@ function KeyHint({ children }: { children: React.ReactNode }): JSX.Element | nul
 // Sign in
 // ---------------------------------------------------------------------------
 
-function SignInScreen({ message, onSignIn }: { message: string | null; onSignIn: () => Promise<void> }): JSX.Element {
+/** Signs in; true asks for a shared computer's sign-in. */
+export type SignIn = (shared: boolean) => Promise<void>
+
+/** The box's state, with `c` toggling it while Vim mode is on. */
+function useSharedChoice(initial: boolean): { shared: boolean; toggle: () => void; set: (on: boolean) => void } {
+  const [shared, set] = useState(initial)
+  const toggle = useCallback(() => set((current) => !current), [])
+  useLetterKey('c', toggle, vimModeFromPrefs())
+  return { shared, toggle, set }
+}
+
+function SharedComputerOption({ shared, onChange }: { shared: boolean; onChange: (on: boolean) => void }): JSX.Element {
+  return (
+    <label className="mt-4 flex items-start gap-2 text-sm text-ink-800" htmlFor="zn-shared-computer">
+      <input
+        id="zn-shared-computer"
+        type="checkbox"
+        checked={shared}
+        onChange={(event) => onChange(event.target.checked)}
+        className="mt-0.5 h-4 w-4"
+      />
+      <span>
+        This is a shared computer
+        {shared ? (
+          <span data-shared-computer-promise="" className="block text-xs leading-5 text-ink-500">
+            Signing out removes your notes from this browser. If you close the window instead, they are removed the
+            next time ZenNotes opens here, and the sign-in ends within 12 hours.
+          </span>
+        ) : null}
+      </span>
+    </label>
+  )
+}
+
+function SignInScreen({
+  message,
+  onSignIn,
+  initialShared
+}: {
+  message: string | null
+  onSignIn: SignIn
+  initialShared: boolean
+}): JSX.Element {
   const button = useRef<HTMLButtonElement>(null)
-  const { busy, error, act } = useAction(onSignIn)
+  const choice = useSharedChoice(initialShared)
+  const { busy, error, act } = useAction(useCallback(() => onSignIn(choice.shared), [onSignIn, choice.shared]))
   const vim = vimModeFromPrefs()
   useEffect(() => {
     button.current?.focus()
@@ -63,6 +106,7 @@ function SignInScreen({ message, onSignIn }: { message: string | null; onSignIn:
         remove it from your account on zennotes.org at any time.
       </p>
       {message ? <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-ink-700">{message}</p> : null}
+      <SharedComputerOption shared={choice.shared} onChange={choice.set} />
       <ErrorLine message={error} />
       <div className="mt-5 flex flex-wrap items-center gap-3">
         <Button ref={button} variant="primary" size="md" disabled={busy} onClick={act}>
@@ -73,14 +117,14 @@ function SignInScreen({ message, onSignIn }: { message: string | null; onSignIn:
         </Button>
       </div>
       <div className="mt-3">
-        <KeyHint>s signs in, t opens Try mode</KeyHint>
+        <KeyHint>s signs in, t opens Try mode, c ticks the box</KeyHint>
       </div>
     </Card>
   )
 }
 
-export function showSignIn(root: HTMLElement, onSignIn: () => Promise<void>, message: string | null = null): void {
-  show(root, <SignInScreen message={message} onSignIn={onSignIn} />)
+export function showSignIn(root: HTMLElement, onSignIn: SignIn, message: string | null = null, initialShared = false): void {
+  show(root, <SignInScreen message={message} onSignIn={onSignIn} initialShared={initialShared} />)
 }
 
 function SigningInScreen(): JSX.Element {
@@ -95,9 +139,18 @@ export function showSigningIn(root: HTMLElement): void {
   show(root, <SigningInScreen />)
 }
 
-function SignInFailedScreen({ message, onRetry }: { message: string; onRetry: () => Promise<void> }): JSX.Element {
+function SignInFailedScreen({
+  message,
+  onRetry,
+  initialShared
+}: {
+  message: string
+  onRetry: SignIn
+  initialShared: boolean
+}): JSX.Element {
   const button = useRef<HTMLButtonElement>(null)
-  const { busy, error, act } = useAction(onRetry)
+  const choice = useSharedChoice(initialShared)
+  const { busy, error, act } = useAction(useCallback(() => onRetry(choice.shared), [onRetry, choice.shared]))
   useEffect(() => {
     button.current?.focus()
   }, [])
@@ -105,6 +158,7 @@ function SignInFailedScreen({ message, onRetry }: { message: string; onRetry: ()
   return (
     <Card title="The sign-in did not finish">
       <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-ink-600">{message}</p>
+      <SharedComputerOption shared={choice.shared} onChange={choice.set} />
       <ErrorLine message={error} />
       <div className="mt-5 flex flex-wrap items-center gap-3">
         <Button ref={button} variant="primary" size="md" disabled={busy} onClick={act}>
@@ -116,8 +170,8 @@ function SignInFailedScreen({ message, onRetry }: { message: string; onRetry: ()
   )
 }
 
-export function showSignInFailed(root: HTMLElement, message: string, onRetry: () => Promise<void>): void {
-  show(root, <SignInFailedScreen message={message} onRetry={onRetry} />)
+export function showSignInFailed(root: HTMLElement, message: string, onRetry: SignIn, initialShared = false): void {
+  show(root, <SignInFailedScreen message={message} onRetry={onRetry} initialShared={initialShared} />)
 }
 
 function SignedInElsewhereScreen(): JSX.Element {
@@ -327,13 +381,15 @@ export interface UnlockScreenProps {
   /** The security page's section, while the first-unlock notice is due. */
   noticeUrl: string | null
   lockOnClose: boolean
+  /** A shared computer: the key is never stored, so there is no choice. */
+  sharedComputer: boolean
   /** Rejects with the words to show; the person stays here to try again. */
   onUnlock: (secret: CloudEncryptionSecretInput, lockOnClose: boolean) => Promise<void>
   onOtherVaults: () => void
   onSignOut: () => Promise<void>
 }
 
-function UnlockScreen({ vaultName, email, noticeUrl, lockOnClose: initialLock, onUnlock, onOtherVaults, onSignOut }: UnlockScreenProps): JSX.Element {
+function UnlockScreen({ vaultName, email, noticeUrl, lockOnClose: initialLock, sharedComputer, onUnlock, onOtherVaults, onSignOut }: UnlockScreenProps): JSX.Element {
   const [mode, setMode] = useState<'passphrase' | 'recovery'>('passphrase')
   const [passphrase, setPassphrase] = useState('')
   const [words, setWords] = useState('')
@@ -374,7 +430,7 @@ function UnlockScreen({ vaultName, email, noticeUrl, lockOnClose: initialLock, o
   const toggleMode = useCallback(() => setMode((current) => (current === 'passphrase' ? 'recovery' : 'passphrase')), [])
   const toggleLock = useCallback(() => setLockOnClose((current) => !current), [])
   useLetterKey('r', toggleMode, vim)
-  useLetterKey('l', toggleLock, vim)
+  useLetterKey('l', toggleLock, vim && !sharedComputer)
   useLetterKey('i', focusField, vim)
   useLetterKey('b', onOtherVaults, vim)
   const leaveField = (event: React.KeyboardEvent<HTMLElement>): void => {
@@ -445,22 +501,24 @@ function UnlockScreen({ vaultName, email, noticeUrl, lockOnClose: initialLock, o
             />
           </div>
         )}
-        <label className="flex items-start gap-2 text-sm text-ink-800" htmlFor="zn-unlock-lock-on-close">
-          <input
-            id="zn-unlock-lock-on-close"
-            type="checkbox"
-            checked={lockOnClose}
-            onChange={(event) => setLockOnClose(event.target.checked)}
-            onKeyDown={leaveField}
-            className="mt-0.5 h-4 w-4"
-          />
-          <span>
-            Lock when I close this tab
-            <span className="block text-xs leading-5 text-ink-500">
-              Forgets the key. Notes already here stay in this browser’s storage.
+        {sharedComputer ? null : (
+          <label className="flex items-start gap-2 text-sm text-ink-800" htmlFor="zn-unlock-lock-on-close">
+            <input
+              id="zn-unlock-lock-on-close"
+              type="checkbox"
+              checked={lockOnClose}
+              onChange={(event) => setLockOnClose(event.target.checked)}
+              onKeyDown={leaveField}
+              className="mt-0.5 h-4 w-4"
+            />
+            <span>
+              Lock when I close this tab
+              <span className="block text-xs leading-5 text-ink-500">
+                Forgets the key. Notes already here stay in this browser’s storage.
+              </span>
             </span>
-          </span>
-        </label>
+          </label>
+        )}
         <ErrorLine message={error} />
         <div className="flex flex-wrap items-center gap-3 pt-1">
           <Button type="submit" variant="primary" size="md" disabled={!value || busy}>
@@ -473,7 +531,7 @@ function UnlockScreen({ vaultName, email, noticeUrl, lockOnClose: initialLock, o
       </form>
       <ErrorLine message={signOut.error} />
       <div className="mt-4 flex items-center justify-between gap-3">
-        <KeyHint>Esc leaves the field, then r recovery, l lock, b vaults, i back</KeyHint>
+        <KeyHint>Esc leaves the field, then r recovery{sharedComputer ? '' : ', l lock'}, b vaults, i back</KeyHint>
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="sm" disabled={busy} onClick={onOtherVaults}>
             Other vaults
@@ -495,9 +553,10 @@ export function showUnlock(root: HTMLElement, props: UnlockScreenProps): void {
 // Removed, switched
 // ---------------------------------------------------------------------------
 
-function RemovedScreen({ reason, onSignIn }: { reason: 'revoked' | 'account-switch'; onSignIn: () => Promise<void> }): JSX.Element {
+function RemovedScreen({ reason, onSignIn }: { reason: 'revoked' | 'account-switch'; onSignIn: SignIn }): JSX.Element {
   const button = useRef<HTMLButtonElement>(null)
-  const { busy, error, act } = useAction(onSignIn)
+  const choice = useSharedChoice(false)
+  const { busy, error, act } = useAction(useCallback(() => onSignIn(choice.shared), [onSignIn, choice.shared]))
   useEffect(() => {
     button.current?.focus()
   }, [])
@@ -509,6 +568,7 @@ function RemovedScreen({ reason, onSignIn }: { reason: 'revoked' | 'account-swit
           ? 'This browser was removed from your ZenNotes Cloud account, so its copy of your notes was removed too. Your notes are still in ZenNotes Cloud and on your other devices.'
           : 'Another ZenNotes Cloud account signed in to this browser in another tab, so the notes of the previous account were removed from it.'}
       </p>
+      <SharedComputerOption shared={choice.shared} onChange={choice.set} />
       <ErrorLine message={error} />
       <div className="mt-5 flex items-center gap-3">
         <Button ref={button} variant="primary" size="md" disabled={busy} onClick={act}>
@@ -520,20 +580,140 @@ function RemovedScreen({ reason, onSignIn }: { reason: 'revoked' | 'account-swit
   )
 }
 
-export function showRemoved(root: HTMLElement, reason: 'revoked' | 'account-switch', onSignIn: () => Promise<void>): void {
+export function showRemoved(root: HTMLElement, reason: 'revoked' | 'account-switch', onSignIn: SignIn): void {
   show(root, <RemovedScreen reason={reason} onSignIn={onSignIn} />)
+}
+
+// ---------------------------------------------------------------------------
+// Shared computers
+// ---------------------------------------------------------------------------
+
+export type SharedEndedReason = 'signed-out' | 'signed-out-offline' | 'expired'
+
+function SharedEndedScreen({
+  reason,
+  siteUrl,
+  onSignIn
+}: {
+  reason: SharedEndedReason
+  siteUrl: string
+  onSignIn: SignIn
+}): JSX.Element {
+  const button = useRef<HTMLButtonElement>(null)
+  const choice = useSharedChoice(true)
+  const { busy, error, act } = useAction(useCallback(() => onSignIn(choice.shared), [onSignIn, choice.shared]))
+  useEffect(() => {
+    button.current?.focus()
+  }, [])
+  useLetterKey('s', act, vimModeFromPrefs())
+  return (
+    <Card title={reason === 'expired' ? 'Your sign-in ended' : 'You signed out'}>
+      <p className="mt-2 text-sm leading-relaxed text-ink-600">
+        Your notes were removed from this browser.
+        {reason === 'signed-out-offline'
+          ? ' ZenNotes could not reach Cloud, so this sign-in ends by itself within 12 hours.'
+          : ''}
+      </p>
+      <p data-shared-website-notice="" className="mt-3 text-sm leading-relaxed text-ink-600">
+        If you are done on this computer, also log out of{' '}
+        <a className="font-medium text-accent underline" href={`${siteUrl}/dashboard`}>
+          zennotes.org
+        </a>
+        .
+      </p>
+      <SharedComputerOption shared={choice.shared} onChange={choice.set} />
+      <ErrorLine message={error} />
+      <div className="mt-5 flex items-center gap-3">
+        <Button ref={button} variant="primary" size="md" disabled={busy} onClick={act}>
+          {busy ? 'Opening zennotes.org…' : 'Sign in again'}
+        </Button>
+        <KeyHint>or press s</KeyHint>
+      </div>
+    </Card>
+  )
+}
+
+export function showSharedEnded(root: HTMLElement, reason: SharedEndedReason, siteUrl: string, onSignIn: SignIn): void {
+  show(root, <SharedEndedScreen reason={reason} siteUrl={siteUrl} onSignIn={onSignIn} />)
+}
+
+function SharedOpenElsewhereScreen(): JSX.Element {
+  const button = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    button.current?.focus()
+  }, [])
+  useLetterKey('c', () => location.reload(), vimModeFromPrefs())
+  return (
+    <Card title="ZenNotes is open in another tab">
+      <p className="mt-2 text-sm leading-relaxed text-ink-600">
+        On a shared computer your sign-in stays in the tab you signed in from. Go back to that tab to keep working.
+      </p>
+      <div className="mt-5 flex items-center gap-3">
+        <Button ref={button} variant="primary" size="md" onClick={() => location.reload()}>
+          Check again
+        </Button>
+        <KeyHint>or press c</KeyHint>
+      </div>
+    </Card>
+  )
+}
+
+export function showSharedOpenElsewhere(root: HTMLElement): void {
+  show(root, <SharedOpenElsewhereScreen />)
+}
+
+function SharedDiscardScreen({
+  vaults,
+  onDiscard,
+  onStay
+}: {
+  vaults: string[]
+  onDiscard: () => Promise<void>
+  onStay: () => void
+}): JSX.Element {
+  const stay = useRef<HTMLButtonElement>(null)
+  const discard = useAction(onDiscard)
+  useEffect(() => {
+    stay.current?.focus()
+  }, [])
+  return (
+    <Card title="Sign out without these changes?">
+      <p className="mt-2 text-sm leading-relaxed text-ink-600">
+        <span className="font-medium text-ink-900">{vaults.join(', ')}</span>{' '}
+        {vaults.length === 1 ? 'has' : 'have'} changes that never reached ZenNotes Cloud. Signing out removes them.
+      </p>
+      <ErrorLine message={discard.error} />
+      <div className="mt-5 flex flex-wrap items-center gap-3">
+        <Button ref={stay} variant="primary" size="md" disabled={discard.busy} onClick={onStay}>
+          Stay signed in
+        </Button>
+        <Button variant="danger" size="md" disabled={discard.busy} onClick={discard.act}>
+          {discard.busy ? 'Removing…' : 'Remove them and sign out'}
+        </Button>
+      </div>
+    </Card>
+  )
+}
+
+export function showSharedDiscard(
+  root: HTMLElement,
+  props: { vaults: string[]; onDiscard: () => Promise<void>; onStay: () => void }
+): void {
+  show(root, <SharedDiscardScreen {...props} />)
 }
 
 function AccountSwitchScreen({
   previousEmail,
   nextEmail,
   unsyncedVaults,
+  sharedComputer,
   onReplace,
   onCancel
 }: {
   previousEmail: string
   nextEmail: string
   unsyncedVaults: string[]
+  sharedComputer: boolean
   onReplace: () => Promise<void>
   onCancel: () => Promise<void>
 }): JSX.Element {
@@ -546,8 +726,10 @@ function AccountSwitchScreen({
   return (
     <Card title={`Sign in as ${nextEmail}?`}>
       <p className="mt-2 text-sm leading-relaxed text-ink-600">
-        This browser keeps one account’s notes at a time. Signing in as {nextEmail} removes the notes of{' '}
-        {previousEmail} from this browser. {unsyncedVaults.length === 1 ? 'The vault' : 'These vaults'}{' '}
+        {sharedComputer
+          ? 'A sign-in on a shared computer starts empty, so the notes already in this browser are removed.'
+          : `This browser keeps one account’s notes at a time. Signing in as ${nextEmail} removes the notes of ${previousEmail} from this browser.`}{' '}
+        {unsyncedVaults.length === 1 ? 'The vault' : 'These vaults'}{' '}
         <span className="font-medium text-ink-900">{unsyncedVaults.join(', ')}</span>{' '}
         {unsyncedVaults.length === 1 ? 'has' : 'have'} changes that never reached ZenNotes Cloud, and they would be
         lost.
@@ -571,6 +753,7 @@ export function showAccountSwitch(
     previousEmail: string
     nextEmail: string
     unsyncedVaults: string[]
+    sharedComputer: boolean
     onReplace: () => Promise<void>
     onCancel: () => Promise<void>
   }

@@ -56,6 +56,8 @@ export async function createExportBridge(vaultKey: string, vaultName: string): P
         leftApp: () => {},
         returnedToApp: () => {},
         revoked: () => {},
+        signInEnded: () => {},
+        deviceRevocationAnswered: () => {},
         switchTo: () => {}
       }
     )

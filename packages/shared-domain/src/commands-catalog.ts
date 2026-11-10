@@ -241,6 +241,7 @@ export const COMMAND_CATALOG: CommandCatalogEntry[] = [
   { id: "cloud.browser.unlock-encryption", title: "Unlock Encryption in This Browser…", category: "Vault", keywords: "cloud browser encryption e2ee unlock passphrase recovery key encrypted vault" },
   { id: "cloud.browser.lock-encryption", title: "Lock Encryption in This Browser", category: "Vault", keywords: "cloud browser encryption e2ee lock forget key encrypted vault close" },
   { id: "cloud.browser.lock-on-close", title: "Toggle Locking Encryption When This Tab Closes", category: "Vault", keywords: "cloud browser encryption e2ee lock close tab forget key memory shared" },
+  { id: "cloud.browser.sign-out-shared", title: "Sign Out of This Shared Computer…", category: "Vault", keywords: "cloud browser shared public computer sign out log out leave remove wipe notes" },
   { id: "cloud.browser.copy-release", title: "Copy Running Release and Manifest Hash", category: "Vault", keywords: "cloud browser release version build manifest hash sha256 verify security copy" },
   { id: "cli.check-updates", title: "Check for zn Updates…", category: "CLI", keywords: "cli zn terminal command line update upgrade version release" },
   { id: "cli.install", title: "Install Command-Line Tool (zn)", category: "CLI", keywords: "cli zn terminal shell command line install symlink path bin" },

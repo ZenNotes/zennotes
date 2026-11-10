@@ -11,6 +11,7 @@ import {
   CloudAuthFlow,
   parseCloudAuthCallback,
   parseCloudAuthFragmentCallback,
+  type CloudAuthConnectOptions,
   type CloudAuthCredential,
   type CloudAuthExchangeRequest,
   type CloudAuthPending,
@@ -390,10 +391,11 @@ export async function getMobileCloudAccountStatus(): Promise<CloudAccountStatus>
 }
 
 export async function connectMobileCloudAccount(
-  baseUrl?: string
+  baseUrl?: string,
+  options?: CloudAuthConnectOptions
 ): Promise<CloudAccountConnectResult> {
   assertNativeCloudAuth()
-  const result = await requireAuthFlow().connect(baseUrl ?? defaultCloudBaseUrl())
+  const result = await requireAuthFlow().connect(baseUrl ?? defaultCloudBaseUrl(), options)
   await notifyAccountListeners()
   return result
 }

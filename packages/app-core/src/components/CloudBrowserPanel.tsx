@@ -32,6 +32,7 @@ export function browserSpaceLine(status: BrowserStorageStatus): string {
 }
 
 export function browserPersistenceLine(status: BrowserStorageStatus): string {
+  if (status.sharedComputer) return "Signing out removes your notes from this browser.";
   return status.persisted
     ? "This browser has promised to keep ZenNotes' data."
     : "This browser may clear this data when space runs low or after a while away. What has synced stays in ZenNotes Cloud.";
@@ -97,7 +98,7 @@ export function CloudBrowserPanel({ bridge }: { bridge: ZenBridge }): JSX.Elemen
         <p data-cloud-browser-space="" className="mt-1 text-xs leading-5 text-ink-500">
           {browserSpaceLine(status)}
         </p>
-        {!status.persisted && status.canRequestPersistence && (
+        {!status.sharedComputer && !status.persisted && status.canRequestPersistence && (
           <div className="mt-3">
             <Button
               variant="secondary"
@@ -109,6 +110,7 @@ export function CloudBrowserPanel({ bridge }: { bridge: ZenBridge }): JSX.Elemen
           </div>
         )}
       </div>
+      {!status.sharedComputer && (
       <div className="border-b border-paper-300/45 px-5 py-5">
         <div className="flex items-center justify-between gap-4">
           <div>
@@ -137,6 +139,7 @@ export function CloudBrowserPanel({ bridge }: { bridge: ZenBridge }): JSX.Elemen
           </button>
         </div>
       </div>
+      )}
       <div className={release ? "border-b border-paper-300/45 px-5 py-5" : "px-5 py-5"}>
         <p data-cloud-browser-attachments="" className="text-xs leading-5 text-ink-500">
           {status.cloudOnlyAttachments === 0
@@ -144,7 +147,7 @@ export function CloudBrowserPanel({ bridge }: { bridge: ZenBridge }): JSX.Elemen
             : `${status.cloudOnlyAttachments} ${status.cloudOnlyAttachments === 1 ? "attachment is" : "attachments are"} only in ZenNotes Cloud for now.`}
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
-          {status.cloudOnlyAttachments > 0 && bridge.downloadBrowserAttachments && (
+          {!status.sharedComputer && status.cloudOnlyAttachments > 0 && bridge.downloadBrowserAttachments && (
             <Button
               variant="secondary"
               disabled={busy !== null}

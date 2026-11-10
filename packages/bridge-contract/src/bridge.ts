@@ -198,6 +198,9 @@ export interface BrowserStorageStatus {
   keepAttachments: boolean
   /** Attachments of the open vault that are only in Cloud on this browser. */
   cloudOnlyAttachments: number
+  /** Signed in as a shared computer: everything here goes at sign-out, so
+   *  there is nothing to keep and attachments stay in Cloud until opened. */
+  sharedComputer?: boolean
 }
 
 export interface BrowserAttachmentsResult {
@@ -216,6 +219,9 @@ export interface BrowserEncryptionPrefs {
   noticeSeen: boolean
   /** The security page's section on what unlocking in a browser trusts. */
   securityUrl: string
+  /** Signed in as a shared computer: the key is never stored, so there is no
+   *  choice to offer. */
+  sharedComputer?: boolean
 }
 
 /** What this tab is running. */
@@ -600,6 +606,9 @@ export interface ZenBridge {
   getBrowserRelease?(): Promise<BrowserRelease>
   /** ZenNotes in the browser: goes to the unlock screen, then back here. */
   openBrowserUnlock?(): Promise<void>
+  /** ZenNotes in the browser: this tab is signed in as a shared computer, so
+   *  logoutCloudAccount also removes everything ZenNotes keeps here. */
+  isSharedComputerSession?(): boolean
   getPathForFile(file: File): string | null
   /** Open a folder as a temporary session (drag a folder onto the app to read
    *  it without turning it into a vault). Desktop-only. */

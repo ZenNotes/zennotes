@@ -21,11 +21,15 @@
  *   id, and Safari's first window client is any one of them (spike F1b), so
  *   the registered owner is asked first, then each window in turn, and only
  *   the owner answers yes. The worker never holds keys or credentials.
+ * - A shared computer's copy is served only while its session is open in a
+ *   tab (shared-session.ts): the app wipes a closed session's copy on load,
+ *   and a `/_vault/...` URL typed or restored from history never loads the app.
  */
 import { CLOUD_STUB_MAX_BYTES, decodeCloudStub } from '@zennotes/portable-vault/cloud-stub-format'
 import { parseVaultAssetUrl, VAULTS_DIR } from './opfs-paths'
 import type { OpfsDirectoryHandle } from './opfs-handles'
 import { vaultFileResponse } from './vault-response'
+import { readSharedSessionRecord, sharedSessionLockName } from './shared-session'
 
 declare const __ZN_PRECACHE__: string[]
 declare const __ZN_WARM__: string[]
@@ -286,9 +290,18 @@ async function hydrateThroughOwner(vaultKey: string, path: string, clientId: str
   return { ok: answer.ok === true, owner: answer.owner !== false, error: answer.error }
 }
 
+/** A shared computer's copy, with no tab left in its session. */
+async function sharedCopyIsClosed(): Promise<boolean> {
+  const record = await readSharedSessionRecord()
+  if (!record) return false
+  const held = (await navigator.locks.query()).held ?? []
+  return !held.some((lock) => lock.name === sharedSessionLockName(record.id))
+}
+
 async function serveVaultFile(vaultKey: string, segments: string[], request: Request, clientId?: string): Promise<Response> {
   let file: File | null
   try {
+    if (await sharedCopyIsClosed()) return new Response('Not found', { status: 404, headers: NO_STORE })
     file = await locateVaultFile(vaultKey, segments)
     if (file && (await isStub(file))) {
       const answer = await hydrateThroughOwner(vaultKey, segments.join('/'), clientId)

@@ -2,9 +2,9 @@
  * The actions ZenNotes in the browser adds around ZenNotes Cloud, for the
  * command palette: attachments kept in this browser or downloaded on open,
  * freeing space, opening another Cloud vault here, keeping Try mode's vault
- * in Cloud, unlocking and locking encryption, and the running release. Each
- * is present only where the host has the bridge method (the browser), and
- * each reports what happened in a toast.
+ * in Cloud, unlocking and locking encryption, the running release, and
+ * signing out of a shared computer. Each is present only where the host has
+ * the bridge method (the browser), and each reports what happened in a toast.
  */
 import type { BrowserRelease } from '@zennotes/bridge-contract/bridge'
 import { confirmApp } from './confirm-requests'
@@ -17,6 +17,30 @@ function say(message: string, tone: 'success' | 'error' | 'info' = 'info'): void
 
 export function canManageBrowserAttachments(): boolean {
   return typeof window.zen?.getBrowserStorageStatus === 'function'
+}
+
+/** Signed in as a shared computer: everything here goes at sign-out. */
+export function isSharedComputerSession(): boolean {
+  return window.zen?.isSharedComputerSession?.() === true
+}
+
+/** Attachments kept or fetched up front: not on a shared computer. */
+export function canKeepBrowserAttachments(): boolean {
+  return canManageBrowserAttachments() && !isSharedComputerSession()
+}
+
+export async function signOutOfSharedComputer(): Promise<void> {
+  try {
+    const confirmed = await confirmApp({
+      title: 'Sign out of this shared computer?',
+      description: 'Your notes are removed from this browser. They stay in ZenNotes Cloud.',
+      confirmLabel: 'Sign out',
+      danger: false
+    })
+    if (confirmed) await window.zen.logoutCloudAccount()
+  } catch (error) {
+    say(humanIpcError(error, 'Could not sign out.'), 'error')
+  }
 }
 
 export function canChooseCloudVaultInBrowser(): boolean {
@@ -89,6 +113,11 @@ export async function keepVaultInCloud(): Promise<void> {
 
 export function canManageBrowserEncryption(): boolean {
   return typeof window.zen?.getBrowserEncryptionPrefs === 'function'
+}
+
+/** On a shared computer the key is never stored, so there is nothing to choose. */
+export function canChooseBrowserLockOnClose(): boolean {
+  return canManageBrowserEncryption() && !isSharedComputerSession()
 }
 
 export function canCopyBrowserRelease(): boolean {

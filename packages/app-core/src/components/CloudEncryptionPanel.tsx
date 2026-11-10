@@ -136,7 +136,7 @@ export function CloudEncryptionPanel({
           </>
         )}
       </div>
-      {browser && status.keyset && (
+      {browser && !browser.sharedComputer && status.keyset && (
         <LockOnCloseSwitch checked={browser.lockOnClose} onToggle={toggleLockOnClose} />
       )}
 

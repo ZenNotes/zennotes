@@ -23,6 +23,9 @@ export interface CloudAuthPending {
   state: string
   code_verifier: string
   expires_at: string
+  /** Asked for as a shared computer: kept here because the callback can land
+   *  in another tab than the one that ticked the box. */
+  shared?: boolean
 }
 
 export interface CloudAuthCredential {
@@ -41,6 +44,13 @@ export interface CloudAuthExchangeRequest extends CloudAuthCallback {
   device_name: string
   platform: CloudAuthPlatform
   app_version: string
+  /** A browser signing in on a shared computer: the service ends the sign-in
+   *  after 12 hours idle. Sent only when true; only `web` may send it. */
+  shared?: true
+}
+
+export interface CloudAuthConnectOptions {
+  shared?: boolean
 }
 
 export interface CloudAuthExchangeResponse {
@@ -125,7 +135,7 @@ export class CloudAuthFlow {
       : { state: 'disconnected', account: null }
   }
 
-  async connect(baseUrl: string): Promise<CloudAccountConnectResult> {
+  async connect(baseUrl: string, options: CloudAuthConnectOptions = {}): Promise<CloudAccountConnectResult> {
     const normalizedBaseUrl = normalizeCloudBaseUrl(
       baseUrl,
       {
@@ -144,7 +154,8 @@ export class CloudAuthFlow {
       base_url: normalizedBaseUrl,
       state,
       code_verifier: codeVerifier,
-      expires_at: new Date(this.now().getTime() + (this.dependencies.authLifetimeMs ?? AUTH_LIFETIME_MS)).toISOString()
+      expires_at: new Date(this.now().getTime() + (this.dependencies.authLifetimeMs ?? AUTH_LIFETIME_MS)).toISOString(),
+      ...(options.shared ? { shared: true } : {})
     }
     await this.dependencies.storage.savePending(pending)
 
@@ -182,12 +193,20 @@ export class CloudAuthFlow {
         code_verifier: pending.code_verifier,
         device_name: this.dependencies.deviceName,
         platform: this.dependencies.platform,
-        app_version: this.dependencies.appVersion
+        app_version: this.dependencies.appVersion,
+        ...(pending.shared ? { shared: true as const } : {})
       })
     } catch (error) {
       throw cloudSignInExchangeError(error)
     }
     if (!isExchangeResponse(response, this.dependencies.platform)) {
+      throw new Error(CLOUD_SIGN_IN_UNEXPECTED_MESSAGE)
+    }
+    // A shared computer was promised a sign-in that ends when idle. A service
+    // that did not record it would leave a long-lived token here instead.
+    if (pending.shared && response.device.shared !== true) {
+      await this.revokeToken(pending.base_url, response.token)
+      await this.dependencies.storage.deletePending(pending.state)
       throw new Error(CLOUD_SIGN_IN_UNEXPECTED_MESSAGE)
     }
 
@@ -234,19 +253,26 @@ export class CloudAuthFlow {
    * The token goes only to an origin `connect` would accept.
    */
   private async revokeDevice(): Promise<void> {
+    try {
+      const credential = await this.credential()
+      if (credential) await this.revokeToken(credential.base_url, credential.token)
+    } catch {
+      // An unreadable credential still signs out.
+    }
+  }
+
+  private async revokeToken(rawBaseUrl: string, token: string): Promise<void> {
     const revoke = this.dependencies.revoke
     if (!revoke) return
 
     let timer: ReturnType<typeof setTimeout> | undefined
     try {
-      const credential = await this.credential()
-      if (!credential) return
-      const baseUrl = normalizeCloudBaseUrl(credential.base_url, {
+      const baseUrl = normalizeCloudBaseUrl(rawBaseUrl, {
         allowInsecureLoopback: this.dependencies.allowInsecureLoopback,
         allowedInsecureOrigins: this.dependencies.allowedInsecureOrigins
       })
       const request = Promise.resolve()
-        .then(() => revoke(baseUrl, credential.token))
+        .then(() => revoke(baseUrl, token))
         .catch(() => undefined)
       await Promise.race([
         request,
@@ -255,7 +281,7 @@ export class CloudAuthFlow {
         })
       ])
     } catch {
-      // An unreadable credential or a refused origin still signs out.
+      // A refused origin still signs out.
     } finally {
       if (timer !== undefined) clearTimeout(timer)
     }
