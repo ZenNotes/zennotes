@@ -36,6 +36,8 @@ interface ExtendableEventLike extends Event {
 
 interface ExtendableMessageEventLike extends ExtendableEventLike {
   readonly data: unknown
+  readonly origin: string
+  readonly source: { readonly url?: string } | null
 }
 
 const sw = self as unknown as {
@@ -95,6 +97,12 @@ sw.addEventListener('activate', (event) => {
 })
 
 sw.addEventListener('message', (event) => {
+  // A service worker hears only its own origin's pages, so this is defense
+  // in depth. The client's URL stands in where an engine leaves `origin`
+  // empty, so the check never strands an update or a claim.
+  const sourceUrl = event.source?.url
+  const origin = event.origin || (sourceUrl ? new URL(sourceUrl).origin : '')
+  if (origin !== sw.location.origin) return
   const type = (event.data as { type?: unknown } | null)?.type
   if (type === 'claim') event.waitUntil(sw.clients.claim())
   if (type === 'warm') event.waitUntil(warmCache())

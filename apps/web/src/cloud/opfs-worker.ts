@@ -13,6 +13,7 @@ import { originOpfsRoot } from './opfs-handles'
 const scope = self as unknown as {
   onmessage: ((event: MessageEvent<OpfsRequest>) => void) | null
   postMessage(message: unknown, transfer?: Transferable[]): void
+  location: { readonly origin: string }
 }
 
 const dispatcher = createOpfsDispatcher({
@@ -22,6 +23,10 @@ const dispatcher = createOpfsDispatcher({
 })
 
 scope.onmessage = (event: MessageEvent<OpfsRequest>) => {
+  // Only the page that created a dedicated worker can post to it, and that
+  // message carries an empty origin. Anything naming another origin is
+  // refused, so a future message path cannot widen who drives the vault.
+  if (event.origin !== '' && event.origin !== scope.location.origin) return
   void dispatcher.handle(event.data).then((response) => {
     if (response.ok && response.value instanceof Uint8Array) {
       const bytes = response.value

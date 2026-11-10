@@ -18,7 +18,7 @@
  */
 import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { cp, readdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { cp, open, readdir, readFile, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
@@ -199,9 +199,16 @@ function cloudHost(): Plugin {
         for (const file of files) {
           const rel = relative(OUT_DIR, file).split(sep).join('/')
           if (NEVER_PRECACHED.some((pattern) => pattern.test(rel))) continue
-          if ((await stat(file)).size > PRECACHE_MAX_BYTES) continue
-          cached.push(publicUrl(file))
-          hash.update(rel).update('\0').update(await readFile(file)).update('\0')
+          // Size and bytes come from one open handle, so the build id hashes
+          // the same file the size check measured.
+          const handle = await open(file, 'r')
+          try {
+            if ((await handle.stat()).size > PRECACHE_MAX_BYTES) continue
+            cached.push(publicUrl(file))
+            hash.update(rel).update('\0').update(await handle.readFile()).update('\0')
+          } finally {
+            await handle.close()
+          }
         }
         // The install caches only the shell index.html loads (its scripts,
         // preloads, styles, icons and manifest), so a first visit is never
