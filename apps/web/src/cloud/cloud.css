@@ -1,0 +1,30 @@
+/*
+ * ZenNotes in your browser: room for the host's banner above the app.
+ * app-core sizes its shell to the viewport (.zn-app-shell, 100dvh), which
+ * would push its footer below the fold under a banner, so here the body is a
+ * column, #root takes what the banner leaves, and the shell fills #root.
+ */
+body {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+}
+
+#zn-host-banner {
+  flex: none;
+}
+
+#zn-host-banner:empty {
+  display: none;
+}
+
+#root {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+}
+
+body[data-zn-host-banner] #root .zn-app-shell {
+  height: 100%;
+}

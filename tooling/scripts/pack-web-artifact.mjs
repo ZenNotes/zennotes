@@ -37,6 +37,43 @@ async function writeImmutable(path, bytes) {
   }
 }
 
+/**
+ * The browser artifacts this script packs, one immutable archive each, whose
+ * manifest records the source commit and every file's SHA-256:
+ * - `web`: the self-hosted web client (apps/web/dist), embedded by znserver;
+ * - `viewer`: the public share viewer, installed by the website;
+ * - `cloud-web`: ZenNotes in your browser (apps/web/dist-cloud), installed by
+ *   the website for app.zennotes.org (docs/ideas/cloud-in-browser.md,
+ *   "Hosting"). `headers.json` carries the headers its shell must be served
+ *   with.
+ */
+export const TARGETS = {
+  web: {
+    artifact: 'zennotes-self-hosted-web',
+    protocol: 'self-hosted-http-v1',
+    packageName: '@zennotes/self-hosted-web',
+    entrypoints: ['index.html', 'sw.js', 'manifest.webmanifest'],
+    workspaceScript: 'build',
+    distribution: 'apps/web/dist'
+  },
+  viewer: {
+    artifact: 'zennotes-share-viewer',
+    protocol: 'share-page-payload-v1',
+    packageName: '@zennotes/share-viewer-dist',
+    entrypoints: ['share-viewer.js', 'share-viewer.css'],
+    staticLicense: true
+  },
+  'cloud-web': {
+    artifact: 'zennotes-cloud-web',
+    protocol: 'browser-vault-v1',
+    packageName: '@zennotes/cloud-web',
+    entrypoints: ['index.html', 'sw.js', 'manifest.webmanifest', 'headers.json', 'THIRD_PARTY_NOTICES.txt'],
+    workspaceScript: 'build:cloud',
+    distribution: 'apps/web/dist-cloud',
+    staticLicense: true
+  }
+}
+
 export async function packWebDistribution({
   distribution,
   output,
@@ -55,8 +92,8 @@ export async function packWebDistribution({
       'Artifact source must include its repository, commit, and explicit dirty boolean'
     )
   }
-  if (!['web', 'viewer'].includes(target)) throw new Error('Unknown frontend artifact target')
-  const viewer = target === 'viewer'
+  const profile = TARGETS[target]
+  if (!profile) throw new Error('Unknown frontend artifact target')
   const stage = await mkdtemp(join(tmpdir(), 'zennotes-web-artifact-'))
   try {
     await cp(distribution, join(stage, 'dist'), {
@@ -64,18 +101,19 @@ export async function packWebDistribution({
       verbatimSymlinks: true
     })
     const licenseBytes = await readFile(license)
-    // The viewer is installed as static files; retain its license in that tree.
-    if (viewer) await writeFile(join(stage, 'dist', 'LICENSE'), licenseBytes, { flag: 'wx' })
+    // The viewer and the browser app are installed as static files; retain
+    // the license in that tree.
+    if (profile.staticLicense) await writeFile(join(stage, 'dist', 'LICENSE'), licenseBytes, { flag: 'wx' })
     const files = await inventory(join(stage, 'dist'))
-    const entrypoints = viewer ? ['share-viewer.js', 'share-viewer.css'] : ['index.html', 'sw.js', 'manifest.webmanifest']
+    const entrypoints = profile.entrypoints
     for (const path of entrypoints) {
       if (!files.some((file) => file.path === path && file.size > 0))
         throw new Error(`Missing browser entrypoint: ${path}`)
     }
     const identity = {
       schemaVersion: 1,
-      artifact: viewer ? 'zennotes-share-viewer' : 'zennotes-self-hosted-web',
-      protocol: viewer ? 'share-page-payload-v1' : 'self-hosted-http-v1',
+      artifact: profile.artifact,
+      protocol: profile.protocol,
       source,
       toolchain,
       entrypoints,
@@ -87,7 +125,7 @@ export async function packWebDistribution({
       join(stage, 'package.json'),
       JSON.stringify(
         {
-          name: viewer ? '@zennotes/share-viewer-dist' : '@zennotes/self-hosted-web',
+          name: profile.packageName,
           version,
           private: true,
           license: 'MIT',
@@ -127,6 +165,10 @@ export async function packWebDistribution({
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const targetArgument = process.argv.find((argument) => argument.startsWith('--target='))
+  const target = targetArgument ? targetArgument.slice('--target='.length) : 'web'
+  const profile = TARGETS[target]
+  if (!profile?.workspaceScript) throw new Error(`pack-web-artifact builds --target=web or --target=cloud-web, not ${target}`)
   await withWebDistLock(async (lock) => {
     const source = {
       repository: 'https://github.com/ZenNotes/zennotes',
@@ -141,16 +183,17 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
         }).trim().length > 0,
       lockfileSha256: sha256(await readFile(join(root, 'package-lock.json')))
     }
-    runNpm(['run', 'build', '--workspace', '@zennotes/web'], {
+    runNpm(['run', profile.workspaceScript, '--workspace', '@zennotes/web'], {
       cwd: root,
       env: webDistLockEnv(lock),
       stdio: 'inherit'
     })
     const product = JSON.parse(await readFile(join(root, 'apps/web/package.json'), 'utf8'))
     const result = await packWebDistribution({
-      distribution: join(root, 'apps/web/dist'),
+      distribution: join(root, profile.distribution),
       output: join(root, 'dist/web-artifacts'),
       productVersion: product.version,
+      target,
       source,
       toolchain: {
         node: process.version,
