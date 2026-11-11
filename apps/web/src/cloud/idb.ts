@@ -8,8 +8,10 @@
  * - `secrets`: SecretStorage values, sealed with AES-GCM;
  * - `keys`: the non-extractable key that seals them;
  * - `fence`: one increasing number per vault, the generation of the tab that
- *   holds its lock (vault-lock.ts); the OPFS worker refuses a write from an
- *   older one.
+ *   holds its lock (vault-lock.ts); the OPFS worker, and every write of a
+ *   vault's sync state, refuse an older one. Generations never start over: a
+ *   wipe retires a vault's number into `#floor`, which every later number
+ *   passes, so a frozen tab's old generation can never be current again.
  */
 
 export const BROWSER_DB_NAME = 'zennotes-browser'
@@ -117,6 +119,65 @@ export async function readFenceGeneration(vaultKey: string): Promise<number> {
   return typeof value === 'number' ? value : 0
 }
 
+/** Not a vault key (opfs-paths refuses `#`): the highest generation retired. */
+export const FENCE_FLOOR_KEY = '#floor'
+
 export async function bumpFenceGeneration(vaultKey: string): Promise<number> {
-  return idbUpdate<number>('fence', vaultKey, (current) => (typeof current === 'number' ? current : 0) + 1)
+  const db = await openBrowserDb()
+  const transaction = db.transaction('fence', 'readwrite')
+  const fence = transaction.objectStore('fence')
+  const [current, floor] = await Promise.all([promisify(fence.get(vaultKey)), promisify(fence.get(FENCE_FLOOR_KEY))])
+  const next = Math.max(typeof current === 'number' ? current : 0, typeof floor === 'number' ? floor : 0) + 1
+  fence.put(next, vaultKey)
+  await settled(transaction)
+  return next
+}
+
+/** Removes vaults' generations (every vault's without `vaultKeys`), keeping
+ *  the highest in the floor so no later generation repeats one. */
+export async function retireFenceGenerations(vaultKeys?: readonly string[]): Promise<void> {
+  const db = await openBrowserDb()
+  const transaction = db.transaction('fence', 'readwrite')
+  const fence = transaction.objectStore('fence')
+  const [keys, values] = await Promise.all([promisify(fence.getAllKeys()), promisify(fence.getAll())])
+  let floor = 0
+  keys.forEach((key, index) => {
+    const value = values[index]
+    const retiring = key === FENCE_FLOOR_KEY || !vaultKeys || vaultKeys.includes(String(key))
+    if (!retiring || typeof value !== 'number') return
+    floor = Math.max(floor, value)
+    if (key !== FENCE_FLOOR_KEY) fence.delete(key)
+  })
+  fence.put(floor, FENCE_FLOOR_KEY)
+  await settled(transaction)
+}
+
+/** The tab's claim on a vault, for writes that must not land after another
+ *  tab took it. */
+export interface FenceClaim {
+  vaultKey: string
+  generation: number
+}
+
+export class FencedWriteError extends Error {
+  constructor() {
+    super('This vault is open in another tab now, so this tab no longer saves to it.')
+    this.name = 'FencedWriteError'
+  }
+}
+
+/** Puts (or deletes, for `undefined`) a value only while `claim` is still the
+ *  vault's generation, checked in the same transaction as the write. */
+export async function idbWriteFenced(store: BrowserStore, key: string, value: unknown, claim: FenceClaim): Promise<void> {
+  const db = await openBrowserDb()
+  const transaction = db.transaction([store, 'fence'], 'readwrite')
+  const current = await promisify(transaction.objectStore('fence').get(claim.vaultKey))
+  if ((typeof current === 'number' ? current : 0) !== claim.generation) {
+    transaction.abort()
+    await settled(transaction).catch(() => undefined)
+    throw new FencedWriteError()
+  }
+  if (value === undefined) transaction.objectStore(store).delete(key)
+  else transaction.objectStore(store).put(value, key)
+  await settled(transaction)
 }

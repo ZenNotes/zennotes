@@ -7,10 +7,12 @@
  * does too (never with Vim mode off).
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react'
+import ReactDOM from 'react-dom/client'
 import { Button } from '@renderer/components/ui/Button'
 import type { CloudEncryptionSecretInput } from '@zennotes/bridge-contract/cloud-sync'
 import { CLOUD_BROWSER_UNLOCK_NOTICE } from '@zennotes/shared-domain/cloud-e2ee-passphrase'
-import { Card, show, useLetterKey, vimModeFromPrefs } from './screens'
+import { applySavedTheme, Card, show, useLetterKey, vimModeFromPrefs } from './screens'
+import { WEB_NOT_AVAILABLE_TITLE } from './cloud-account'
 
 function useAction(run: () => Promise<void>): { busy: boolean; error: string | null; act: () => void } {
   const [busy, setBusy] = useState(false)
@@ -582,6 +584,78 @@ function RemovedScreen({ reason, onSignIn }: { reason: 'revoked' | 'account-swit
 
 export function showRemoved(root: HTMLElement, reason: 'revoked' | 'account-switch', onSignIn: SignIn): void {
   show(root, <RemovedScreen reason={reason} onSignIn={onSignIn} />)
+}
+
+// ---------------------------------------------------------------------------
+// Not available for this account
+// ---------------------------------------------------------------------------
+
+function NotAvailableScreen({
+  keptHere,
+  onOpenHere,
+  onSignIn
+}: {
+  /** The notes stay in this browser (not on a shared computer). */
+  keptHere: boolean
+  onOpenHere: (() => void) | null
+  onSignIn: SignIn
+}): JSX.Element {
+  const button = useRef<HTMLButtonElement>(null)
+  const signIn = useAction(useCallback(() => onSignIn(false), [onSignIn]))
+  useEffect(() => {
+    button.current?.focus()
+  }, [])
+  const vim = vimModeFromPrefs()
+  useLetterKey('o', () => onOpenHere?.(), vim && !!onOpenHere)
+  useLetterKey('s', signIn.act, vim)
+  return (
+    <Card title={WEB_NOT_AVAILABLE_TITLE}>
+      <p data-web-not-available="" className="mt-2 text-sm leading-relaxed text-ink-600">
+        {keptHere
+          ? 'Your notes are still in this browser and in ZenNotes Cloud. Changes made here sync again once ZenNotes in your browser is back for your account. Use the apps until then.'
+          : 'Your notes are safe in ZenNotes Cloud. Use the apps until ZenNotes in your browser is back for your account.'}
+      </p>
+      <ErrorLine message={signIn.error} />
+      <div className="mt-5 flex flex-wrap items-center gap-3">
+        {onOpenHere ? (
+          <Button ref={button} variant="primary" size="md" onClick={onOpenHere}>
+            Open my notes here
+          </Button>
+        ) : null}
+        <Button ref={onOpenHere ? undefined : button} variant={onOpenHere ? 'ghost' : 'primary'} size="md" disabled={signIn.busy} onClick={signIn.act}>
+          {signIn.busy ? 'Opening zennotes.org…' : 'Sign in again'}
+        </Button>
+        <KeyHint>{onOpenHere ? 'o opens them, s signs in' : 'or press s'}</KeyHint>
+      </div>
+    </Card>
+  )
+}
+
+/** On top of a running app (its own root stays mounted) or in a host screen's
+ *  place. The overlay owns the keyboard while it is up. */
+export function showNotAvailable(
+  root: HTMLElement | null,
+  props: { keptHere: boolean; onOpenHere: (() => void) | null; onSignIn: SignIn }
+): () => void {
+  if (root) {
+    show(root, <NotAvailableScreen {...props} />)
+    return () => {}
+  }
+  applySavedTheme()
+  const overlay = document.createElement('div')
+  overlay.setAttribute('data-prompt-modal', '')
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:100'
+  document.body.appendChild(overlay)
+  const overlayRoot = ReactDOM.createRoot(overlay)
+  overlayRoot.render(
+    <React.StrictMode>
+      <NotAvailableScreen {...props} />
+    </React.StrictMode>
+  )
+  return () => {
+    overlayRoot.unmount()
+    overlay.remove()
+  }
 }
 
 // ---------------------------------------------------------------------------

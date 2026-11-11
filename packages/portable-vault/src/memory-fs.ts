@@ -11,6 +11,11 @@
  * - `readdir` answers [] for a missing folder and `readdirStrict` throws;
  * - every change moves `writeGeneration` before and after.
  *
+ * `foldNames` makes it fold case and Unicode normalization the way a Mac's
+ * disk and Safari's OPFS on a Mac do: a path finds the entry whose name folds
+ * the same, a write to such a path changes that entry under its stored name,
+ * and a listing shows names as stored.
+ *
  * `failNext` makes the next call of one method throw, for the failure paths
  * (a write that fails between two steps must leave the vault as it was), and
  * `breakStorage` makes every call throw until `restoreStorage`, the outage the
@@ -41,6 +46,10 @@ function normalize(path: string): string {
   return path.split('/').filter((segment) => segment && segment !== '.').join('/')
 }
 
+function foldPath(path: string): string {
+  return path.normalize('NFC').toLowerCase()
+}
+
 function parentOf(path: string): string {
   const slash = path.lastIndexOf('/')
   return slash === -1 ? '' : path.slice(0, slash)
@@ -57,22 +66,37 @@ export class MemoryVaultFileSystem implements PortableVaultFiles {
   clock = 1_000
   private failures = new Map<string, unknown>()
   private outage: unknown = undefined
+  /** Fold case and normalization, as a case-insensitive store does. */
+  foldNames = false
 
   constructor(
     readonly syncKey = 'memory/vault',
     readonly rootLabel = 'memory://vault'
   ) {}
 
+  /** The stored path a path names: itself, or with `foldNames` the entry
+   *  whose path folds the same. */
+  private stored(rel: string): string {
+    if (!this.foldNames) return rel
+    if (this.files.has(rel) || this.directories.has(rel)) return rel
+    const folded = foldPath(rel)
+    for (const path of this.files.keys()) if (foldPath(path) === folded) return path
+    for (const dir of this.directories) if (foldPath(dir) === folded) return dir
+    // A new entry under a folder stored with another case lands in that folder.
+    const slash = rel.lastIndexOf('/')
+    return slash === -1 ? rel : `${this.stored(rel.slice(0, slash))}/${rel.slice(slash + 1)}`
+  }
+
   /** Seeds a file without counting it as a change the vault made. */
   put(path: string, body: string | Uint8Array, mtime?: number): void {
-    const rel = normalize(path)
+    const rel = this.stored(normalize(path))
     this.ensureParents(rel)
     const time = mtime ?? (this.clock += 1)
     this.files.set(rel, { bytes: typeof body === 'string' ? encoder.encode(body) : body, mtime: time, ctime: time })
   }
 
   text(path: string): string | undefined {
-    const file = this.files.get(normalize(path))
+    const file = this.files.get(this.stored(normalize(path)))
     return file ? decoder.decode(file.bytes) : undefined
   }
 
@@ -133,7 +157,7 @@ export class MemoryVaultFileSystem implements PortableVaultFiles {
 
   async readText(relPath: string): Promise<string> {
     this.enter('readText')
-    const file = this.files.get(normalize(relPath))
+    const file = this.files.get(this.stored(normalize(relPath)))
     if (!file) throw new MemoryNotFoundError(relPath)
     return decoder.decode(file.bytes)
   }
@@ -149,7 +173,7 @@ export class MemoryVaultFileSystem implements PortableVaultFiles {
 
   async readBase64(relPath: string): Promise<string> {
     this.enter('readBase64')
-    const file = this.files.get(normalize(relPath))
+    const file = this.files.get(this.stored(normalize(relPath)))
     if (!file) throw new MemoryNotFoundError(relPath)
     return bytesToBase64(file.bytes)
   }
@@ -166,7 +190,7 @@ export class MemoryVaultFileSystem implements PortableVaultFiles {
 
   async statOrNull(relPath: string): Promise<VaultStat | null> {
     this.enter('statOrNull')
-    const rel = normalize(relPath)
+    const rel = this.stored(normalize(relPath))
     const file = this.files.get(rel)
     if (file) return { type: 'file', size: file.bytes.byteLength, mtime: file.mtime, ctime: file.ctime, uri: this.fileSrc(rel) ?? undefined }
     if (this.isDirectory(rel)) return { type: 'directory', size: 0, mtime: 0, ctime: null, uri: this.fileSrc(rel) ?? undefined }
@@ -175,7 +199,7 @@ export class MemoryVaultFileSystem implements PortableVaultFiles {
 
   async statVerified(relPath: string): Promise<'file' | 'directory' | null> {
     this.enter('statVerified')
-    const rel = normalize(relPath)
+    const rel = this.stored(normalize(relPath))
     if (this.files.has(rel)) return 'file'
     return this.isDirectory(rel) ? 'directory' : null
   }
@@ -190,7 +214,7 @@ export class MemoryVaultFileSystem implements PortableVaultFiles {
 
   async readdirStrict(relPath: string): Promise<VaultDirEntry[]> {
     this.enter('readdirStrict')
-    const rel = normalize(relPath)
+    const rel = this.stored(normalize(relPath))
     if (!this.isDirectory(rel)) throw new MemoryNotFoundError(relPath)
     const prefix = rel ? `${rel}/` : ''
     const entries = new Map<string, VaultDirEntry>()
@@ -210,7 +234,7 @@ export class MemoryVaultFileSystem implements PortableVaultFiles {
 
   async mkdir(relPath: string): Promise<void> {
     this.enter('mkdir')
-    const rel = normalize(relPath)
+    const rel = this.stored(normalize(relPath))
     await this.changing(() => {
       if (this.files.has(rel)) throw new Error(`A file exists at ${rel}`)
       this.ensureParents(`${rel}/x`)
@@ -219,8 +243,10 @@ export class MemoryVaultFileSystem implements PortableVaultFiles {
 
   async rename(fromRel: string, toRel: string): Promise<void> {
     this.enter('rename')
-    const from = normalize(fromRel)
-    const to = normalize(toRel)
+    const from = this.stored(normalize(fromRel))
+    // A case-only rename keeps the new name on a folding store too.
+    const requested = normalize(toRel)
+    const to = this.foldNames && foldPath(requested) === foldPath(from) ? requested : this.stored(requested)
     await this.changing(() => {
       if (!this.isDirectory(parentOf(to))) throw new MemoryNotFoundError(parentOf(to))
       const file = this.files.get(from)
@@ -240,8 +266,8 @@ export class MemoryVaultFileSystem implements PortableVaultFiles {
 
   async copy(fromRel: string, toRel: string): Promise<void> {
     this.enter('copy')
-    const from = normalize(fromRel)
-    const to = normalize(toRel)
+    const from = this.stored(normalize(fromRel))
+    const to = this.stored(normalize(toRel))
     await this.changing(() => {
       const file = this.files.get(from)
       if (file) {
@@ -273,7 +299,7 @@ export class MemoryVaultFileSystem implements PortableVaultFiles {
 
   async deleteFile(relPath: string): Promise<void> {
     this.enter('deleteFile')
-    const rel = normalize(relPath)
+    const rel = this.stored(normalize(relPath))
     await this.changing(() => {
       if (!this.files.delete(rel)) throw new MemoryNotFoundError(relPath)
     })
@@ -281,7 +307,7 @@ export class MemoryVaultFileSystem implements PortableVaultFiles {
 
   async rmdir(relPath: string): Promise<void> {
     this.enter('rmdir')
-    const rel = normalize(relPath)
+    const rel = this.stored(normalize(relPath))
     await this.changing(() => {
       if (!this.isDirectory(rel) || rel === '') throw new MemoryNotFoundError(relPath)
       const prefix = `${rel}/`
@@ -292,7 +318,7 @@ export class MemoryVaultFileSystem implements PortableVaultFiles {
 
   async rmdirIfEmpty(relPath: string): Promise<void> {
     this.enter('rmdirIfEmpty')
-    const rel = normalize(relPath)
+    const rel = this.stored(normalize(relPath))
     await this.changing(() => {
       if (!this.isDirectory(rel) || rel === '') throw new MemoryNotFoundError(relPath)
       const prefix = `${rel}/`

@@ -138,7 +138,7 @@ export function warmServiceWorkerCache(): void {
  */
 export function serveVaultToWorker(
   vaultKey: string,
-  handlers: { hydrate(path: string): Promise<boolean>; opened(path: string): void }
+  handlers: { hydrate(path: string): Promise<boolean>; opened(path: string): void; unlocked(): Promise<boolean> }
 ): () => void {
   if (!('serviceWorker' in navigator)) return () => {}
   const announce = (): void => {
@@ -152,7 +152,14 @@ export function serveVaultToWorker(
     }
     const port = event.ports[0]
     if (data?.type === 'vault-owner?') {
-      port?.postMessage({ owner: data.vaultKey === vaultKey })
+      if (data.vaultKey !== vaultKey) {
+        port?.postMessage({ owner: false })
+        return
+      }
+      void handlers.unlocked().then(
+        (unlocked) => port?.postMessage({ owner: true, unlocked }),
+        () => port?.postMessage({ owner: true, unlocked: false })
+      )
       return
     }
     if (data?.type !== 'hydrate') return

@@ -15,11 +15,14 @@ import {
   finishLocalScrub,
   revocationAwareTransport,
   watchDeviceRevocation,
+  wipeBrowserCloudData,
   wipeEverythingInBrowser
 } from '../cloud-session'
-import { idbGet, idbKeys, idbPut, resetBrowserDbForTests } from '../idb'
+import { bumpFenceGeneration, idbGet, idbKeys, idbPut, resetBrowserDbForTests } from '../idb'
 import {
   beginSharedSession,
+  markSharedSessionClean,
+  markTabLeaving,
   isSharedSession,
   readSharedCredential,
   readSharedSessionRecord,
@@ -88,14 +91,13 @@ class FakeLocks {
       entry.count -= 1
       if (entry.count === 0) this.held.delete(name)
     }
+    // As the real API: request() settles with the callback's result, and the
+    // lock is held until then. A held-for-life lock's request never settles,
+    // which the code under test never waits for.
     try {
-      const result = callback({ name, mode })
-      // A held-for-life lock never settles: release only what finishes.
-      void Promise.resolve(result).then(release, release)
-      return await Promise.race([result, new Promise((resolve) => setTimeout(resolve, 0))])
-    } catch (error) {
+      return await callback({ name, mode })
+    } finally {
       release()
-      throw error
     }
   }
   async query(): Promise<{ held: Array<{ name: string }> }> {
@@ -139,6 +141,7 @@ const deletedCaches: string[] = []
 const SHARED_CREDENTIAL = JSON.stringify({ token: 't', account: { device: { shared: true } } })
 const ORDINARY_CREDENTIAL = JSON.stringify({ token: 't', account: { device: { shared: false } } })
 const ACCOUNT_KEY = 'e2ee-account-key.abc'
+const LEFT_AT_KEY = 'zn-browser:shared-left-at'
 
 function innerStore(): SecretStorage & { values: Map<string, string> } {
   const values = new Map<string, string>()
@@ -224,12 +227,13 @@ describe('what a load does about a shared session', () => {
 
   it('keeps a reload in the session', async () => {
     await startSession()
-    const marker = session.keysList()
+    // pagehide on the way out of the reload.
+    session.setItem(LEFT_AT_KEY, String(Date.now() - 400))
     resetSharedSessionForTests()
-    assert.ok(marker.length > 0)
     assert.equal(await settleSharedSession(noWipe), 'member')
     assert.equal(isSharedSession(), true)
     assert.equal(readSharedCredential(), SHARED_CREDENTIAL)
+    assert.equal(session.getItem(LEFT_AT_KEY), null)
   })
 
   it('wipes a session closed without signing out', async () => {
@@ -285,6 +289,85 @@ describe('what a load does about a shared session', () => {
   })
 })
 
+// Review finding 1: browsers restore sessionStorage with a reopened tab
+// (reopen closed tab, History, "continue where you left off").
+describe('a tab that comes back', () => {
+  const wipeFlag = (): { wiped: boolean; run: () => Promise<void> } => {
+    const flag = { wiped: false, run: async () => { flag.wiped = true } }
+    return flag
+  }
+
+  /** The tab closes; its lock goes, its sessionStorage is kept for a restore. */
+  async function closeTab(): Promise<void> {
+    const record = await readSharedSessionRecord()
+    locks.held.delete(sharedSessionLockName(record!.id))
+    resetSharedSessionForTests()
+  }
+
+  it('does not sign a reopened closed tab back in', async () => {
+    await startSession()
+    session.setItem(LEFT_AT_KEY, String(Date.now() - 60_000))
+    await closeTab()
+    const wipe = wipeFlag()
+    assert.equal(await settleSharedSession(wipe.run), 'wiped')
+    assert.equal(wipe.wiped, true)
+    assert.equal(isSharedSession(), false)
+    assert.equal(readSharedCredential(), null)
+  })
+
+  it('does not trust a tab restored after a crash, which never said it was leaving', async () => {
+    await startSession()
+    await closeTab()
+    const wipe = wipeFlag()
+    assert.equal(await settleSharedSession(wipe.run), 'wiped')
+    assert.equal(readSharedCredential(), null)
+  })
+
+  it('leaves a restored tab out while the session is open in another tab', async () => {
+    await startSession()
+    const record = await readSharedSessionRecord()
+    // Another tab of the session is still open and holds the lock.
+    resetSharedSessionForTests()
+    assert.ok(locks.held.has(sharedSessionLockName(record!.id)))
+    assert.equal(await settleSharedSession(async () => assert.fail('nothing should be wiped')), 'open-elsewhere')
+    assert.equal(readSharedCredential(), null)
+  })
+
+  it('lets a window the session opened join it (the PDF export window)', async () => {
+    await startSession()
+    const record = await readSharedSessionRecord()
+    resetSharedSessionForTests()
+    const outcome = await settleSharedSession(async () => assert.fail('nothing should be wiped'), {
+      openerMarker: () => record!.id
+    })
+    assert.equal(outcome, 'member')
+  })
+
+  it('marks the tab as leaving on its way out', async () => {
+    await startSession()
+    markTabLeaving(12345)
+    assert.equal(session.getItem(LEFT_AT_KEY), '12345')
+  })
+})
+
+// Review finding 2a: the session begins right after the exchange, before the
+// account switch is settled.
+describe('a shared sign-in that never finished starting', () => {
+  it('leaves the earlier copy alone when it is closed before the switch was settled', async () => {
+    await idbPut('preferences', SHARED_SESSION_RECORD_KEY, JSON.stringify({ id: 'never-started', startedAt: 1, clean: false }))
+    assert.equal(await settleSharedSession(async () => assert.fail('the earlier copy must stay')), 'none')
+    assert.equal(await readSharedSessionRecord(), null)
+  })
+
+  it('a session begun before the switch says so until it is clean', async () => {
+    writeSharedCredential(SHARED_CREDENTIAL)
+    await beginSharedSession({ clean: false })
+    assert.equal((await readSharedSessionRecord())?.clean, false)
+    await markSharedSessionClean()
+    assert.notEqual((await readSharedSessionRecord())?.clean, false)
+  })
+})
+
 describe('what a wipe leaves', () => {
   async function seed(): Promise<void> {
     const vaults = await opfs.root.getDirectoryHandle('vaults', { create: true })
@@ -315,12 +398,32 @@ describe('what a wipe leaves', () => {
 
     assert.equal(closed, true)
     assert.deepEqual(await opfsEntries(), [])
-    for (const store of ['storage', 'secrets', 'keys', 'fence'] as const) assert.deepEqual(await idbKeys(store), [], store)
+    for (const store of ['storage', 'secrets', 'keys'] as const) assert.deepEqual(await idbKeys(store), [], store)
+    // Only the generation floor stays: it names no vault.
+    assert.deepEqual((await idbKeys('fence')).filter((key) => !key.startsWith('#')), [])
     assert.deepEqual(await listBrowserVaults(), [])
     assert.equal(await readSharedSessionRecord(), null)
     assert.equal(local.length, 0)
     assert.equal(session.length, 0)
     assert.deepEqual(deletedCaches, ['runtime-x'])
+  })
+
+  // Review finding 7a: a frozen tab's old generation must never be current again.
+  it('never lets lock generations start over', async () => {
+    await startSession()
+    await seed()
+    for (let i = 0; i < 3; i += 1) await bumpFenceGeneration('cloud-a')
+    await wipeEverythingInBrowser({ closeOpenVault: () => {} })
+    assert.deepEqual((await idbKeys('fence')).filter((key) => key === 'cloud-a'), [])
+    assert.ok((await bumpFenceGeneration('cloud-a')) > 4)
+  })
+
+  it('never lets lock generations start over when one account\u2019s vaults go', async () => {
+    await seed()
+    for (let i = 0; i < 3; i += 1) await bumpFenceGeneration('cloud-a')
+    const entries = await listBrowserVaults()
+    await wipeBrowserCloudData({ closeOpenVault: () => {} }, { entries, reason: 'account-switch' })
+    assert.ok((await bumpFenceGeneration('cloud-a')) > 4)
   })
 
   it('keeps the record when a wipe is cut short, so it runs again', async () => {
@@ -371,6 +474,19 @@ describe('what the transport tells a shared computer', () => {
     await listen(401, null).request({ url: bearer.url })
     await listen(200, null).request(bearer)
     assert.deepEqual(heard, ['ended', 'removed'])
+  })
+
+  // Review item D: the service stops a browser whose account CLOUD_WEB no
+  // longer allows with 403 CLOUD_WEB_NOT_ENABLED on any device call. That is
+  // not a removal: the copy stays.
+  it('tells a browser that is not allowed any more from a removed one', async () => {
+    const heard: string[] = []
+    const listen = (status: number, data: unknown): ReturnType<typeof revocationAwareTransport> =>
+      revocationAwareTransport(answering(status, data), () => heard.push('removed'), () => heard.push('ended'), () => heard.push('not-enabled'))
+    await listen(403, { error: { code: 'CLOUD_WEB_NOT_ENABLED' } }).request(bearer)
+    await listen(403, { error: { code: 'ACTIVE_DEVICE_REQUIRED' } }).request(bearer)
+    await listen(403, { error: { code: 'CLOUD_WEB_NOT_ENABLED' } }).request({ url: bearer.url })
+    assert.deepEqual(heard, ['not-enabled', 'removed'])
   })
 
   it('reports whether a sign-out reached Cloud', async () => {

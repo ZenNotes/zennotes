@@ -153,6 +153,17 @@ for (const engine of ENGINES) {
       assert.ok(!origin.paths().includes('Folder/'))
     })
 
+    // Only a store that folds case reaches b/Note.md as b/note.md.
+    it.runIf(engine === 'safari')('a rename onto a same-named file in another folder is still refused', async () => {
+      const origin = new FakeOpfs(engine)
+      const fs = await openFs(origin)
+      await fs.writeText('a/Note.md', 'one')
+      await fs.writeText('b/Note.md', 'two')
+      await assert.rejects(fs.rename('a/Note.md', 'b/note.md'))
+      assert.equal(await fs.readText('a/Note.md'), 'one')
+      assert.equal(await fs.readText('b/Note.md'), 'two')
+    })
+
     it('refuses names a browser cannot store, everywhere', async () => {
       const fs = await openFs(new FakeOpfs(engine))
       await rejectsWithCode(fs.writeText('back\\slash.md', 'x'), OPFS_BAD_NAME)

@@ -25,7 +25,7 @@
 import type { HttpTransport, HttpTransportRequest, HttpTransportResponse } from '@zennotes/portable-vault/host'
 import { announceAccount, type BrowserWipeReason } from './cloud-account'
 import { forgetKeptAccountKeys, forgetBrowserEncryptionPrefs } from './browser-keys'
-import { idbDelete, idbGet, idbKeys, idbPut, openBrowserDb, type BrowserStore } from './idb'
+import { idbDelete, idbGet, idbKeys, idbPut, openBrowserDb, retireFenceGenerations, type BrowserStore } from './idb'
 import {
   listBrowserVaults,
   removeBrowserVaults,
@@ -36,8 +36,17 @@ import {
 import { originOpfsRoot } from './opfs-handles'
 import { VAULTS_DIR } from './opfs-paths'
 import { forgetSharedSessionRecord, SHARED_SESSION_RECORD_KEY } from './shared-session'
+import { forgetAfterSignIn } from './after-sign-in'
+import { TRY_VIM_DEFAULT_KEY } from './try-vim'
 
 export type RevocationReason = 'revoked'
+
+/** Cloud no longer lets this account use ZenNotes in the browser (CLOUD_WEB
+ *  turned off, or the account taken off its list). Not a removal: the copy
+ *  stays, and signing in again works once the account is allowed. */
+export function isWebNotEnabledAnswer(status: number, data: unknown): boolean {
+  return status === 403 && (data as { error?: { code?: unknown } } | null)?.error?.code === 'CLOUD_WEB_NOT_ENABLED'
+}
 
 /** Whether a Cloud answer means this browser was removed from the account. */
 export function isRevocationAnswer(status: number, data: unknown): boolean {
@@ -58,7 +67,8 @@ function sendsCredential(request: HttpTransportRequest): boolean {
 export function revocationAwareTransport(
   base: HttpTransport,
   onRevoked: () => void,
-  onSignInEnded: () => void = () => {}
+  onSignInEnded: () => void = () => {},
+  onNotEnabled: () => void = () => {}
 ): HttpTransport {
   return {
     ...base,
@@ -66,6 +76,7 @@ export function revocationAwareTransport(
       const response = await base.request(options)
       if (sendsCredential(options)) {
         if (isRevocationAnswer(response.status, response.data)) onRevoked()
+        else if (isWebNotEnabledAnswer(response.status, response.data)) onNotEnabled()
         else if (response.status === 401) onSignInEnded()
       }
       return response
@@ -97,7 +108,7 @@ const SW_CACHE_PREFIX = 'zn-cloud-'
 /** localStorage keys that are settings, not vault content; everything else
  *  app-core keeps there (workspace tabs, manual note order, command history)
  *  names notes and goes with the vault. */
-const KEPT_LOCAL_KEYS = new Set(['zen:prefs:v2'])
+const KEPT_LOCAL_KEYS = new Set(['zen:prefs:v2', TRY_VIM_DEFAULT_KEY])
 
 export interface WipeHooks {
   /** Stops this tab's sync and closes its vault worker first. */
@@ -125,7 +136,7 @@ async function deleteVaultFolder(key: string): Promise<void> {
   } else {
     await remove()
   }
-  await idbDelete('fence', key).catch(() => undefined)
+  await retireFenceGenerations([key]).catch(() => undefined)
 }
 
 async function clearStore(store: BrowserStore): Promise<void> {
@@ -229,6 +240,8 @@ export async function clearForSharedSession(hooks: WipeHooks): Promise<void> {
   await clearStore('secrets')
   await clearStore('keys')
   await forgetBrowserEncryptionPrefs()
+  // Someone's "Keep it in ZenNotes Cloud" must not run in this account.
+  await forgetAfterSignIn()
 }
 
 const LOCAL_SCRUB_KEY = 'zn-browser:scrub-local'
@@ -267,7 +280,7 @@ async function clearEveryStore(): Promise<void> {
   await clearStore('storage')
   await clearStore('secrets')
   await clearStore('keys')
-  await clearStore('fence')
+  await retireFenceGenerations()
   for (const key of await idbKeys('preferences')) {
     if (key !== SHARED_SESSION_RECORD_KEY) await idbDelete('preferences', key)
   }

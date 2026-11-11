@@ -4,6 +4,10 @@ export interface VaultRelocationIO {
   mkdir(path: string): Promise<void>
   /** Must either complete or leave the source in place; uncertain failures must say so. */
   rename(from: string, to: string): Promise<void>
+  /** On a store that folds case or Unicode normalization, whether `b` names
+   *  the same entry as `a` (a case-only move's target "exists": it is the
+   *  source). Absent, every existing target is taken. */
+  sameEntry?(a: string, b: string): Promise<boolean>
 }
 
 export interface VaultRelocation {
@@ -35,7 +39,8 @@ export async function relocateVaultEntries(
     if (entry.to.startsWith(`${entry.from}/`)) throw new Error('Cannot move a folder into itself')
     const source = await io.stat(entry.from)
     if (entry.required && source === null) throw new Error(`Missing source: ${entry.from}`)
-    if (await io.stat(entry.to) !== null) throw new Error(`Destination already exists: ${entry.to}`)
+    if (await io.stat(entry.to) !== null && !(source !== null && await io.sameEntry?.(entry.from, entry.to)))
+      throw new Error(`Destination already exists: ${entry.to}`)
     if (source !== null) present.push(entry)
   }
   const moved: VaultRelocation[] = []
@@ -51,7 +56,8 @@ export async function relocateVaultEntries(
     const failures: unknown[] = [error]
     for (const entry of moved.reverse()) {
       try {
-        if (await io.stat(entry.from) !== null) throw new Error(`Rollback path is occupied: ${entry.from}`)
+        if (await io.stat(entry.from) !== null && !(await io.sameEntry?.(entry.to, entry.from)))
+          throw new Error(`Rollback path is occupied: ${entry.from}`)
         await io.rename(entry.to, entry.from)
       } catch (rollbackError) { failures.push(rollbackError) }
     }

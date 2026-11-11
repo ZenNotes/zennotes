@@ -945,8 +945,30 @@ export class PortableVault<F extends PortableVaultFiles = PortableVaultFiles> {
     return {
       stat: path => this.fs.statVerified(path),
       mkdir: path => this.fs.mkdir(path),
-      rename: (from, to) => this.fs.rename(from, to)
+      rename: (from, to) => this.fs.rename(from, to),
+      sameEntry: (a, b) => this.namesSameEntry(a, b)
     }
+  }
+
+  /**
+   * Whether `target` reaches the entry at `source` only because the store
+   * folds case or Unicode normalization (Safari's OPFS on a Mac, a Mac's disk,
+   * the iPhone simulator): a case-only rename's target "exists" there, and it
+   * is the note itself. Desktop compares file identity; this interface has
+   * none, so the folder's own listing tells: the exact target name is not
+   * listed, and the only listed name that folds to it is the source's. On a
+   * case-sensitive store the target either does not exist or is listed.
+   */
+  private async namesSameEntry(source: string, target: string): Promise<boolean> {
+    if (source === target) return true
+    const fold = (name: string): string => name.normalize('NFC').toLowerCase()
+    const folder = dirName(target)
+    if (folder !== dirName(source) || fold(source) !== fold(target)) return false
+    const names = (await this.fs.readdirStrict(folder)).map((entry) => entry.name)
+    const wanted = target.slice(folder ? folder.length + 1 : 0)
+    if (names.includes(wanted)) return false
+    const folding = names.filter((name) => fold(name) === fold(wanted))
+    return folding.length === 1 && folding[0] === source.slice(folder ? folder.length + 1 : 0)
   }
 
   /**
@@ -1010,7 +1032,8 @@ export class PortableVault<F extends PortableVaultFiles = PortableVaultFiles> {
     const ext = isExcalidrawPath(rel) ? '.excalidraw' : '.md'
     const target = joinPath(dir, `${trimmed}${ext}`)
     if (target === rel) return await this.metaForPath(rel)
-    if (await this.fs.exists(target)) {
+    // A case-only rename finds the note itself on a store that folds case.
+    if (await this.fs.exists(target) && !(await this.namesSameEntry(rel, target))) {
       throw new Error(`A note named "${trimmed}" already exists in ${folder}`)
     }
     // Snapshot for inbound wikilink rewriting before the rename lands.

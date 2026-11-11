@@ -116,6 +116,30 @@ export function vaultsOfAccount(entries: BrowserVaultEntry[], account: BrowserVa
   }
 }
 
+/**
+ * The vault `/` opens: the one asked for, else the last one, else the newest
+ * Cloud vault. A Cloud vault of another account never opens with this
+ * sign-in (an account switch left unfinished keeps the previous account's
+ * vaults until it is settled). Signed out, a copy opens as it is.
+ */
+export function chooseHomeVault(options: {
+  entries: readonly BrowserVaultEntry[]
+  wanted: string | null
+  lastKey: string | null
+  account: BrowserVaultAccount | null
+}): BrowserVaultEntry | undefined {
+  const { entries, wanted, lastKey, account } = options
+  const allowed = (entry: BrowserVaultEntry): boolean =>
+    !account || entry.kind !== 'cloud' || vaultsOfAccount([entry], account).mine.length === 1
+  const usable = entries.filter(allowed)
+  const cloud = usable.filter((entry) => entry.kind === 'cloud')
+  return (
+    (wanted ? usable.find((candidate) => candidate.key === wanted) : undefined) ??
+    cloud.find((candidate) => candidate.key === lastKey) ??
+    [...cloud].sort((left, right) => right.lastOpenedAt - left.lastOpenedAt)[0]
+  )
+}
+
 /** Marks a vault as holding changes Cloud has not received (set when it
  *  changes, cleared when a sync run finishes after the last change). */
 export async function markVaultUnsynced(key: string, unsynced: boolean): Promise<void> {

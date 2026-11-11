@@ -93,7 +93,7 @@ function cloudConfig(): HostCloudConfig {
 /** What the page decides around the host: main.tsx fills these in. */
 export interface BrowserHostHooks {
   /** Before the tab leaves for the website's sign-in page. */
-  beforeLeavingForSignIn(): Promise<void>
+  beforeLeavingForSignIn(authorizationUrl: string): Promise<void>
   /** The tab went to the background: start the final push. */
   leftApp(): void
   returnedToApp(): void
@@ -101,6 +101,8 @@ export interface BrowserHostHooks {
   revoked(): void
   /** Cloud refused the sign-in without removing this browser: it expired. */
   signInEnded(): void
+  /** Cloud no longer lets this account use ZenNotes in the browser. */
+  webNotEnabled(): void
   /** The answer to signing out: whether Cloud removed this browser. */
   deviceRevocationAnswered(revoked: boolean): void
   /** Open another of this browser's vaults (a page load of its own). */
@@ -211,7 +213,7 @@ export function createBrowserHost(openDefault: () => Promise<void>, hooks: Brows
     // The only page the package opens is Cloud's sign-in, and a browser
     // signs in in this tab: the website sends it back to /auth/callback.
     openExternal: async (url) => {
-      await hooks.beforeLeavingForSignIn()
+      await hooks.beforeLeavingForSignIn(url)
       location.assign(url)
       // The page is leaving; nothing after this should run.
       await new Promise(() => {})
@@ -298,10 +300,16 @@ export function createBrowserHost(openDefault: () => Promise<void>, hooks: Brows
     shell,
     lifecycle,
     http: watchDeviceRevocation(
-      revocationAwareTransport(withOpfsUploads(fetchTransport), () => hooks.revoked(), () => hooks.signInEnded()),
+      revocationAwareTransport(
+        withOpfsUploads(fetchTransport),
+        () => hooks.revoked(),
+        () => hooks.signInEnded(),
+        () => hooks.webNotEnabled()
+      ),
       (revoked) => hooks.deviceRevocationAnswered(revoked)
     ),
-    storage: idbHostStorage('storage'),
+    // Sync state belongs to the open vault: fenced like its files.
+    storage: idbHostStorage('storage', () => (current ? { vaultKey: current.spec.key, generation: current.spec.generation } : null)),
     preferences: idbHostStorage('preferences'),
     secrets: browserSecrets,
     vaults,

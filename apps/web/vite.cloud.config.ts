@@ -285,7 +285,7 @@ export default defineConfig({
       'Content-Security-Policy': cloudCspWithConnectOrigins((process.env.ZN_CLOUD_CONNECT_ORIGINS ?? '').split(','))
     }
   },
-  plugins: [onigurumaDataUrl(), harperWasmAsset(), react(), excalidrawFonts(OUT_DIR), cloudHost()],
+  plugins: [onigurumaDataUrl(), harperWasmAsset(), react(), excalidrawFonts(OUT_DIR, `${BASE}excalidraw-assets/`), cloudHost()],
   optimizeDeps: {
     exclude: sharedOptimizeDepsExclude
   },

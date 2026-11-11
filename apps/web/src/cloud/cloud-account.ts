@@ -120,5 +120,8 @@ export function captureAuthCallback(): CallbackCapture | null {
 export const SIGN_IN_ELSEWHERE_MESSAGE =
   'This sign-in was started in another browser, or more than 45 minutes ago. Open the sign-in link in the browser you started in, or sign in again here.'
 
+/** A browser already signed in, stopped because its account is no longer allowed. */
+export const WEB_NOT_AVAILABLE_TITLE = 'ZenNotes in your browser is not available for this account right now'
+
 export const CLOUD_WEB_NOT_ENABLED_MESSAGE =
   'ZenNotes in your browser is not available for your account yet. Your notes are safe in ZenNotes Cloud and in the apps.'

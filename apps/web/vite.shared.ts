@@ -51,9 +51,33 @@ function excalidrawFontMime(path: string): string {
   return 'application/octet-stream'
 }
 
-export function excalidrawFonts(outDir = resolve(__dirname, 'dist')): Plugin {
+/**
+ * Excalidraw also lists its esm.sh CDN after EXCALIDRAW_ASSET_PATH in every
+ * font face it builds, and browsers check each listed source against the CSP
+ * when the face is constructed: one `font-src` violation per face, 230 on a
+ * drawing, although every font loads from the page's own path (desktop's
+ * `excalidrawLocalFontFallback`, apps/desktop/electron.vite.config.ts, the
+ * same fix). The fallback becomes the base the page set, made absolute as
+ * Excalidraw's `new URL(path, fallback)` needs, or `defaultAssetPath` on this
+ * origin when the page set none (the PDF export window). An Excalidraw upgrade
+ * that reshapes the fallback fails the build rather than bringing the noise back.
+ */
+const EXCALIDRAW_CDN_FALLBACK = /`https:\/\/esm\.sh\/\$\{.*?\}\/dist\/prod\/`/
+
+function excalidrawFallbackExpression(defaultAssetPath: string): string {
+  return `(()=>{const p=typeof window!=="undefined"&&typeof window.EXCALIDRAW_ASSET_PATH==="string"?window.EXCALIDRAW_ASSET_PATH:${JSON.stringify(defaultAssetPath)};return new URL(p.endsWith("/")?p:p+"/",location.href).toString()})()`
+}
+
+export function excalidrawFonts(outDir = resolve(__dirname, 'dist'), defaultAssetPath = '/excalidraw-assets/'): Plugin {
   return {
     name: 'zennotes-excalidraw-fonts',
+    transform(code, id) {
+      if (!code.includes('ASSETS_FALLBACK_URL')) return null
+      if (!EXCALIDRAW_CDN_FALLBACK.test(code)) {
+        this.error(`Excalidraw's esm.sh font fallback changed shape in ${id}`)
+      }
+      return { code: code.replace(EXCALIDRAW_CDN_FALLBACK, excalidrawFallbackExpression(defaultAssetPath)), map: null }
+    },
     // Dev: serve the fonts straight from node_modules so the same URLs resolve
     // (Vite dev sets no CSP, but this keeps dev offline-capable and consistent
     // with the built app).

@@ -8,7 +8,9 @@
  * - Safari (macOS): names fold case and Unicode normalization; a name over
  *   255 UTF-8 bytes fails with UnknownError; `move()` replaces a file even
  *   while another sync handle has it open; folders moved onto existing ones
- *   merge.
+ *   merge; `isSameEntry` compares the paths the two handles were opened with,
+ *   so one file reached under two spellings is not "the same entry" (seen in
+ *   Safari 27.2, cloud-in-browser-safari-report.md failure A).
  * - Every engine: `move(dir, name)` replaces an existing file; a second sync
  *   handle on one file is refused; a handle follows its file after a move.
  *
@@ -61,7 +63,7 @@ export class FakeOpfs {
   moveCalls = 0
 
   constructor(readonly engine: FakeEngine) {
-    this.root = this.dirHandle(this.rootNode)
+    this.root = this.dirHandle(this.rootNode, '')
   }
 
   breakStorage(error: unknown = domError('InvalidStateError', 'The storage is not answering.')): void {
@@ -116,15 +118,22 @@ export class FakeOpfs {
     }
   }
 
-  private dirHandle(node: DirNode): OpfsDirectoryHandle {
+  /** Whether two handles are the same entry, as this engine answers it. */
+  private same(node: Node, path: string, other: OpfsHandle): boolean {
+    const theirs = other as unknown as { __node?: Node; __path?: string }
+    return this.engine === 'safari' ? theirs.__path === path : theirs.__node === node
+  }
+
+  private dirHandle(node: DirNode, path: string): OpfsDirectoryHandle {
     const fake = this
+    const at = (name: string): string => (path ? `${path}/${name}` : name)
     const handle: OpfsDirectoryHandle & { move?: (dir: OpfsDirectoryHandle, name: string) => Promise<void> } = {
       kind: 'directory',
       get name() {
         return node.name
       },
       async isSameEntry(other: OpfsHandle) {
-        return (other as unknown as { __node?: Node }).__node === node
+        return fake.same(node, path, other)
       },
       async getDirectoryHandle(name: string, options?: { create?: boolean }) {
         fake.enter()
@@ -132,12 +141,12 @@ export class FakeOpfs {
         const found = node.children.get(fake.key(name))
         if (found) {
           if (found.kind !== 'directory') throw domError('TypeMismatchError')
-          return fake.dirHandle(found)
+          return fake.dirHandle(found, at(name))
         }
         if (!options?.create) throw domError('NotFoundError')
         const created: DirNode = { kind: 'directory', name, children: new Map(), parent: node }
         node.children.set(fake.key(name), created)
-        return fake.dirHandle(created)
+        return fake.dirHandle(created, at(name))
       },
       async getFileHandle(name: string, options?: { create?: boolean }) {
         fake.enter()
@@ -145,12 +154,12 @@ export class FakeOpfs {
         const found = node.children.get(fake.key(name))
         if (found) {
           if (found.kind !== 'file') throw domError('TypeMismatchError')
-          return fake.fileHandle(found)
+          return fake.fileHandle(found, at(name))
         }
         if (!options?.create) throw domError('NotFoundError')
         const created: FileNode = { kind: 'file', name, bytes: new Uint8Array(), mtime: (fake.clock += 1), parent: node, syncOpen: false }
         node.children.set(fake.key(name), created)
-        return fake.fileHandle(created)
+        return fake.fileHandle(created, at(name))
       },
       async removeEntry(name: string, options?: { recursive?: boolean }) {
         fake.enter()
@@ -166,11 +175,12 @@ export class FakeOpfs {
       async *entries(): AsyncIterableIterator<[string, OpfsHandle]> {
         fake.enter()
         for (const child of [...node.children.values()]) {
-          yield [child.name, child.kind === 'directory' ? fake.dirHandle(child) : fake.fileHandle(child)]
+          yield [child.name, child.kind === 'directory' ? fake.dirHandle(child, at(child.name)) : fake.fileHandle(child, at(child.name))]
         }
       }
     }
     Object.defineProperty(handle, '__node', { value: node })
+    Object.defineProperty(handle, '__path', { value: path })
     if (this.engine !== 'chrome') {
       handle.move = async (destination, name) => {
         fake.enter()
@@ -196,7 +206,7 @@ export class FakeOpfs {
     return handle
   }
 
-  private fileHandle(node: FileNode): OpfsFileHandle {
+  private fileHandle(node: FileNode, path: string): OpfsFileHandle {
     const fake = this
     const handle: OpfsFileHandle = {
       kind: 'file',
@@ -204,7 +214,7 @@ export class FakeOpfs {
         return node.name
       },
       async isSameEntry(other: OpfsHandle) {
-        return (other as unknown as { __node?: Node }).__node === node
+        return fake.same(node, path, other)
       },
       async getFile(): Promise<OpfsFileSnapshot> {
         fake.enter()
@@ -281,6 +291,7 @@ export class FakeOpfs {
       }
     }
     Object.defineProperty(handle, '__node', { value: node })
+    Object.defineProperty(handle, '__path', { value: path })
     return handle
   }
 }

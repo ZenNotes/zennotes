@@ -14,6 +14,41 @@ function fixture() {
   const entries = [{ from: 'notes/One.md', to: 'notes/Two.md', required: true }, { from: 'comments/One.json', to: 'comments/Two.json' }]
   return { files, io, entries, original: new Map(files) }
 }
+/** A store that folds case, as a Mac's disk and Safari's OPFS on a Mac do. */
+function foldingFixture(sameEntry: VaultRelocationIO['sameEntry']) {
+  const files = new Map([['notes/case-test.md', 'body']])
+  const find = (path: string): string | undefined => [...files.keys()].find((key) => key.toLowerCase() === path.toLowerCase())
+  const io: VaultRelocationIO = {
+    stat: async path => find(path) ? 'file' : null,
+    mkdir: async () => {},
+    rename: async (from, to) => {
+      const source = find(from)
+      const taken = find(to)
+      if (!source || (taken && taken !== source)) throw new Error('Collision or missing source')
+      const body = files.get(source)!
+      files.delete(source); files.set(to, body)
+    },
+    ...(sameEntry ? { sameEntry } : {})
+  }
+  return { files, io }
+}
+
+describe('a case-only move on a store that folds case', () => {
+  const entries = [{ from: 'notes/case-test.md', to: 'notes/Case-Test.md', required: true }]
+
+  it('goes ahead when the IO says the target is the source itself', async () => {
+    const s = foldingFixture(async (a, b) => a.toLowerCase() === b.toLowerCase())
+    await relocateVaultEntries(s.io, entries)
+    expect([...s.files.keys()]).toEqual(['notes/Case-Test.md'])
+  })
+
+  it('is refused as before by an IO that cannot tell', async () => {
+    const s = foldingFixture(undefined)
+    await expect(relocateVaultEntries(s.io, entries)).rejects.toThrow('Destination already exists')
+    expect([...s.files.keys()]).toEqual(['notes/case-test.md'])
+  })
+})
+
 describe('portable vault relocation', () => {
   it('moves exact content and sidecar bytes together', async () => {
     const s = fixture(); await relocateVaultEntries(s.io, s.entries)

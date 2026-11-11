@@ -171,6 +171,15 @@ async function listChildren(dir: OpfsDirectoryHandle): Promise<Array<[string, Op
   return out
 }
 
+function foldName(value: string): string {
+  return value.normalize('NFC').toLowerCase()
+}
+
+/** Two paths' folders are one folder on a store that folds names. */
+function sameFolderFolded(from: string[], to: string[]): boolean {
+  return from.length === to.length && from.slice(0, -1).every((segment, index) => foldName(segment) === foldName(to[index]!))
+}
+
 export class OpfsVaultStore {
   private readonly fence: () => Promise<void>
   private readonly randomId: () => string
@@ -511,7 +520,9 @@ export class OpfsVaultStore {
     const existing = await this.child(targetParent, targetName, to)
     let sameEntry = false
     if (existing) {
-      sameEntry = await existing.isSameEntry(source.handle).catch(() => false)
+      sameEntry =
+        (await existing.isSameEntry(source.handle).catch(() => false)) ||
+        (sameFolderFolded(fromSegments, toSegments) && (await this.foldsOntoSource(source.parent, source.name, targetName)))
       if (!sameEntry) {
         throw new OpfsError(OPFS_EXISTS, `“${to}” already exists.`, 'InvalidModificationError')
       }
@@ -542,6 +553,24 @@ export class OpfsVaultStore {
       return
     }
     await this.moveDirectory(source.parent, source.name, from, targetParent, targetName, to)
+  }
+
+  /**
+   * Whether `name` in `parent` reaches the source only because the store
+   * folds case or Unicode normalization. Safari answers isSameEntry by
+   * comparing the paths two handles were opened with, so one file reached
+   * under two spellings is not "the same entry" there: the folder's own
+   * listing tells instead. The exact name is not listed, and the only listed
+   * name that folds to it is the source's. The caller checks it is the
+   * source's own folder (sameFolderFolded).
+   */
+  private async foldsOntoSource(sourceParent: OpfsDirectoryHandle, sourceName: string, name: string): Promise<boolean> {
+    if (foldName(name) !== foldName(sourceName)) return false
+    const names: string[] = []
+    for await (const [entry] of sourceParent.entries()) names.push(entry)
+    if (names.includes(name)) return false
+    const folding = names.filter((entry) => foldName(entry) === foldName(name))
+    return folding.length === 1 && folding[0] === sourceName
   }
 
   private async moveDirectory(

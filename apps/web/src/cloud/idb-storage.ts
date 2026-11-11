@@ -13,9 +13,24 @@
  * running on this origin, which is why the origin runs nothing but the app.
  */
 import type { HostStorage, SecretStorage } from '@zennotes/portable-vault/host'
-import { idbDelete, idbGet, idbKeys, idbPut, idbUpdate, type BrowserStore } from './idb'
+import { idbDelete, idbGet, idbKeys, idbPut, idbUpdate, idbWriteFenced, type BrowserStore, type FenceClaim } from './idb'
 
-export function idbHostStorage(store: Extract<BrowserStore, 'storage' | 'preferences'>): HostStorage {
+/**
+ * `claim`: the open vault and the generation this tab holds for it. The sync
+ * state, links and scan cache the package keeps here belong to that vault, so
+ * a tab that lost the vault to another (Use here, a stolen lock) cannot write
+ * an older cursor over the new owner's.
+ */
+export function idbHostStorage(
+  store: Extract<BrowserStore, 'storage' | 'preferences'>,
+  claim?: () => FenceClaim | null
+): HostStorage {
+  const write = async (key: string, value: string | undefined): Promise<void> => {
+    const held = claim?.() ?? null
+    if (held) await idbWriteFenced(store, key, value, held)
+    else if (value === undefined) await idbDelete(store, key)
+    else await idbPut(store, key, value)
+  }
   return {
     async read(key) {
       const value = await idbGet<unknown>(store, key)
@@ -24,10 +39,10 @@ export function idbHostStorage(store: Extract<BrowserStore, 'storage' | 'prefere
       return value
     },
     async write(key, value) {
-      await idbPut(store, key, value)
+      await write(key, value)
     },
     async remove(key) {
-      await idbDelete(store, key)
+      await write(key, undefined)
     }
   }
 }

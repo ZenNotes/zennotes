@@ -279,6 +279,12 @@ export class CloudSyncHostService {
     }, this.linkUpdates)
   }
 
+  /** A sync run is going for this vault. A caller of sync() now gets that
+   *  run, which started before anything that changed since. */
+  isSyncing(vaultKey: string): boolean {
+    return this.runs.has(vaultKey)
+  }
+
   sync(vault: CloudSyncHostVault): Promise<CloudSyncRunSummary> {
     const existing = this.runs.get(vault.key)
     if (existing) return existing

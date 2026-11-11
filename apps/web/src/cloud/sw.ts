@@ -24,12 +24,16 @@
  * - A shared computer's copy is served only while its session is open in a
  *   tab (shared-session.ts): the app wipes a closed session's copy on load,
  *   and a `/_vault/...` URL typed or restored from history never loads the app.
+ * - An end-to-end encrypted vault's files only while a live tab owns the
+ *   vault and holds its key (vault-access.ts): locking leaves them in OPFS.
  */
 import { CLOUD_STUB_MAX_BYTES, decodeCloudStub } from '@zennotes/portable-vault/cloud-stub-format'
 import { parseVaultAssetUrl, VAULTS_DIR } from './opfs-paths'
 import type { OpfsDirectoryHandle } from './opfs-handles'
 import { vaultFileResponse } from './vault-response'
 import { readSharedSessionRecord, sharedSessionLockName } from './shared-session'
+import { findBrowserVault } from './browser-vaults'
+import { mayServeVaultFile } from './vault-access'
 
 declare const __ZN_PRECACHE__: string[]
 declare const __ZN_WARM__: string[]
@@ -261,9 +265,34 @@ function request<T>(client: WindowClientLike, message: unknown, timeoutMs: numbe
   })
 }
 
+interface OwnerAnswer {
+  owner?: boolean
+  unlocked?: boolean
+}
+
+function ask(client: WindowClientLike, vaultKey: string): Promise<OwnerAnswer> {
+  return request<OwnerAnswer>(client, { type: 'vault-owner?', vaultKey }, OWNER_QUESTION_MS, {})
+}
+
 async function owns(client: WindowClientLike, vaultKey: string): Promise<boolean> {
-  const answer = await request<{ owner?: boolean }>(client, { type: 'vault-owner?', vaultKey }, OWNER_QUESTION_MS, {})
-  return answer?.owner === true
+  return (await ask(client, vaultKey))?.owner === true
+}
+
+/** The live tab that owns the vault holds its key now. Asked per request: a
+ *  lock in that tab must take effect at once. */
+async function unlockedOwner(vaultKey: string, clientId: string | undefined): Promise<boolean> {
+  const candidates: WindowClientLike[] = []
+  const registered = owners.get(vaultKey)
+  const known = registered ? await sw.clients.get(registered).catch(() => undefined) : undefined
+  if (known) candidates.push(known)
+  const windows = await sw.clients.matchAll({ type: 'window' }).catch(() => [] as WindowClientLike[])
+  windows.sort((left, right) => Number(right.id === clientId) - Number(left.id === clientId))
+  for (const client of windows) if (client.id !== known?.id) candidates.push(client)
+  for (const client of candidates) {
+    const answer = await ask(client, vaultKey)
+    if (answer?.owner === true) return answer.unlocked === true
+  }
+  return false
 }
 
 /** The registered owner, else the window that says it owns the vault (the
@@ -301,7 +330,12 @@ async function sharedCopyIsClosed(): Promise<boolean> {
 async function serveVaultFile(vaultKey: string, segments: string[], request: Request, clientId?: string): Promise<Response> {
   let file: File | null
   try {
-    if (await sharedCopyIsClosed()) return new Response('Not found', { status: 404, headers: NO_STORE })
+    const allowed = await mayServeVaultFile(vaultKey, {
+      sharedCopyClosed: sharedCopyIsClosed,
+      encrypted: async (key) => (await findBrowserVault(key))?.encrypted === true,
+      unlockedOwner: (key) => unlockedOwner(key, clientId)
+    })
+    if (!allowed) return new Response('Not found', { status: 404, headers: NO_STORE })
     file = await locateVaultFile(vaultKey, segments)
     if (file && (await isStub(file))) {
       const answer = await hydrateThroughOwner(vaultKey, segments.join('/'), clientId)

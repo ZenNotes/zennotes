@@ -6,9 +6,14 @@
  *
  * Streams through fflate's Zip one file at a time: text is deflated, media
  * that is already compressed is stored as is.
+ *
+ * An attachment still only in ZenNotes Cloud downloads first. When it cannot
+ * (offline, or a shared computer's sign-in ended) it is left out, and
+ * `Not included.txt` beside the folder names it, so the notes still come out.
  */
 import { Zip, ZipDeflate, ZipPassThrough } from 'fflate'
 import type { VaultFileSystem } from '@zennotes/portable-vault/host'
+import { CLOUD_STUB_MAX_BYTES, decodeCloudStub } from '@zennotes/portable-vault/cloud-stub-format'
 
 const STORED_EXTENSIONS = new Set([
   '.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.heic',
@@ -39,10 +44,30 @@ export function archiveFolderName(vaultName: string): string {
   return cleaned || 'ZenNotes vault'
 }
 
+export const NOT_INCLUDED_FILE = 'Not included.txt'
+
+/** The file's bytes, or null when it is a Cloud stub that could not download. */
+async function bytesOrLeftOut(
+  fs: { readBytes(path: string): Promise<Uint8Array>; readStoredBytes?(path: string): Promise<Uint8Array> },
+  path: string
+): Promise<Uint8Array | null> {
+  try {
+    return await fs.readBytes(path)
+  } catch (error) {
+    if (!fs.readStoredBytes) throw error
+    const stored = await fs.readStoredBytes(path)
+    if (stored.byteLength <= CLOUD_STUB_MAX_BYTES && decodeCloudStub(stored)) return null
+    throw error
+  }
+}
+
 export async function buildVaultArchive(
-  fs: Pick<VaultFileSystem, 'readdirStrict'> & { readBytes(path: string): Promise<Uint8Array> },
+  fs: Pick<VaultFileSystem, 'readdirStrict'> & {
+    readBytes(path: string): Promise<Uint8Array>
+    readStoredBytes?(path: string): Promise<Uint8Array>
+  },
   vaultName: string
-): Promise<{ blob: Blob; fileCount: number }> {
+): Promise<{ blob: Blob; fileCount: number; leftOut: string[] }> {
   const folder = archiveFolderName(vaultName)
   const files = await listVaultFiles(fs)
   const chunks: Uint8Array[] = []
@@ -58,8 +83,13 @@ export async function buildVaultArchive(
     chunks.push(chunk)
     if (final) finished()
   })
+  const leftOut: string[] = []
   for (const path of files) {
-    const bytes = await fs.readBytes(path)
+    const bytes = await bytesOrLeftOut(fs, path)
+    if (!bytes) {
+      leftOut.push(path)
+      continue
+    }
     const entryName = `${folder}/${path}`
     const entry = STORED_EXTENSIONS.has(extensionOf(path))
       ? new ZipPassThrough(entryName)
@@ -67,10 +97,20 @@ export async function buildVaultArchive(
     zip.add(entry)
     entry.push(bytes, true)
   }
+  if (leftOut.length > 0) {
+    const notice = new ZipDeflate(NOT_INCLUDED_FILE, { level: 6 })
+    zip.add(notice)
+    notice.push(
+      new TextEncoder().encode(
+        `These attachments of “${vaultName}” are only in ZenNotes Cloud and could not download, so this download leaves them out. They are safe in ZenNotes Cloud and in the apps.\n\n${leftOut.join('\n')}\n`
+      ),
+      true
+    )
+  }
   zip.end()
   await done
   if (failure) throw failure
-  return { blob: new Blob(chunks as BlobPart[], { type: 'application/zip' }), fileCount: files.length }
+  return { blob: new Blob(chunks as BlobPart[], { type: 'application/zip' }), fileCount: files.length - leftOut.length, leftOut }
 }
 
 export function saveBlob(blob: Blob, fileName: string): void {

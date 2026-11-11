@@ -164,14 +164,34 @@ function recolor(svg: string): string {
     .replaceAll(/("#fff"|"white")/g, '"var(--z-tikz-bg, transparent)"')
 }
 
+/**
+ * Puts one figure's source where TikZJax's MutationObserver sees it, once.
+ * The observer queues a `text/tikz` script it is handed, and every one
+ * inside any other element it is handed, so the host is built with its
+ * script first and attached in one step. Attached first and filled in the
+ * same task, the host and the script arrive as two records, the script is
+ * queued twice, and the second pass renders into a detached copy whose
+ * "finished" event never reaches the document: every figure then waited
+ * out the timeout.
+ */
+export function mountTikzSource(wrapped: string): HTMLDivElement {
+  const host = document.createElement('div')
+  // Off-screen but rendered: display:none would suppress layout the SVG
+  // text measurement depends on.
+  host.style.cssText =
+    'position:fixed;left:-10000px;top:0;width:1000px;pointer-events:none;opacity:0'
+  const script = document.createElement('script')
+  script.setAttribute('type', 'text/tikz')
+  script.setAttribute('data-show-console', 'true')
+  script.textContent = tidy(wrapped)
+  host.appendChild(script)
+  document.body.appendChild(host)
+  return host
+}
+
 function renderOnce(wrapped: string): Promise<TikzRenderResponse> {
   return new Promise<TikzRenderResponse>((resolve) => {
-    const host = document.createElement('div')
-    // Off-screen but rendered: display:none would suppress layout the SVG
-    // text measurement depends on.
-    host.style.cssText =
-      'position:fixed;left:-10000px;top:0;width:1000px;pointer-events:none;opacity:0'
-    document.body.appendChild(host)
+    let host!: HTMLDivElement
 
     let settled = false
     const finish = (result: TikzRenderResponse): void => {
@@ -196,12 +216,7 @@ function renderOnce(wrapped: string): Promise<TikzRenderResponse> {
     }, RENDER_TIMEOUT_MS)
 
     document.addEventListener('tikzjax-load-finished', onDone)
-
-    const script = document.createElement('script')
-    script.setAttribute('type', 'text/tikz')
-    script.setAttribute('data-show-console', 'true')
-    script.textContent = tidy(wrapped)
-    host.appendChild(script)
+    host = mountTikzSource(wrapped)
 
     // Failure mode: the library replaces the node with a console dump and
     // never fires the finished event with an svg. Poll cheaply for that.

@@ -249,6 +249,16 @@ describe('CloudSyncHostService', () => {
     expect(hostVault.refresh).toHaveBeenCalledTimes(1)
   })
 
+  it('says whether a sync run is going for a vault', async () => {
+    const { hostVault, service } = setup()
+    await service.createAndLink(hostVault, 'My Notes')
+    expect(service.isSyncing(hostVault.key)).toBe(false)
+    const running = service.sync(hostVault)
+    expect(service.isSyncing(hostVault.key)).toBe(true)
+    await running
+    expect(service.isSyncing(hostVault.key)).toBe(false)
+  })
+
   it('exposes first-sync versions and lets mobile hosts choose the local one', async () => {
     const remoteVault: CloudSyncVault = {
       id: 'vault-1',

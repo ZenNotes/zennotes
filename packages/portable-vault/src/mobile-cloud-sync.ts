@@ -422,6 +422,12 @@ export async function hasMobileCloudVaultChanges(vault: PortableVault): Promise<
   return service.hasRemoteChanges(hostVault(vault))
 }
 
+/** A sync run is going for this vault (any caller's: a link's first sync
+ *  too). A sync() asked for now joins it. */
+export function isMobileCloudVaultSyncing(vault: PortableVault): boolean {
+  return service.isSyncing(vault.fs.syncKey)
+}
+
 export async function syncMobileCloudVault(vault: PortableVault): Promise<CloudSyncRunSummary> {
   // No emit here: the host service runs vault.rescan() after every sync
   // (cloud-sync-host-service run()'s finally), and rescan emits the one
