@@ -11,6 +11,8 @@ on:
       - 'tsconfig.base.json'
       - 'LICENSE'
       - '.github/workflows/web-artifact.yml'
+      - '.github/workflows/boundary-artifact-release.yml'
+      - '.github/workflows/release.yml'
 
 permissions:
   contents: read

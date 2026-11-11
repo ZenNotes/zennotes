@@ -37,7 +37,7 @@
     "test:web-dist-lock": "node --test tooling/scripts/web-dist-lock.test.mjs",
     "artifact:web": "node tooling/scripts/pack-web-artifact.mjs",
     "artifact:cloud-web": "node tooling/scripts/pack-web-artifact.mjs --target=cloud-web",
-    "test:web-artifact": "node --test tooling/scripts/pack-web-artifact.test.mjs",
+    "test:web-artifact": "node --test tooling/scripts/pack-web-artifact.test.mjs tooling/scripts/prepare-boundary-release.test.mjs",
     "check:contract-fixtures": "node tooling/scripts/sync-contract-fixtures.mjs",
     "sync:contract-fixtures": "node tooling/scripts/sync-contract-fixtures.mjs --write",
     "build": "turbo run build",

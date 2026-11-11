@@ -4,7 +4,7 @@ on:
     inputs:
       artifact:
         type: choice
-        options: [core, web, viewer]
+        options: [core, web, viewer, cloud-web]
         required: true
       source_commit:
         description: Reviewed full source commit SHA
@@ -48,7 +48,7 @@ jobs:
           name: boundary-release
           path: ${{ steps.prepare.outputs.directory }}
           if-no-files-found: error
-  draft:
+  release:
     needs: build
     runs-on: ubuntu-latest
     environment: boundary-artifacts
@@ -59,9 +59,23 @@ jobs:
         with:
           name: boundary-release
           path: release
-      - env:
+      - name: Create the draft release
+        if: inputs.artifact != 'cloud-web'
+        env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.build.outputs.tag }}
           SOURCE_COMMIT: ${{ inputs.source_commit }}
         run: gh release create "$TAG" release/* --target "$SOURCE_COMMIT" --title "$TAG" --draft --prerelease --notes "Immutable boundary artifacts. Validate consumer pins before publishing this draft."
+      # The website's CI downloads the pinned archive by its URL, which a draft
+      # does not serve, so ZenNotes in your browser is published at once as a
+      # pre-release that is never Latest. Its tag does not match release.yml's
+      # v[0-9]*, and a release made with this token starts no workflow.
+      - name: Publish the cloud-web pre-release
+        if: inputs.artifact == 'cloud-web'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.build.outputs.tag }}
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+        run: gh release create "$TAG" release/* --target "$SOURCE_COMMIT" --title "$TAG" --prerelease --latest=false --notes "Immutable ZenNotes in your browser artifact for app.zennotes.org. The website installs the release its manifest pin names."
