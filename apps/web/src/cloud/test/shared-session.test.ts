@@ -8,7 +8,7 @@ import assert from 'node:assert/strict'
 import { beforeEach, describe, it } from 'vitest'
 import type { SecretStorage } from '@zennotes/portable-vault/host'
 import { accountKeySecretStorage, forgetKeptAccountKeys, locksOnClose } from '../browser-keys'
-import { keepsAttachments, loadKeepAttachments, setKeepAttachments } from '../browser-storage'
+import { keepsAttachments, loadKeepAttachments, recordAttachmentOpened, setKeepAttachments } from '../browser-storage'
 import { saveBrowserVault, listBrowserVaults, markVaultUnsynced } from '../browser-vaults'
 import {
   clearForSharedSession,
@@ -432,6 +432,30 @@ describe('what a wipe leaves', () => {
     opfs.breakStorage(new DOMException('gone wrong', 'InvalidStateError'))
     await assert.rejects(wipeEverythingInBrowser({ closeOpenVault: () => {} }))
     assert.ok(await idbGet('preferences', SHARED_SESSION_RECORD_KEY))
+  })
+
+  // Safari, 2026-11-11: an image opened just before Sign out was recorded 2 s
+  // later, after the wipe, so the vault's key and the file's path outlived it.
+  const openedRecords = async (): Promise<string[]> =>
+    (await idbKeys('preferences')).filter((key) => key.startsWith('zn-browser:opened:'))
+  const pastOpenedFlush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 2_200))
+
+  it('writes back no attachment opened just before the wipe', async () => {
+    await startSession()
+    await seed()
+    recordAttachmentOpened('cloud-a', 'assets/photo.png')
+    await wipeEverythingInBrowser({ closeOpenVault: () => {} })
+    await pastOpenedFlush()
+    assert.deepEqual(await openedRecords(), [])
+  })
+
+  it('writes back no attachment opened just before a removed browser\u2019s vaults go', async () => {
+    await seed()
+    recordAttachmentOpened('cloud-a', 'assets/photo.png')
+    const entries = await listBrowserVaults()
+    await wipeBrowserCloudData({ closeOpenVault: () => {} }, { entries, reason: 'revoked' })
+    await pastOpenedFlush()
+    assert.deepEqual(await openedRecords(), [])
   })
 
   it('clears what the dying app writes back, on the next load', async () => {

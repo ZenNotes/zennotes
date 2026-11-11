@@ -112,6 +112,7 @@ type OpenedTimes = Record<string, number>
 
 const pendingOpened = new Map<string, OpenedTimes>()
 let flushTimer: ReturnType<typeof setTimeout> | null = null
+let flushing: Promise<void> | null = null
 
 function parseOpened(raw: unknown): OpenedTimes {
   if (typeof raw !== 'string') return {}
@@ -131,8 +132,26 @@ export function recordAttachmentOpened(vaultKey: string, path: string): void {
   if (flushTimer) return
   flushTimer = setTimeout(() => {
     flushTimer = null
-    void flushOpened()
+    flushing = flushOpened().finally(() => {
+      flushing = null
+    })
   }, 2000)
+}
+
+/**
+ * A wipe is removing these vaults (every vault without `vaultKeys`). What
+ * waits to be written about them is dropped, and a write already under way
+ * finishes first, so neither lands after the wipe: on a shared computer the
+ * record names the vault and the files opened in it.
+ */
+export async function forgetPendingOpened(vaultKeys?: readonly string[]): Promise<void> {
+  if (vaultKeys) for (const key of vaultKeys) pendingOpened.delete(key)
+  else pendingOpened.clear()
+  if (pendingOpened.size === 0 && flushTimer) {
+    clearTimeout(flushTimer)
+    flushTimer = null
+  }
+  await flushing
 }
 
 async function flushOpened(): Promise<void> {

@@ -25,6 +25,7 @@
 import type { HttpTransport, HttpTransportRequest, HttpTransportResponse } from '@zennotes/portable-vault/host'
 import { announceAccount, type BrowserWipeReason } from './cloud-account'
 import { forgetKeptAccountKeys, forgetBrowserEncryptionPrefs } from './browser-keys'
+import { forgetPendingOpened } from './browser-storage'
 import { idbDelete, idbGet, idbKeys, idbPut, openBrowserDb, retireFenceGenerations, type BrowserStore } from './idb'
 import {
   listBrowserVaults,
@@ -193,6 +194,7 @@ export async function wipeBrowserCloudData(
   // Other tabs close their workers and stop, before their folders go.
   announceAccount({ type: 'wiped', reason: options.reason })
   const entries = await cloudEntries(options.entries)
+  await forgetPendingOpened(options.entries ? entries.map((entry) => entry.key) : undefined)
   for (const entry of entries) await deleteVaultFolder(entry.key)
   await removeBrowserVaults(entries.map((entry) => entry.key))
   for (const entry of entries) {
@@ -296,6 +298,7 @@ async function clearEveryStore(): Promise<void> {
 export async function wipeEverythingInBrowser(hooks: WipeHooks): Promise<void> {
   await hooks.closeOpenVault()
   announceAccount({ type: 'wiped', reason: 'shared-ended' satisfies BrowserWipeReason })
+  await forgetPendingOpened()
   await deleteAllOfOpfs()
   forgetKeptAccountKeys()
   await forgetBrowserEncryptionPrefs()
