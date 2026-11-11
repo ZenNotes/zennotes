@@ -3,6 +3,14 @@
 Open your Cloud vault in a browser tab: the same app, Vim mode included, with
 your notes kept in the browser and synced like a phone.
 
+> **Status (November 11, 2026).** Built, not launched. All seven phases of the
+> build order exist on branches (app tip `feat/cloud-web-review-fixes`, website
+> tip `website/cloud-web-review-fixes`), reviewed and checked in Chrome, Firefox
+> and Safari, behind `CLOUD_WEB`, which is off. Adib moved the launch to a
+> release after 2.85.0; 2.85.0 carries only the browser host and Try mode,
+> unserved. Where this document and the built code disagree, the code and its
+> hand-over notes are newer.
+>
 > **Status (November 9, 2026).** Design document, nothing built. Written after
 > Adib picked "open your Cloud vault in a browser" as the Cloud feature that
 > drives signups. Where it disagrees with Phase 5 of the
@@ -10,7 +18,9 @@ your notes kept in the browser and synced like a phone.
 > (September 15, before end-to-end encryption launched), this document wins, and
 > [Why not the September plan](#why-not-the-september-plan) says why. Adib
 > approved the build plan the same day and settled the open questions; see
-> [Decisions](#decisions-november-9).
+> [Decisions](#decisions-november-9). The browser spikes ran on November 10 and
+> are folded in below; [Spike results](#spike-results-november-10) lists what
+> they settled and what they left open.
 
 ## Why
 
@@ -267,18 +277,31 @@ host.
   relative paths, including `.zennotes/`. Sync state, the Cloud link and prefs go
   to IndexedDB through `HostStorage`, not into the vault.
 - **Writes happen in one dedicated worker** that owns every file handle and uses
-  `createSyncAccessHandle()`, which every engine supports in workers. The
-  main-thread `createWritable()` reached Safari only in Safari 26, and sync access
-  handles are faster anyway.
+  `createSyncAccessHandle()`, which every engine supports in workers. Other tabs
+  and the service worker read with `getFile()`, which works in every engine while
+  the owner holds sync handles.
 - **Atomic replace.** `writeContent` must "preserve the previous file if a write
   fails". The worker writes `name.zn-tmp-<uuid>`, flushes, closes, then moves it
-  over the target. Whether `move()` replaces an existing file is engine-specific,
-  so the spike settles it; the fallback is rename-aside, move, delete, with
-  `recoverInterruptedWork` (already part of `CloudSyncRepository`) finishing a
-  half-done swap on the next run.
-- **Case.** OPFS is case-sensitive in practice, like Android's storage, so the
-  browser behaves as the Android host does for case-only renames and the engine's
-  respelling records.
+  over the target; `move()` replaces an existing file in every engine, so a failed
+  write always leaves the old file. Two engine rules come with it: always call the
+  two-argument `move(dir, name)` (Safari rejects the one-argument form), and close
+  every handle on the target first (Safari replaces a file another sync handle
+  still has open).
+- **Folders.** Chrome has no `move()` for directories, and moving a folder onto an
+  existing one replaces its contents in Firefox and merges in Safari. So a folder
+  rename creates the target (which must not exist), moves every file into it, then
+  removes the source, and `recoverInterruptedWork` (already part of
+  `CloudSyncRepository`) finishes a half-moved folder on the next run.
+- **Case is per engine.** Safari's OPFS is plain files on the host disk, so on a
+  Mac it folds case and Unicode normalization (`Note.md` and `note.md` are one
+  file), while Chrome and Firefox keep them apart; iPhones and iPads use
+  case-sensitive storage but that is not verified on a device. The host probes
+  once per vault (create `a`, look up `A`) and reports case-folding the way the
+  desktop macOS host does, so the engine's respelling records work. Assuming
+  Android's behavior everywhere would let Safari overwrite one note with another.
+- **Names.** A name over 255 UTF-8 bytes fails in Safari and a backslash fails in
+  Chrome; the host maps or refuses both, as desktop vaults already stay within
+  255 bytes.
 - **Changes from elsewhere.** Nothing outside the app writes OPFS, so there is
   no file watcher. The vault layer already emits change events; the browser adds a
   `BroadcastChannel` so other tabs learn that the vault moved on.
@@ -335,11 +358,19 @@ that a browser stub is never materialized just to be hashed.
   under `/_vault/<vaultKey>/...`, which the service worker answers from OPFS (and
   never puts in its own cache). For a stub, the worker asks the page that owns the
   vault to hydrate it (the page holds the keys; the worker never does), then
-  answers. So an `<img>` in a note is the trigger, with no new app-core API. A page
-  the worker does not control (the first visit, a hard reload, a private window in
-  some engines) uses the phones' remote-workspace path instead: the first call
-  returns null, the bytes are fetched into a cached blob URL, and a change event
-  re-renders the note. The choice is made once per page load.
+  answers. So an `<img>` in a note is the trigger, with no new app-core API. The
+  spikes confirmed all of it in Chrome, Firefox, desktop Safari and iOS Safari,
+  including video, at 3 to 6 ms for a hydration round trip; the worker also
+  answers `Range` requests so large media can seek. PDF embeds reach the worker as
+  navigations with no client id, so it hydrates them through the registered owner
+  tab. A page the worker does not control (the first visit, or a hard reload)
+  waits for control before it resolves attachment URLs: the app asks the active
+  worker to claim the page, or reloads once, and the host answers `/_vault/*` with
+  404 so a stray request never reaches the website. No blob-URL fallback is needed
+  in any engine tested.
+- **Firefox private windows have no OPFS at all** (`getDirectory()` throws). The
+  app says so and asks for a normal window rather than running a vault that
+  vanishes; an in-memory vault for private windows is a later option.
 - **Space.** When storage runs short, synced attachments go back to stubs, oldest
   opened first. A setting "Keep attachments in this browser" turns stubbing off.
 
@@ -356,7 +387,8 @@ that a browser stub is never materialized just to be hashed.
   and must not collide with the lock. The PDF export window (`?exportNote=`, which
   reads the vault and the note through the bridge) is not an owner: it gets a
   read-only bridge that reads OPFS through `getFile()` and never takes the lock or
-  syncs (the spike checks `getFile()` while the owner's worker holds handles).
+  syncs (the spikes confirmed `getFile()` works while the owner's worker holds
+  handles).
   Opening a note in a new window (`openNoteWindow`, `?note=`) opens it in the
   current tab instead, as floating windows are off in the browser.
 - **Fencing.** Stealing a Web Lock does not stop the old tab's writes already in
@@ -386,14 +418,20 @@ which creates a `Device` and a Sanctum token with the `sync:read`, `sync:write`,
   The pending sign-in (state, verifier, expiry) waits in IndexedDB on the app
   origin, not `sessionStorage`: `/app/connect` needs a verified email, and a new
   user's verification link usually opens in another tab, which then finishes the
-  sign-in. The pending request and the code each last 5 minutes; a sign-up that
-  takes longer lands on "Continue signing in", which starts a fresh request without
-  losing anything.
+  sign-in (the spikes ran both halves: the website returns to Authorize after
+  verification, and every engine reads the pending record from the other tab). The
+  record is keyed by `state`, used once, and lives 30 to 60 minutes: the client's
+  own 5-minute `AUTH_LIFETIME_MS` is the only timer a slow sign-up hits, while the
+  verifier is useless without a code and codes still expire 5 minutes after
+  Authorize. The finishing tab tells the first one over `BroadcastChannel`. If the
+  mail link opens in a different browser, nothing can carry the sign-in over, so
+  the page says to open it in the browser you started in.
 - The user signs in or signs up on zennotes.org, presses Authorize, and is sent
   back with `code` and `state` in the URL **fragment** (for a web callback only),
   so the code never reaches a server log or a `Referer`; the callback page also
   sends `Referrer-Policy: no-referrer` and clears the fragment with
-  `history.replaceState` before exchanging. The app exchanges them with platform
+  `history.replaceState` before exchanging (on the website this is a change to
+  the connect page's `withAuthorization()`). The app exchanges them with platform
   `web` and a device name like "Chrome on macOS".
 
 What the service needs (none of it exists today):
@@ -428,15 +466,16 @@ What the service needs (none of it exists today):
   with old browsers.
 - **CORS.** Laravel's default (`api/*`, any origin, no credentials) already lets
   bearer requests through, including `Authorization` and `X-ZenNotes-Encryption`.
-  Add `Retry-After` and the rate-limit headers to `exposed_headers`, and a
-  `max_age` so every call does not pay for a preflight. With no cookies involved,
+  Add `Retry-After`, `Date` (the engine's rate-limit code reads both, and neither
+  is safelisted) and the rate-limit headers to `exposed_headers`, and a `max_age`
+  so every call does not pay for a preflight (today it is 0). With no cookies involved,
   a wildcard origin stays safe; pinning it to the app origin is tidier.
 - **Object storage CORS.** Uploads are presigned PUTs and downloads presigned GETs
-  straight to the bucket, so the bucket must allow `app.zennotes.org`. The repo
-  does not hold the bucket's CORS rules, and whether Laravel Cloud's object storage
-  lets us set them is the first thing to check. If it does not, the browser can
-  stay inside the 5 MiB inline limit for uploads and use the existing signed
-  `.../bytes` route for downloads, with a lower attachment ceiling.
+  straight to the bucket, so the bucket must allow `app.zennotes.org`. Laravel
+  Cloud adds an environment's domains to the bucket's CORS rules itself and lets
+  them be edited, so this is a console setting, not code: GET, PUT and HEAD,
+  `content-type`, max age 3600. The CSP's bucket origin is the R2 host of a
+  presigned upload URL.
 - **A rollout switch**, `CLOUD_WEB` (`off`, `internal`, `on`), like `CLOUD_E2EE`,
   checked at the callback allowlist and advertised in `GET account`.
 
@@ -460,7 +499,9 @@ unchanged, and sends `X-ZenNotes-Encryption: zne1` like every client.
 
 - **Unlock** asks for the passphrase or the recovery key, as on a new phone.
   Argon2id at the keyset's parameters (64 MiB, 3 iterations today) runs in a worker
-  so the tab does not freeze.
+  so the tab does not freeze: about 100 to 140 ms per derivation in every desktop
+  engine, unchanged parameters. The worker is ended after unlock so its 64 MiB is
+  released at once.
 - **Where the account key lives.** Apps keep it in the OS keychain. The browser
   keeps it the way it keeps the credential (encrypted under a non-extractable key
   in IndexedDB), or only in memory when the user picks "Lock when I close this
@@ -483,10 +524,12 @@ at keeping that window small and visible:
 
 - **Push early.** Edits sync within seconds when online; leaving the page starts a
   push.
-- **Ask for persistence** with `navigator.storage.persist()` after the first sync
-  starts, with one sentence of explanation, since Firefox shows a prompt. Settings
-  > Cloud > This browser shows whether the browser granted it and how much space
-  the vault uses.
+- **Ask for persistence** with `navigator.storage.persist()` (a page API; workers
+  can only read the result) after the first sync starts, with one sentence of
+  explanation, since Firefox shows a prompt. Chrome and Safari answer `false` on a
+  first visit and grant it later through engagement or installing, so Settings >
+  Cloud > This browser treats "may be cleared" as the normal state and shows how
+  much space the vault uses.
 - **Say what is waiting.** A status line: "All changes in Cloud", "3 changes
   waiting to sync", "Offline: changes are kept in this browser".
 - **Warn before losing work.** `beforeunload` asks to stay when an editor has
@@ -496,8 +539,11 @@ at keeping that window small and visible:
   never drop a note.
 
 Installing the app (Chrome's install button, Safari's Add to Dock or Home
-Screen) is worth suggesting once: installed web apps get better storage treatment
-in practice. How much better on Safari is unverified and goes into the spike.
+Screen) is worth suggesting once. WebKit's published policy exempts a Home Screen
+web app's own domain from the seven-day cap; it does not say whether a persistent
+origin in a Safari tab escapes it, so a Safari tab's copy is treated as possibly
+gone after a week away. That is fine for a synced copy, as long as edits push
+first.
 
 ## Shared computers
 
@@ -553,38 +599,61 @@ worker, the manifest. Why its own origin:
   site, the dashboard, Livewire pages and the published-notes viewer (`/s`, `/p`),
   which renders user content. A bug in any of those would reach the vault. On
   `app.zennotes.org` there is nothing else to have a bug.
-- Its Content Security Policy can be strict without fighting the website's needs:
+- Its Content Security Policy can be strict without fighting the website's needs
+  (this is the policy the spikes measured every renderer against):
 
   ```
   default-src 'none';
-  script-src 'self' 'wasm-unsafe-eval';
+  script-src 'self' 'wasm-unsafe-eval' 'unsafe-eval';
   style-src 'self' 'unsafe-inline';
   img-src 'self' blob: data: https:;
-  media-src 'self' blob: data:;
-  frame-src 'self' blob: https://www.youtube-nocookie.com https://player.vimeo.com;
+  media-src 'self' blob:;
   font-src 'self' data:;
   connect-src 'self' https://zennotes.org <bucket origin>;
   worker-src 'self' blob:;
-  manifest-src 'self';
-  object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+  frame-src 'self' blob: https://www.youtube-nocookie.com https://player.vimeo.com;
+  object-src 'none'; manifest-src 'self';
+  base-uri 'none'; form-action 'none'; frame-ancestors 'none'
   ```
 
-  It follows desktop's policy (`apps/desktop/src/renderer/index.html`) where the
-  same features need it: `img-src https:` because a note may embed a remote image
+  It follows desktop's policy (`apps/desktop/src/renderer/index.html`) and the
+  self-hosted server's: `img-src https:` because a note may embed a remote image
   (which lets a note's own content contact other hosts, as it does in the apps),
-  `media-src` for audio and video attachments, and `frame-src` for PDF embeds and
-  YouTube or Vimeo. Desktop's `script-src` also allows `'unsafe-eval'`; the spike
-  finds which renderer needs it (Excalidraw, Pele, D2, Typst, Harper, TikZJax,
-  JSXGraph, function-plot) and whether the browser can do without it.
+  `media-src` for audio and video, `frame-src` for PDF embeds and YouTube or
+  Vimeo. `'unsafe-eval'` is there because D2, Typst and function-plot need it as
+  shipped (Excalidraw, Pele, Harper, TikZJax and the JSXGraph boards tested do
+  not). Note text reaches `eval` only through function-plot's and JSXGraph's own
+  expression parsers, and inline and third-party scripts stay blocked, which is the
+  main cross-site scripting path. Dropping `'unsafe-eval'` is a later hardening
+  pass with four known pieces: two build-time patches to Typst's bundle (both
+  tested), one to D2's worker, and function-plot expressions compiled without
+  `new Function`; until it lands the security page never claims "no eval".
 - No analytics and no third-party scripts on this origin, ever. Signups are
   attributed on zennotes.org (a `from=web` parameter on the sign-up link).
 
 The files are served by the existing Laravel Cloud app under a second domain
-([Decisions](#decisions-november-9)), with a host-scoped route group that answers
-only app files, installed from a pinned artifact the way
-`resources/share-viewer/manifest.json` installs the viewer today. A static host such
-as Cloudflare Pages is the fallback. Either way the service worker must be served
-from the root of `app.zennotes.org`. The website has no host-scoped routes yet,
+([Decisions](#decisions-november-9)), installed from a pinned artifact the way
+`resources/share-viewer/manifest.json` installs the viewer today. The spikes found
+that Laravel Cloud's edge cache works by file extension, never caches `.wasm` or
+`.html`, and did not cache route responses marked `immutable`, so the app is split
+by who serves it:
+
+- **The hashed release files** sit under `public/vendor/cloud-web/releases/<version>/`,
+  where nginx serves them without PHP (a PHP route streaming a 27 MB wasm file
+  would tie up a worker), with WebAssembly sent as `application/wasm`.
+  `index.html` references them by absolute path. They are inert hashed files, so
+  being reachable on both hosts does no harm.
+- **Only `index.html`, `/sw.js` and the manifest** go through a host-scoped route,
+  with the strict policy and `no-cache`.
+- Repeat visits load from the service worker's cache. The cost Adib accepted is the
+  first use of each large lazy piece (Typst, Harper, D2) coming from the origin
+  rather than the edge.
+
+Four questions for Laravel support can improve on that later: why
+`public/vendor/...` scripts bypass the cache while `/build/assets` hit it, whether
+`.wasm` can join the cached extensions, whether route responses with a listed
+extension and `public, immutable` get cached, and the size or time limit for a PHP
+response. The website has no host-scoped routes yet,
 so the second domain needs a guard both ways: on `app.zennotes.org`, every website
 route (`/s`, `/p`, the dashboard, Livewire) refuses to answer, and the app's routes
 sit outside the `web` middleware group so the app origin never receives a session
@@ -603,7 +672,7 @@ the OS.
 | Feature | In the browser |
 | --- | --- |
 | Workflows | No. The applier journals writes in desktop main; `supportsWorkflows` stays off, as on the phones. |
-| TikZ | Yes. The phones compile TikZ in the WebView with the TikZJax WebAssembly build (`tikz.ts`, loaded on first use); it moves into the package and the browser uses it. |
+| TikZ | Yes. The phones compile TikZ in the WebView with the TikZJax WebAssembly build (`tikz.ts`, loaded on first use); it moves into the package and the browser uses it. Its parts are MIT, LPPL 1.3c, Apache-2.0 and the BaKoMa font licence, all of which allow serving it; the artifact (and the phones) ship a third-party notices file, and the files stay byte-identical to the vendored copy. |
 | MCP, zn CLI, Raycast | No. |
 | Import from Notion, Logseq, Obsidian | No (desktop main). |
 | Updater, native menus, floating windows, global quick capture | No. |
@@ -706,8 +775,8 @@ tab on `app.zennotes.org`.
 
 The implementation plan holds the steps; the order and its reasons:
 
-1. **Spike** the browser unknowns (below) before committing to anything that
-   depends on them.
+1. **Spike** the browser unknowns. Done November 10; see
+   [Spike results](#spike-results-november-10).
 2. **The portable vault package**, adopted by iPhone, then Android. It pays for
    itself even if the browser stopped here.
 3. **The browser host and Try mode.** Local only, no server change; an internal
@@ -726,23 +795,34 @@ The implementation plan holds the steps; the order and its reasons:
 Later: the capture queue, folder vaults through the File System Access API, and
 editing one vault from several tabs.
 
-## Spike questions
+## Spike results (November 10)
 
-Each answer changes a decision above, so they come first:
+The spikes ran in throwaway pages in Chrome 156, Firefox 160, Safari 27.2 and iOS
+Safari 27.2 (simulator), and against a local copy of the website. What they
+settled is folded into the sections above:
 
-- OPFS in Chrome, Firefox and Safari: sync access handles in a worker, whether
-  `move()` replaces an existing file, case sensitivity, quota, and how long data
-  survives on Safari with and without installing the app.
-- Can the service worker read OPFS in each engine? (Decides service-worker
-  attachment URLs versus blob URLs.) Does `getFile()` work while another context's
-  worker holds sync access handles (the export window)? Does Safari's service
-  worker see requests from a PDF embed's frame?
-- Argon2id at 64 MiB in a worker on Safari and in mobile browsers: time and memory.
-- The CSP above against every lazy renderer, including whether any needs
-  `'unsafe-eval'`, and TikZJax's licence for serving it from our origin.
-- Laravel Cloud object storage: can we set CORS rules on the bucket?
-- The full PKCE redirect round trip against a local website, including sign-up in
-  the middle.
+| Question | Answer |
+| --- | --- |
+| OPFS in a worker | Works everywhere; `move()` replaces a file in every engine. Chrome cannot move folders, Safari needs `move(dir, name)`, and Safari on a Mac folds case. |
+| Service worker reads OPFS | Yes in all four, including stubs hydrated through the page, video, and reads while the owner holds handles. No blob fallback needed. |
+| Argon2id, 64 MiB x 3 | About 100 to 140 ms per derivation; parameters unchanged. |
+| CSP | The first draft broke D2, Typst, function-plot, video, PDFs and YouTube; the policy above is the corrected one. |
+| Bucket CORS | A Laravel Cloud console setting. |
+| PKCE with an https callback | Refused today, as expected; the minimal change is small. Sign-up in the middle works with the pending record in IndexedDB. |
+| Laravel Cloud second domain | Serving and a root `/sw.js` work; edge caching is partial, hence the split under Hosting. |
+| Uncontrolled pages, private windows | Only a hard reload leaves a page uncontrolled, and claiming fixes it in Chrome. Firefox private windows have no OPFS. |
+| TikZJax licence | Every part allows serving it, with a notices file. |
+
+Still open, for the build to check:
+
+- A real iPhone and Android Chrome (the simulator cannot answer iPhone case
+  sensitivity, because it sits on the Mac's disk).
+- A hard reload in Firefox and Safari, and Safari private windows (no automation
+  path; a two-minute manual check).
+- How long real sign-ups take between registering and verifying: a read-only query
+  on production gives the count, the median and how many took over four minutes.
+- The Laravel support questions above, and one deploy to a Laravel Cloud preview
+  environment.
 
 ## Decisions (November 9)
 
@@ -753,9 +833,10 @@ Adib settled the open questions when he approved the build plan:
    files, installed from a pinned artifact the way the share viewer is
    (`resources/cloud-web/manifest.json`, retained manifests for old lazy chunks).
    The shell (`index.html`) is served only on that host, and the app refuses to
-   start on any other origin. If the spike shows Laravel Cloud cannot cache the
-   files or serve the service worker at the root, the fallback is a static host,
-   raised with Adib first.
+   start on any other origin. On November 10, after the spikes showed the edge
+   cache skips WebAssembly and HTML, Adib kept Laravel Cloud with the split
+   described under [Hosting](#hosting-at-appzennotesorg) rather than moving to a
+   static host.
 2. **Encrypted vaults**: open in the browser from the first Cloud release, with
    the notice and the security page section above.
 3. **Launch**: Try mode and Cloud sign-in launch together. Try mode is still built
