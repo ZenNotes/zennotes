@@ -40,6 +40,19 @@ export const CLOUD_ANNOUNCEMENT = {
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    version: '2.85.0',
+    highlights: [
+      {
+        title: 'The ZenNotes Web Clipper',
+        body: 'Clip a page, a selection or your highlights from Chrome, Edge, Firefox or Safari into a clean Markdown note. The extension hands the note to ZenNotes, with no account and no server in between.'
+      },
+      {
+        title: 'Clip into the note you choose',
+        body: 'Start a new note in Clippings or any folder, add to the top or bottom of a note you have, or add to today’s daily note. A note that is open keeps your unsaved typing, and undo takes the clip back out.'
+      }
+    ]
+  },
+  {
     version: '2.84.0',
     highlights: [
       {
