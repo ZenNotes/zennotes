@@ -166,6 +166,9 @@ export class CloudAuthFlow {
     if (this.dependencies.callbackUrl) {
       authorizationUrl.searchParams.set('callback_url', this.dependencies.callbackUrl)
     }
+    // Signing out cannot reach the website's cookie, so it ends its own session
+    // once it has issued the code; otherwise the next person only has to Authorize.
+    if (options.shared) authorizationUrl.searchParams.set('shared', '1')
     try {
       await this.dependencies.openExternal(authorizationUrl.toString())
     } catch (error) {

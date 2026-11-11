@@ -1260,7 +1260,7 @@ async function openHome(): Promise<void> {
   const sharedEnded = removed ? SHARED_ENDED_FLAGS[removed] : undefined
   if (sharedEnded) {
     clearLocalState({ everything: true })
-    showSharedEnded(appRoot, sharedEnded, cloudSiteUrl(), signIn)
+    showSharedEnded(appRoot, sharedEnded, signIn)
     return
   }
   const status = await getMobileCloudAccountStatus()

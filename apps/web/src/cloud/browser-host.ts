@@ -172,7 +172,7 @@ function withOpfsUploads(base: HttpTransport): HttpTransport {
   return {
     ...base,
     async putFile(options) {
-      if (options.uri === undefined) throw new Error('ZenNotes in the browser uploads files from the vault only.')
+      if (options.uri === undefined) throw new Error('ZenNotes in your browser uploads files from the vault only.')
       const open = current
       if (!open) throw new Error('No vault is open in this tab.')
       const file = await open.fs.fileForUpload(options.uri, options.sha256, options.byteLength)

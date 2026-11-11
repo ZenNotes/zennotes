@@ -121,4 +121,4 @@ export const SIGN_IN_ELSEWHERE_MESSAGE =
   'This sign-in was started in another browser, or more than 45 minutes ago. Open the sign-in link in the browser you started in, or sign in again here.'
 
 export const CLOUD_WEB_NOT_ENABLED_MESSAGE =
-  'ZenNotes in the browser is not available for your account yet. Your notes are safe in ZenNotes Cloud and in the apps.'
+  'ZenNotes in your browser is not available for your account yet. Your notes are safe in ZenNotes Cloud and in the apps.'

@@ -592,11 +592,9 @@ export type SharedEndedReason = 'signed-out' | 'signed-out-offline' | 'expired'
 
 function SharedEndedScreen({
   reason,
-  siteUrl,
   onSignIn
 }: {
   reason: SharedEndedReason
-  siteUrl: string
   onSignIn: SignIn
 }): JSX.Element {
   const button = useRef<HTMLButtonElement>(null)
@@ -614,13 +612,6 @@ function SharedEndedScreen({
           ? ' ZenNotes could not reach Cloud, so this sign-in ends by itself within 12 hours.'
           : ''}
       </p>
-      <p data-shared-website-notice="" className="mt-3 text-sm leading-relaxed text-ink-600">
-        If you are done on this computer, also log out of{' '}
-        <a className="font-medium text-accent underline" href={`${siteUrl}/dashboard`}>
-          zennotes.org
-        </a>
-        .
-      </p>
       <SharedComputerOption shared={choice.shared} onChange={choice.set} />
       <ErrorLine message={error} />
       <div className="mt-5 flex items-center gap-3">
@@ -633,8 +624,8 @@ function SharedEndedScreen({
   )
 }
 
-export function showSharedEnded(root: HTMLElement, reason: SharedEndedReason, siteUrl: string, onSignIn: SignIn): void {
-  show(root, <SharedEndedScreen reason={reason} siteUrl={siteUrl} onSignIn={onSignIn} />)
+export function showSharedEnded(root: HTMLElement, reason: SharedEndedReason, onSignIn: SignIn): void {
+  show(root, <SharedEndedScreen reason={reason} onSignIn={onSignIn} />)
 }
 
 function SharedOpenElsewhereScreen(): JSX.Element {

@@ -322,9 +322,18 @@ describe('CloudAuthFlow on a shared computer', () => {
     expect(status.account?.device.shared).toBe(true)
   })
 
+  it('asks the website to end its own session, so the next person has to log in', async () => {
+    const { flow } = setupShared({ token: 'secret-token', user, device: { ...device, shared: true } })
+
+    const { authorization_url: url } = await flow.connect('https://zennotes.org', { shared: true })
+
+    expect(new URL(url).searchParams.get('shared')).toBe('1')
+  })
+
   it('sends nothing for an ordinary sign-in, since only a browser may send it', async () => {
     const { exchange, flow, storage } = setupShared({ token: 'secret-token', user, device })
-    await flow.connect('https://zennotes.org')
+    const { authorization_url: url } = await flow.connect('https://zennotes.org')
+    expect(new URL(url).searchParams.has('shared')).toBe(false)
     expect(storage.pending).not.toHaveProperty('shared')
 
     await flow.complete({ code: 'OneTimeCode', state: 'fixed-state' })
