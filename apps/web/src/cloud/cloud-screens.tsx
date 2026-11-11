@@ -586,6 +586,48 @@ export function showRemoved(root: HTMLElement, reason: 'revoked' | 'account-swit
   show(root, <RemovedScreen reason={reason} onSignIn={onSignIn} />)
 }
 
+/** Cloud removed this browser, and its copy could not be removed after a few
+ *  tries (removal-retry.ts). A reload tries again; nothing opens meanwhile. */
+function RemovalStuckScreen(): JSX.Element {
+  const button = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    button.current?.focus()
+  }, [])
+  useLetterKey('r', () => location.reload(), vimModeFromPrefs())
+  return (
+    <Card title="This browser was removed from your account">
+      <p data-removal-stuck="" className="mt-2 text-sm leading-relaxed text-ink-600">
+        ZenNotes could not remove its copy of your notes from this browser. Reload to try again, or clear this
+        site&rsquo;s data in your browser&rsquo;s settings.
+      </p>
+      <div className="mt-5 flex items-center gap-3">
+        <Button ref={button} variant="primary" size="md" onClick={() => location.reload()}>
+          Reload
+        </Button>
+        <KeyHint>or press r</KeyHint>
+      </div>
+    </Card>
+  )
+}
+
+/** Over the running app when `root` is null, as showNotAvailable does. */
+export function showRemovalStuck(root: HTMLElement | null): void {
+  if (root) {
+    show(root, <RemovalStuckScreen />)
+    return
+  }
+  applySavedTheme()
+  const overlay = document.createElement('div')
+  overlay.setAttribute('data-prompt-modal', '')
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:100'
+  document.body.appendChild(overlay)
+  ReactDOM.createRoot(overlay).render(
+    <React.StrictMode>
+      <RemovalStuckScreen />
+    </React.StrictMode>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Not available for this account
 // ---------------------------------------------------------------------------

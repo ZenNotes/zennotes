@@ -115,6 +115,7 @@ import {
 import {
   showAccountSwitch,
   showRemoved,
+  showRemovalStuck,
   showSharedDiscard,
   showSharedEnded,
   showNotAvailable,
@@ -143,6 +144,8 @@ import { renderSharedBanner } from './shared-banner'
 import { forgetAfterSignIn, rememberAfterSignIn, settleAfterSignIn, stampAfterSignIn, takeAfterSignIn } from './after-sign-in'
 import { applyTryVimDefault, dropTryVimDefault, vimModeChosenInTry } from './try-vim'
 import { UnsyncedChanges } from './unsynced'
+import { claimRemoval, claimSignOut, removalUnderway } from './departure'
+import { attemptRemoval, readPendingRemoval, type PendingRemoval, type RemovalOutcome, type TabStorage } from './removal-retry'
 import {
   beginSharedSession,
   forgetSharedSessionRecord,
@@ -634,19 +637,61 @@ async function closeForWipe(): Promise<void> {
 let removing = false
 
 /** Cloud removed this browser from the account: the copy goes, now. Every
- *  request in flight hears the same answer; the first starts the wipe. */
+ *  request in flight hears the same answer; the first starts the wipe. The
+ *  caller's refusal handling signs out on the same answer, and stands aside
+ *  (departure.ts). */
 async function removeThisBrowser(reason: 'revoked'): Promise<void> {
-  if (removing || wiping) return
+  if (removing || wiping || !claimRemoval()) return
   removing = true
+  const shared = isSharedSession()
+  const outcome = await wipeForRemoval({ reason, shared }, closeForWipe)
+  finishRemoval(outcome, reason, rendererReady ? null : appRoot)
+}
+
+function tabStorage(): TabStorage | null {
+  try {
+    return sessionStorage
+  } catch {
+    return null
+  }
+}
+
+/** One try at the removal's wipe (removal-retry.ts). WIPING_KEY goes either
+ *  way, so other tabs never wait out a wipe that failed. */
+async function wipeForRemoval(
+  removal: Pick<PendingRemoval, 'reason' | 'shared'>,
+  closeOpenVault: () => void | Promise<void>
+): Promise<RemovalOutcome> {
   await idbPut('preferences', WIPING_KEY, String(Date.now())).catch(() => undefined)
   try {
-    if (isSharedSession()) await wipeEverythingInBrowser({ closeOpenVault: closeForWipe })
-    else await wipeBrowserCloudData({ closeOpenVault: closeForWipe }, { reason })
+    return await attemptRemoval(tabStorage(), removal, () =>
+      removal.shared
+        ? wipeEverythingInBrowser({ closeOpenVault })
+        : wipeBrowserCloudData({ closeOpenVault }, { reason: removal.reason })
+    )
   } finally {
     await idbDelete('preferences', WIPING_KEY).catch(() => undefined)
   }
-  setSessionFlag(REMOVED_FLAG, reason)
+}
+
+/** Removed: the reload says so. A failed try reloads, and the next load tries
+ *  again before it opens anything; after a few, the tab stops and says so. */
+function finishRemoval(outcome: RemovalOutcome, reason: 'revoked', stuckRoot: HTMLElement | null): void {
+  if (outcome === 'stop') {
+    showRemovalStuck(stuckRoot)
+    return
+  }
+  if (outcome === 'removed') setSessionFlag(REMOVED_FLAG, reason)
   location.replace('/')
+}
+
+/** A removal this tab could not finish: its wipe goes first on this load,
+ *  before anything else reads the vaults or opens one. */
+async function retryPendingRemoval(pending: PendingRemoval): Promise<void> {
+  removing = true
+  claimRemoval()
+  const outcome = await wipeForRemoval(pending, () => {})
+  finishRemoval(outcome, pending.reason, appRoot)
 }
 
 // A shared computer's sign-out: what is waiting goes to Cloud first, or the
@@ -699,10 +744,14 @@ async function confirmDiscardingChanges(vaults: string[]): Promise<boolean> {
 async function endSharedSession(): Promise<CloudAccountStatus> {
   if (sharedSignInEnded) await flushEditors()
   else await finalPush(15_000)
+  // Cloud removed this browser while the push ran: its removal wipes, and
+  // reloads into the screen that says so.
+  if (removalUnderway()) return await new Promise<CloudAccountStatus>(() => {})
   const unsynced = await unsyncedVaultNames()
   if (unsynced.length > 0 && !(await confirmDiscardingChanges(unsynced))) return getMobileCloudAccountStatus()
 
   // From here a late "removed from your account" answer is this sign-out's own.
+  if (!claimSignOut()) return await new Promise<CloudAccountStatus>(() => {})
   removing = true
   const expired = sharedSignInEnded
   await logoutMobileCloudAccount().catch((error: unknown) => {
@@ -725,6 +774,9 @@ async function endSharedSession(): Promise<CloudAccountStatus> {
 }
 
 function leaveSharedComputer(): Promise<CloudAccountStatus> {
+  // The sign-out a refused request asks for, after Cloud removed this browser:
+  // the removal is already wiping, and its screen says why.
+  if (removalUnderway()) return new Promise<CloudAccountStatus>(() => {})
   leavingShared ??= endSharedSession().finally(() => {
     leavingShared = null
   })
@@ -1446,6 +1498,11 @@ async function boot(): Promise<void> {
   const storage = await probeStorage()
   if (storage !== 'ok') {
     showNoStorage(appRoot, storage)
+    return
+  }
+  const pendingRemoval = readPendingRemoval(tabStorage())
+  if (pendingRemoval) {
+    await retryPendingRemoval(pendingRemoval)
     return
   }
   await finishLocalScrub()
