@@ -11,12 +11,28 @@ import {
   type Extension,
   type TransactionSpec
 } from '@codemirror/state'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   orderedListRenumber,
   skipOrderedListRenumber
 } from './cm-ordered-list-renumber'
 import { listContinuationPrefix } from './list-continuation'
+
+// Renumbering asks for a parsed tree with a 50 ms budget and settles for a
+// partial one when the time runs out (getReadyTree), which is fine in an
+// editor. A slow CI runner ran out on the 100-item list once (Windows,
+// 8084fff4) and the list kept its old padding. These cases check the
+// renumbering itself, so here the parse always gets to finish.
+vi.mock('@codemirror/language', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@codemirror/language')>()
+  return {
+    ...actual,
+    ensureSyntaxTree: (
+      state: Parameters<typeof actual.ensureSyntaxTree>[0],
+      upto: number
+    ) => actual.ensureSyntaxTree(state, upto, 60_000)
+  }
+})
 
 function makeState(
   doc: string,
