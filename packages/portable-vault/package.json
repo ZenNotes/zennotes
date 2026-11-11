@@ -1,7 +1,7 @@
 {
   "name": "@zennotes/portable-vault",
   "private": true,
-  "version": "2.84.1",
+  "version": "2.85.0",
   "type": "module",
   "exports": {
     "./host": "./src/host.ts",
