@@ -58,6 +58,13 @@ import { followLinkTarget } from './follow-link'
 import { wikilinkResolves } from './cm-wikilink-render'
 import { TableCellLinkPicker, type CellTextEdit } from './cm-table-link-picker'
 import { linkRangeAtCursor, type LineLinkKind } from './internal-links'
+import {
+  listIndentConfig,
+  listIndentPadCh,
+  markdownListHangingIndentCh
+} from './cm-markdown-list-indent'
+
+type TreeNode = ReturnType<typeof syntaxTree>['topNode']
 
 /** The follow target for a rendered link anchor inside a table cell, with its
  *  kind: a wikilink's name (`data-wikilink`) or a plain link's href. Returns
@@ -292,11 +299,82 @@ export function tableBlockAt(doc: Text, pos: number): { from: number; to: number
   return { from: doc.line(first).from, to: ext ? ext.to : doc.line(last).to }
 }
 
+/** `pos`, moved past its line's leading indentation when it falls inside it. */
+function pastIndent(doc: Text, pos: number): number {
+  const line = doc.lineAt(pos)
+  const indent = /^[ \t]*/.exec(line.text)?.[0].length ?? 0
+  return Math.max(pos, line.from + indent)
+}
+
+/**
+ * Where a table's widget starts. A table nested in a list item begins after
+ * its indentation, and a block widget placed there left the indent behind as
+ * a blank line above the table (#1076). When only indentation precedes the
+ * `|`, the widget covers the whole first line; otherwise (a table on a list
+ * item's own line, after `- `) it starts at the `|`.
+ */
+function tableBlockStart(doc: Text, tableFrom: number): number {
+  const line = doc.lineAt(tableFrom)
+  return /^[ \t]*$/.test(doc.sliceString(line.from, tableFrom)) ? line.from : tableFrom
+}
+
+/**
+ * How many editor columns a table nested in a list item sits in from the
+ * edge: the column where its item's text starts, measured the way
+ * cm-markdown-list-indent lays out the item's own line (the hanging indent,
+ * plus the pad that widens a shallow nesting to the Tab size). Preview puts
+ * the table under its item's text, and the widget sat at the edge (#1076).
+ * Zero outside a list.
+ */
+function tableListIndent(state: EditorState, table: TreeNode): number {
+  let item: TreeNode | null = table.parent
+  while (item && item.name !== 'ListItem') item = item.parent
+  const mark = item?.getChild('ListMark')
+  if (!item || !mark) return 0
+  let depth = 0
+  for (let p: TreeNode | null = item; p; p = p.parent) if (p.name === 'ListItem') depth++
+  const line = state.doc.lineAt(mark.from)
+  const { width } = state.facet(listIndentConfig)
+  const markerOffset = mark.from - line.from
+  const hanging = markdownListHangingIndentCh(line.text, markerOffset, width)
+  if (hanging == null) return 0
+  return hanging + listIndentPadCh(line.text, markerOffset, depth, width)
+}
+
+/**
+ * The change that writes `serialized` over the table at `range`, keeping the
+ * table where it sits. A table nested in a list item is indented on every
+ * line, and a write that put its rows back at column 0 moved them out of the
+ * item: the table left its bullet, and Preview no longer read the rows as one
+ * table (#1076). The header keeps its line's indentation and every later line
+ * (rows and the width marker) takes the indentation of the table's second
+ * line.
+ */
+function tableWrite(
+  doc: Text,
+  range: { from: number; to: number },
+  serialized: string
+): { from: number; to: number; insert: string } {
+  const indentOf = (text: string): string => /^[ \t]*/.exec(text)?.[0] ?? ''
+  const first = doc.lineAt(range.from)
+  const from = tableBlockStart(doc, range.from)
+  const headIndent = from === first.from ? indentOf(first.text) : ''
+  const second = first.number < doc.lines ? doc.line(first.number + 1) : null
+  const rowIndent = second && second.from <= range.to ? indentOf(second.text) : indentOf(first.text)
+  const insert = serialized
+    .split('\n')
+    .map((line, i) => (i === 0 ? headIndent : rowIndent) + line)
+    .join('\n')
+  return { from, to: range.to, insert }
+}
+
 /** Find the enclosing `Table` node range for a doc position, or null. The range
  *  is extended over a trailing `zen:cols` width marker so re-serialization
- *  replaces both (no duplicate markers, no leaked raw comment). */
+ *  replaces both (no duplicate markers, no leaked raw comment). A position in
+ *  a line's indentation (where a nested table's widget starts) reads as the
+ *  line's text. */
 export function tableRangeAt(view: EditorView, pos: number): { from: number; to: number } | null {
-  let node = syntaxTree(view.state).resolveInner(pos, 1)
+  let node = syntaxTree(view.state).resolveInner(pastIndent(view.state.doc, pos), 1)
   while (node) {
     if (node.name === 'Table') {
       const ext = colWidthsAfter(view.state.doc, node.to)
@@ -394,11 +472,9 @@ function commitTable(
     console.warn('[zen:table] commit dropped: could not locate the table block')
     return
   }
-  const next = serializeTable(table)
-  if (next === view.state.sliceDoc(range.from, range.to)) return
-  view.dispatch({
-    changes: { from: range.from, to: range.to, insert: next }
-  })
+  const change = tableWrite(view.state.doc, range, serializeTable(table))
+  if (change.insert === view.state.sliceDoc(change.from, change.to)) return
+  view.dispatch({ changes: change })
 }
 
 type CellAddress = { row: number; col: number }
@@ -461,14 +537,16 @@ class TableWidget extends WidgetType {
     /** Raw markdown of the table block — drives `eq` so unchanged tables keep
      *  their DOM (and any in-progress cell focus) across rebuilds. */
     private readonly source: string,
-    parsed: MarkdownTable
+    parsed: MarkdownTable,
+    /** Editor columns in from the edge: its list item's text column (#1076). */
+    private readonly indent = 0
   ) {
     super()
     this.model = parsed
   }
 
   eq(other: TableWidget): boolean {
-    return other.source === this.source
+    return other.source === this.source && other.indent === this.indent
   }
 
   /** Commit a concrete next-model: re-serialize and write it over the source.
@@ -563,6 +641,7 @@ class TableWidget extends WidgetType {
     const root = document.createElement('div')
     root.className = 'cm-table-widget'
     root.setAttribute('contenteditable', 'false')
+    if (this.indent > 0) root.style.setProperty('--z-table-indent', String(this.indent))
     this.dom = root
 
     const wrapper = document.createElement('div')
@@ -2568,11 +2647,11 @@ function buildDecorations(state: EditorState): DecorationSet {
       const to = ext ? ext.to : node.to
       const blockSource = state.sliceDoc(node.from, to)
       ranges.push({
-        from: node.from,
+        from: tableBlockStart(state.doc, node.from),
         to,
         deco: Decoration.replace({
           block: true,
-          widget: new TableWidget(blockSource, parsed)
+          widget: new TableWidget(blockSource, parsed, tableListIndent(state, node.node))
         })
       })
       return false
@@ -2638,8 +2717,13 @@ export const tablePlugin = StateField.define<DecorationSet>({
   create: (state) => buildDecorations(state),
   update(deco, tr) {
     // Rebuild on edits and whenever the parser advances (the syntax tree is a
-    // fresh object); otherwise positions are unchanged, so reuse as-is.
-    if (tr.docChanged || syntaxTree(tr.startState) !== syntaxTree(tr.state)) {
+    // fresh object), and when the Tab size moves the list text a nested table
+    // lines up with; otherwise positions are unchanged, so reuse as-is.
+    if (
+      tr.docChanged ||
+      syntaxTree(tr.startState) !== syntaxTree(tr.state) ||
+      tr.startState.facet(listIndentConfig).width !== tr.state.facet(listIndentConfig).width
+    ) {
       return buildDecorations(tr.state)
     }
     return deco
@@ -2652,7 +2736,9 @@ export const tablePlugin = StateField.define<DecorationSet>({
 })
 
 /** Find a `Table` node directly adjacent to `line`: `down` → a table on the
- *  next line, `up` → a table on the previous line. Returns its range or null. */
+ *  next line, `up` → a table on the previous line. Returns its widget's range
+ *  (from the start of an indented first line, see `tableBlockStart`) or null.
+ *  The probe skips indentation: a nested table starts after it. (#1076) */
 function adjacentTableRange(
   state: EditorState,
   line: number,
@@ -2660,14 +2746,11 @@ function adjacentTableRange(
 ): { from: number; to: number } | null {
   const targetLine = dir === 'down' ? line + 1 : line - 1
   if (targetLine < 1 || targetLine > state.doc.lines) return null
-  const probe =
-    dir === 'down' ? state.doc.line(targetLine).from : state.doc.line(targetLine).to
-  let node: ReturnType<typeof syntaxTree>['topNode'] | null = syntaxTree(state).resolveInner(
-    probe,
-    dir === 'down' ? 1 : -1
-  )
+  const target = state.doc.line(targetLine)
+  const probe = dir === 'down' ? pastIndent(state.doc, target.from) : target.to
+  let node: TreeNode | null = syntaxTree(state).resolveInner(probe, dir === 'down' ? 1 : -1)
   while (node) {
-    if (node.name === 'Table') return { from: node.from, to: node.to }
+    if (node.name === 'Table') return { from: tableBlockStart(state.doc, node.from), to: node.to }
     node = node.parent
   }
   return null

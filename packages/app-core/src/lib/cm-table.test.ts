@@ -3,14 +3,17 @@
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { forceParsing } from '@codemirror/language'
 import { history } from '@codemirror/commands'
-import { EditorState } from '@codemirror/state'
+import { Compartment, EditorState, type Extension } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Text } from '@codemirror/state'
+import { listIndentWidth } from './cm-markdown-list-indent'
 import {
   renderInlineCell,
   tableBlockAt,
   tablePlugin,
+  tableRangeAt,
+  tableVimEntry,
   nextWordStart,
   prevWordStart,
   nextWordEnd,
@@ -42,14 +45,14 @@ const TABLE_DOC = `Intro text.
 
 Outro text.`
 
-function mount(doc: string): EditorView {
+function mount(doc: string, extra: Extension[] = []): EditorView {
   const parent = document.createElement('div')
   document.body.append(parent)
   const view = new EditorView({
     parent,
     state: EditorState.create({
       doc,
-      extensions: [markdown({ base: markdownLanguage }), history(), tablePlugin]
+      extensions: [markdown({ base: markdownLanguage }), history(), tablePlugin, ...extra]
     })
   })
   // Ensure the GFM table node is parsed. The field rebuilds whenever the syntax
@@ -798,6 +801,114 @@ describe('tablePlugin — column widths (#294)', () => {
     drag(view, 100, 140)
     const markers = view.state.doc.toString().match(/zen:cols/g) ?? []
     expect(markers.length).toBe(1)
+    view.destroy()
+  })
+})
+
+// #1076: a table nested in a list item. Lezer 1.6.3 read the delimiter row of a
+// table indented six or more columns from the wrong offset and left it a
+// paragraph; the widget sat at the editor's edge under a blank indent line; and
+// a cell edit wrote the rows back at column 0, out of the item.
+describe('tables nested in a list item (#1076)', () => {
+  const rows = (pad: string): string =>
+    [`${pad}| Name | Age |`, `${pad}| --- | --- |`, `${pad}| Alice | 30 |`].join('\n')
+  const UNDER_ITEM = `- Item\n\n${rows('    ')}\n\nAfter.`
+  const NESTED_SPACES = `- Parent\n    - Item\n\n${rows('        ')}\n\nAfter.`
+  const NESTED_TABS = `- Parent\n\t- Item\n\n${rows('\t\t')}\n\nAfter.`
+  const SHALLOW_NESTING = `- Parent\n  - Item\n\n${rows('    ')}\n\nAfter.`
+
+  const widgetOf = (view: EditorView): HTMLElement => {
+    const widget = view.dom.querySelector<HTMLElement>('.cm-table-widget')
+    if (!widget) throw new Error('no table widget')
+    return widget
+  }
+
+  it('renders a table indented with spaces under a nested bullet', () => {
+    const view = mount(NESTED_SPACES)
+    expect(widgetOf(view).querySelectorAll('.cm-table-cell').length).toBe(4)
+    view.destroy()
+  })
+
+  it('indents the widget to where its item text starts, as the list lines do', () => {
+    // Hanging indent plus the pad that widens a shallow nesting to the Tab size.
+    const cases: Array<[string, string]> = [
+      [UNDER_ITEM, '2'],
+      [NESTED_SPACES, '6'],
+      [NESTED_TABS, '6'],
+      [SHALLOW_NESTING, '6']
+    ]
+    for (const [doc, indent] of cases) {
+      const view = mount(doc)
+      expect(widgetOf(view).style.getPropertyValue('--z-table-indent')).toBe(indent)
+      view.destroy()
+    }
+    const top = mount(TABLE_DOC)
+    expect(widgetOf(top).style.getPropertyValue('--z-table-indent')).toBe('')
+    top.destroy()
+  })
+
+  it('follows the Tab size the list lines are laid out with, live', () => {
+    const tabSize = new Compartment()
+    const view = mount(SHALLOW_NESTING, [tabSize.of(listIndentWidth(2))])
+    expect(widgetOf(view).style.getPropertyValue('--z-table-indent')).toBe('4')
+    view.dispatch({ effects: tabSize.reconfigure(listIndentWidth(4)) })
+    expect(widgetOf(view).style.getPropertyValue('--z-table-indent')).toBe('6')
+    view.destroy()
+  })
+
+  it('covers the indented first line whole, leaving no blank line above the widget', () => {
+    for (const doc of [NESTED_SPACES, NESTED_TABS]) {
+      const view = mount(doc)
+      expect(view.posAtDOM(widgetOf(view))).toBe(view.state.doc.line(4).from)
+      const blanks = Array.from(view.dom.querySelectorAll('.cm-line')).filter((line) => {
+        const text = line.textContent ?? ''
+        return text !== '' && text.trim() === ''
+      })
+      expect(blanks).toEqual([])
+      // Commands that look the table up from the widget still find it.
+      const range = tableRangeAt(view, view.posAtDOM(widgetOf(view)))
+      expect(view.state.sliceDoc(range!.from, range!.from + 6)).toBe('| Name')
+      view.destroy()
+    }
+  })
+
+  it('a cell edit keeps every row of a nested table indented', () => {
+    for (const [doc, pad] of [
+      [NESTED_SPACES, '        '],
+      [NESTED_TABS, '\t\t'],
+      [UNDER_ITEM, '    ']
+    ]) {
+      const view = mount(doc)
+      const cell = widgetOf(view).querySelector<HTMLElement>('[data-row="0"][data-col="0"]')!
+      cell.dispatchEvent(new KeyboardEvent('keydown', { key: 'x', bubbles: true, cancelable: true }))
+      cell.dispatchEvent(new FocusEvent('focusout', { bubbles: true }))
+      const table = [`${pad}| Name | Age |`, `${pad}| ---- | --- |`, `${pad}| lice | 30  |`].join('\n')
+      expect(view.state.doc.toString()).toBe(doc.replace(rows(pad), table))
+      view.destroy()
+    }
+  })
+
+  it('a column resize writes the width marker at the table indent', () => {
+    const view = mount(NESTED_SPACES)
+    const handle = widgetOf(view).querySelector<HTMLElement>('.cm-table-col-resize')!
+    handle.dispatchEvent(new MouseEvent('pointerdown', { clientX: 100, bubbles: true, cancelable: true }))
+    handle.dispatchEvent(new MouseEvent('pointermove', { clientX: 180, bubbles: true }))
+    handle.dispatchEvent(new MouseEvent('pointerup', { clientX: 180, bubbles: true }))
+    const lines = view.state.doc.toString().split('\n')
+    expect(lines.slice(3, 7).every((line) => line.startsWith('        |') || line.startsWith('        <!-- zen:cols='))).toBe(true)
+    expect(lines[6]).toMatch(/^ {8}<!-- zen:cols=/)
+    view.destroy()
+  })
+
+  it('steps into a nested table from the line above with Vim j', () => {
+    const view = mount(NESTED_SPACES, [tableVimEntry])
+    view.dispatch({ selection: { anchor: view.state.doc.line(3).from } })
+    const header = widgetOf(view).querySelector<HTMLElement>('[data-row="-1"][data-col="0"]')!
+    const focus = vi.spyOn(header, 'focus')
+    const event = new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true })
+    view.contentDOM.dispatchEvent(event)
+    expect(event.defaultPrevented).toBe(true)
+    expect(focus).toHaveBeenCalled()
     view.destroy()
   })
 })

@@ -5685,8 +5685,12 @@ html[data-completed-task-style="gray-strikethrough"] .prose-zen li.task-list-ite
      ~2 chars indented. Horizontal margin is safe — only vertical margin breaks
      the height measurement.
      Right/bottom are kept tight (#294): they only host the thin hover add-rails,
-     so a big reserve there just read as dead padding around idle tables. */
-  margin: 0 0 0 -16px;
+     so a big reserve there just read as dead padding around idle tables.
+     A table nested in a list item moves in by its item's text column
+     (--z-table-indent, set by cm-table), counted in the editor's ch as the list
+     lines are (#1076). The widget therefore keeps the editor's font; its own
+     font and size live on the wrapper, its only child. */
+  margin: 0 0 0 calc(var(--z-table-indent, 0) * 1ch - 16px);
   padding: 14px 9px 9px 16px;
   overflow-x: auto;
   /* Only scroll horizontally (wide tables); never show a vertical scrollbar.
@@ -5696,6 +5700,11 @@ html[data-completed-task-style="gray-strikethrough"] .prose-zen li.task-list-ite
      down the right edge. (#382) */
   overflow-y: hidden;
   white-space: normal;
+}
+.cm-table-wrapper {
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
   font-family: var(
     --z-text-font,
     -apple-system,
@@ -5708,11 +5717,6 @@ html[data-completed-task-style="gray-strikethrough"] .prose-zen li.task-list-ite
     sans-serif
   );
   font-size: 0.94em;
-}
-.cm-table-wrapper {
-  position: relative;
-  width: fit-content;
-  max-width: 100%;
 }
 /* With set widths the wrapper grows with its table, so the add-column rail
    stays at the table's edge and the widget scrolls sideways (#920). Capped at
