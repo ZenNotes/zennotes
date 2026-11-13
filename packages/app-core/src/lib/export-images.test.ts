@@ -65,6 +65,107 @@ describe('settleExportImages', () => {
   })
 })
 
+// #1078: an embedded Excalidraw drawing is not an <img> when the preview says it
+// has rendered. Its host is hydrated by a React root that loads the drawing
+// bundle and exports the scene to a PNG first, so the export printed the empty
+// loading placeholder. The settle now waits for every drawing to finish.
+describe('settleExportImages with Excalidraw embeds', () => {
+  function drawingHost(target = 'diagram.excalidraw'): HTMLElement {
+    const host = document.createElement('div')
+    host.setAttribute('data-excalidraw-embed', target)
+    document.body.append(host)
+    return host
+  }
+
+  function drawingState(host: HTMLElement, state: 'loading' | 'error'): HTMLElement {
+    const el = document.createElement('div')
+    el.setAttribute('data-excalidraw-state', state)
+    host.replaceChildren(el)
+    return el
+  }
+
+  function drawingImage(host: HTMLElement): HTMLImageElement {
+    const img = document.createElement('img')
+    img.setAttribute('data-excalidraw-state', 'ready')
+    img.setAttribute('loading', 'lazy')
+    img.setAttribute('src', 'data:image/png;base64,AAAA')
+    host.replaceChildren(img)
+    return img
+  }
+
+  const flush = async (): Promise<void> => {
+    for (let i = 0; i < 5; i++) await Promise.resolve()
+  }
+
+  it('waits for a drawing to render, then for its image to load', async () => {
+    const host = drawingHost()
+    drawingState(host, 'loading')
+    let settled = false
+    const done = settleExportImages(document).then(() => {
+      settled = true
+    })
+    await flush()
+    expect(settled).toBe(false)
+
+    const img = drawingImage(host)
+    await flush()
+    // The drawing's image is lazy like any preview image, so it goes eager too.
+    expect(img.getAttribute('loading')).toBe('eager')
+    expect(settled).toBe(false)
+
+    img.dispatchEvent(new Event('load'))
+    await done
+    expect(settled).toBe(true)
+  })
+
+  it('waits for a host whose React root has not mounted anything yet', async () => {
+    const host = drawingHost()
+    let settled = false
+    const done = settleExportImages(document).then(() => {
+      settled = true
+    })
+    await flush()
+    expect(settled).toBe(false)
+    const img = drawingImage(host)
+    await flush()
+    img.dispatchEvent(new Event('load'))
+    await done
+    expect(settled).toBe(true)
+  })
+
+  it('stops waiting on a drawing that failed to render', async () => {
+    const host = drawingHost()
+    drawingState(host, 'loading')
+    const done = settleExportImages(document)
+    await flush()
+    drawingState(host, 'error')
+    await expect(done).resolves.toBeUndefined()
+  })
+
+  it('ignores a host with no target, which the preview never hydrates', async () => {
+    drawingHost('  ')
+    await expect(settleExportImages(document)).resolves.toBeUndefined()
+  })
+
+  it('shares one timeout between the drawings and the images', async () => {
+    vi.useFakeTimers()
+    const host = drawingHost()
+    drawingState(host, 'loading')
+    let settled = false
+    const done = settleExportImages(document, 500).then(() => {
+      settled = true
+    })
+    await vi.advanceTimersByTimeAsync(300)
+    // The drawing renders late; its image never loads.
+    drawingImage(host)
+    await vi.advanceTimersByTimeAsync(199)
+    expect(settled).toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+    await done
+    expect(settled).toBe(true)
+  })
+})
+
 describe('fitExportImageBoxes', () => {
   function sizedImage(width: number, height: number, boxWidth: number, boxHeight: number) {
     const img = image('zen-asset://v/screenshot.png')

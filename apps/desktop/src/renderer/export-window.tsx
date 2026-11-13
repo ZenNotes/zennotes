@@ -469,8 +469,9 @@ function ExportNoteWindow({ notePath }: { notePath: string }): JSX.Element {
                 callout.open = true
               })
             // Images load after the DOM is in place, and the preview defers
-            // the ones below the viewport; print only once they have all
-            // settled (#769).
+            // the ones below the viewport; Excalidraw drawings become images
+            // only after they render. Print once all of them have settled
+            // (#769, #1078).
             void Promise.all([settleExportImages(document), document.fonts.ready]).then(() => {
               fitExportImageBoxes(document, PDF_PRINTABLE_HEIGHT_PX)
               const article = document.querySelector<HTMLElement>('[data-preview-content]')

@@ -28,6 +28,10 @@ export function ExcalidrawPreview({
   // on every render) shows its PNG immediately instead of flashing the loading
   // pulse. The async fetch below still runs to refresh a changed drawing.
   const [src, setSrc] = useState<string | null>(() => peekExcalidrawPreview(path))
+  // Whether the last render attempt came back empty (unreadable file, empty
+  // scene). Only the state attribute shows it: a PDF export waits on each
+  // drawing until it reads ready or error (#1078).
+  const [failed, setFailed] = useState(false)
   const version = useStore((s) => s.excalidrawPreviewVersion)
 
   useEffect(() => {
@@ -38,7 +42,9 @@ export function ExcalidrawPreview({
     const cached = peekExcalidrawPreview(path)
     if (cached) setSrc(cached)
     void getExcalidrawPreview(path).then((url) => {
-      if (!cancelled) setSrc(url)
+      if (cancelled) return
+      setSrc(url)
+      setFailed(url == null)
     })
     return () => {
       cancelled = true
@@ -55,6 +61,7 @@ export function ExcalidrawPreview({
         className={`excalidraw-embed-loading${className ? ' ' + className : ''}`}
         style={style}
         aria-label="Loading drawing preview"
+        data-excalidraw-state={failed ? 'error' : 'loading'}
       />
     )
   }
@@ -62,6 +69,7 @@ export function ExcalidrawPreview({
   return (
     <img
       src={src}
+      data-excalidraw-state="ready"
       className={`excalidraw-embed-image${className ? ' ' + className : ''}`}
       style={style}
       alt=""

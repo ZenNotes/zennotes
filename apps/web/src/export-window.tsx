@@ -159,8 +159,9 @@ function ExportNoteWindow({ notePath }: { notePath: string }): JSX.Element {
   const triggerPrint = async (): Promise<void> => {
     if (didTriggerPrint.current) return
     didTriggerPrint.current = true
-    // The preview defers images below the viewport; print only once every
-    // image has loaded or failed (#769).
+    // The preview defers images below the viewport, and Excalidraw drawings
+    // become images only after they render; print only once every drawing
+    // and image has loaded or failed (#769, #1078).
     await settleExportImages(document)
     try {
       if ('fonts' in document && document.fonts?.ready) {

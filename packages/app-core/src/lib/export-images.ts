@@ -53,10 +53,63 @@ export function fitExportImageBoxes(root: ParentNode, pageHeight = Infinity): vo
   }
 }
 
+/**
+ * The Excalidraw embeds still drawing. A drawing is not an <img> when the
+ * preview reports it has rendered: the preview mounts a React root in each
+ * `[data-excalidraw-embed]` host, which loads the drawing bundle, reads the
+ * scene and exports it to a PNG, and only then shows the image. Printing
+ * before that captured the empty loading placeholder (#1078). The embed marks
+ * its element `data-excalidraw-state` (see ExcalidrawPreview), so a host is
+ * done once it holds a ready image or an error. A host without a target is
+ * never hydrated, so nothing will ever arrive there.
+ */
+function drawingsPending(root: ParentNode): boolean {
+  for (const host of Array.from(root.querySelectorAll<HTMLElement>('[data-excalidraw-embed]'))) {
+    if (!(host.getAttribute('data-excalidraw-embed') ?? '').trim()) continue
+    if (!host.querySelector('[data-excalidraw-state="ready"], [data-excalidraw-state="error"]')) {
+      return true
+    }
+  }
+  return false
+}
+
+function settleExportDrawings(root: ParentNode, timeoutMs: number): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const finish = (): void => {
+      observer.disconnect()
+      clearTimeout(timer)
+      resolve()
+    }
+    const observer = new MutationObserver(() => {
+      if (!drawingsPending(root)) finish()
+    })
+    observer.observe(root, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ['data-excalidraw-state']
+    })
+    const timer = setTimeout(finish, timeoutMs)
+  })
+}
+
+/**
+ * Wait until the rendered note is complete enough to print: every Excalidraw
+ * embed has drawn (or failed), then every image has loaded (or failed). One
+ * timeout covers both, so the export never waits longer than `timeoutMs`.
+ */
 export function settleExportImages(
   root: ParentNode,
   timeoutMs = EXPORT_IMAGE_SETTLE_TIMEOUT_MS
 ): Promise<void> {
+  if (!drawingsPending(root)) return settleLoadedImages(root, timeoutMs)
+  const deadline = Date.now() + timeoutMs
+  return settleExportDrawings(root, timeoutMs).then(() =>
+    settleLoadedImages(root, Math.max(0, deadline - Date.now()))
+  )
+}
+
+function settleLoadedImages(root: ParentNode, timeoutMs: number): Promise<void> {
   const pending: Promise<void>[] = []
   for (const img of Array.from(root.querySelectorAll<HTMLImageElement>('img'))) {
     if (img.getAttribute('loading') === 'lazy') img.setAttribute('loading', 'eager')
