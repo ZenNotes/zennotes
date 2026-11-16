@@ -286,17 +286,28 @@ function colWidthsAfter(
  */
 export function tableBlockAt(doc: Text, pos: number): { from: number; to: number } | null {
   const isRow = (text: string): boolean => text.trimStart().startsWith('|')
+  // A table can start on its list item's own line (`- | A |`). It is only ever
+  // the first row: a run of such lines is a list, not a table.
+  const isItemRow = (text: string): boolean => /^[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+\|/.test(text)
   const line = doc.lineAt(Math.max(0, Math.min(pos, doc.length)))
-  if (!isRow(line.text)) return null
   let first = line.number
-  while (first > 1 && isRow(doc.line(first - 1).text)) first--
+  if (isRow(line.text)) {
+    while (first > 1 && isRow(doc.line(first - 1).text)) first--
+    if (first > 1 && isItemRow(doc.line(first - 1).text)) first--
+  } else if (!isItemRow(line.text)) {
+    return null
+  }
   let last = line.number
   while (last < doc.lines && isRow(doc.line(last + 1).text)) last++
   // A table is at least a header and its delimiter row; one `|` line on its own
   // is prose, and rewriting it as a table would be a worse failure than none.
   if (last - first < 1) return null
   const ext = colWidthsAfter(doc, doc.line(last).to)
-  return { from: doc.line(first).from, to: ext ? ext.to : doc.line(last).to }
+  // The tree starts a table on an item's line at its `|`, and the write keeps
+  // the marker only when the range does too.
+  const head = doc.line(first)
+  const from = isRow(head.text) ? head.from : head.from + head.text.indexOf('|')
+  return { from, to: ext ? ext.to : doc.line(last).to }
 }
 
 /** `pos`, moved past its line's leading indentation when it falls inside it. */

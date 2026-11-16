@@ -1237,6 +1237,26 @@ describe('tableBlockAt — the fallback when the parse has not caught up (#485)'
     const range = tableBlockAt(t, 0)
     expect(range).toEqual({ from: 0, to: text.length })
   })
+
+  // A table can start on its list item's own line. The tree starts it at the
+  // `|`, and a fallback that began at the delimiter row left the header out of
+  // the range, so a write duplicated it (release review of #1076).
+  it('starts a table on a list item’s own line at its `|`, from any row', () => {
+    const text = 'intro\n\n- | A | B |\n  | --- | --- |\n  | 1 | 2 |\n\nafter'
+    const t = doc(text)
+    const table = '| A | B |\n  | --- | --- |\n  | 1 | 2 |'
+    for (const at of ['| 1 | 2 |', '| --- |', 'A | B']) {
+      const range = tableBlockAt(t, text.indexOf(at) + 1)
+      expect(range, at).not.toBeNull()
+      expect(text.slice(range!.from, range!.to), at).toBe(table)
+    }
+  })
+
+  it('does not read list items that only contain pipes as one table', () => {
+    const t = doc('- | a |\n- | b |\n- plain')
+    expect(tableBlockAt(t, 3)).toBeNull()
+    expect(tableBlockAt(t, t.line(2).from + 3)).toBeNull()
+  })
 })
 
 describe('renderInlineCell', () => {
