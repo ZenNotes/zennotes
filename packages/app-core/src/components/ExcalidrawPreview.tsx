@@ -41,6 +41,9 @@ export function ExcalidrawPreview({
     // while the drawing re-resolves.
     const cached = peekExcalidrawPreview(path)
     if (cached) setSrc(cached)
+    // A new attempt is pending until it answers: an earlier failure must not
+    // let an export count this drawing as done.
+    setFailed(false)
     void getExcalidrawPreview(path).then((url) => {
       if (cancelled) return
       setSrc(url)

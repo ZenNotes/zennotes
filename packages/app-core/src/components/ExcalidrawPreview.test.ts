@@ -56,4 +56,20 @@ describe('ExcalidrawPreview state', () => {
       'error'
     )
   })
+
+  it('reads loading again while a drawing that failed is rendered anew', async () => {
+    preview.get.mockResolvedValueOnce(null)
+    await act(async () => root.render(createElement(ExcalidrawPreview, { path: 'first.excalidraw' })))
+    expect(host.querySelector('[data-excalidraw-state]')?.getAttribute('data-excalidraw-state')).toBe(
+      'error'
+    )
+
+    // The embed now points at a drawing still rendering: an export must not
+    // count it as done from the earlier failure.
+    preview.get.mockReturnValueOnce(new Promise(() => {}))
+    await act(async () => root.render(createElement(ExcalidrawPreview, { path: 'second.excalidraw' })))
+    expect(host.querySelector('[data-excalidraw-state]')?.getAttribute('data-excalidraw-state')).toBe(
+      'loading'
+    )
+  })
 })
