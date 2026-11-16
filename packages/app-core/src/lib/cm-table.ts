@@ -1064,6 +1064,19 @@ class TableWidget extends WidgetType {
     }
 
     if (editable.getAttribute('contenteditable') === 'true') {
+      // Select-all means this cell while it is being edited. Let through, it
+      // reached the editor's select-all: focus left the cell and the next
+      // keystroke landed elsewhere in the note.
+      if (matchesShortcutBinding(event, 'Mod+A')) {
+        const range = document.createRange()
+        range.selectNodeContents(editable)
+        const selection = window.getSelection()
+        selection?.removeAllRanges()
+        selection?.addRange(range)
+        event.preventDefault()
+        event.stopPropagation()
+        return
+      }
       const marker = matchesShortcutBinding(event, 'Mod+B')
         ? '**'
         : matchesShortcutBinding(event, 'Mod+I')

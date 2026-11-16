@@ -204,6 +204,43 @@ describe('tablePlugin', () => {
     view.destroy()
   })
 
+  // Mod+A in a cell being edited fell through to the editor's select-all: focus
+  // left the cell and the next keystroke landed elsewhere in the note (found in
+  // the 2.86.0 release walk; 2.85.0 did the same).
+  it('selects only the cell’s own text on Mod+A while editing it', () => {
+    const view = mount(TABLE_DOC)
+    const cell = view.dom.querySelector<HTMLElement>(
+      '.cm-table-widget [data-row="0"][data-col="0"]'
+    )!
+    cell.focus()
+    cell.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'i', bubbles: true, cancelable: true })
+    )
+    const docBefore = view.state.doc.toString()
+
+    const selectAll = new KeyboardEvent('keydown', {
+      key: 'a',
+      code: 'KeyA',
+      ...modKey,
+      bubbles: true,
+      cancelable: true
+    })
+    let reachedEditor = false
+    const spy = (): void => {
+      reachedEditor = true
+    }
+    view.contentDOM.addEventListener('keydown', spy)
+    cell.dispatchEvent(selectAll)
+    view.contentDOM.removeEventListener('keydown', spy)
+
+    expect(selectAll.defaultPrevented).toBe(true)
+    expect(reachedEditor).toBe(false)
+    expect(window.getSelection()?.toString()).toBe('Alice')
+    expect(document.activeElement).toBe(cell)
+    expect(view.state.doc.toString()).toBe(docBefore)
+    view.destroy()
+  })
+
   it('wraps selected text in italic Markdown in an editable cell (#664)', () => {
     const view = mount(TABLE_DOC)
     const cell = view.dom.querySelector<HTMLElement>(
