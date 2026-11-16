@@ -40,6 +40,19 @@ export const CLOUD_ANNOUNCEMENT = {
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    version: '2.86.0',
+    highlights: [
+      {
+        title: 'Drawings in PDF exports',
+        body: 'Excalidraw drawings embedded in a note now appear in its PDF export, wherever they sit in the note.'
+      },
+      {
+        title: 'Tables inside lists',
+        body: 'A table in a list item renders in Edit mode, lines up under its bullet, and keeps its indentation when you edit a cell.'
+      }
+    ]
+  },
+  {
     version: '2.85.0',
     highlights: [
       {
