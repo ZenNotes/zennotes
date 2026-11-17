@@ -183,6 +183,22 @@ describe('renderNoteDocx wikilink embeds', () => {
     expect(seen).toEqual([['chart.png', { width: 600, height: 400 }]])
   })
 
+  // #1078: a drawing embed reached Word as the literal `![[diagram.excalidraw]]`.
+  it('hands a drawing embed to the image resolver like a picture', async () => {
+    expect(noteMarkdownToIR('![[diagram.excalidraw|400]]\n')[0]).toEqual({
+      kind: 'image',
+      src: 'diagram.excalidraw',
+      alt: '',
+      size: { width: 400, height: undefined }
+    })
+    const seen: string[] = []
+    await renderNoteDocx('![[diagram.excalidraw]]\n\n![[Old.excalidraw.md]]\n', 'T', async (src) => {
+      seen.push(src)
+      return null
+    })
+    expect(seen).toEqual(['diagram.excalidraw', 'Old.excalidraw.md'])
+  })
+
   it('writes the wikilink-embedded picture into the package as media (#629)', async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), 'zen-docx-'))
     try {

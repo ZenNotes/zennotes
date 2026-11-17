@@ -197,7 +197,8 @@ import {
   listWorkflowRuns,
   undoWorkflowRun,
 } from "./workflow-apply";
-import { renderNoteDocx } from "./note-docx";
+import { renderNoteDocx, type ResolvedImage } from "./note-docx";
+import { isDrawingEmbedTarget } from "@shared/embed-size";
 import type {
   ApplyWorkflowInput,
   ExportWorkflowInput,
@@ -2946,6 +2947,71 @@ async function findAssetByBasename(
   return null;
 }
 
+/**
+ * Size a picture for the Word document, or null when its bytes do not decode.
+ * It fits the printable Letter column (6.5in at Word's 96dpi), scaling only
+ * ever DOWN so small images keep their intrinsic size, which is the bitmap's
+ * size over `pixelRatio`. An author's `|600` hint is honoured inside that
+ * column; `|600x400` fixes both.
+ */
+function fitDocxImage(
+  data: Buffer,
+  type: ResolvedImage["type"],
+  size: { width: number; height?: number } | undefined,
+  pixelRatio = 1,
+): ResolvedImage | null {
+  const bitmap = nativeImage.createFromBuffer(data).getSize();
+  if (bitmap.width === 0 || bitmap.height === 0) return null;
+  const imageSize = {
+    width: bitmap.width / pixelRatio,
+    height: bitmap.height / pixelRatio,
+  };
+  const maxWidth = 624;
+  const requestedWidth = size?.width
+    ? Math.min(size.width, maxWidth)
+    : Math.min(imageSize.width, maxWidth);
+  const scale = requestedWidth / imageSize.width;
+  const height =
+    size?.width && size.height
+      ? Math.round((size.height * requestedWidth) / size.width)
+      : Math.round(imageSize.height * scale);
+  return { data, width: Math.round(requestedWidth), height, type };
+}
+
+/**
+ * Every drawing a note embeds, as the PNG the export window rendered for it,
+ * keyed by the embed's target as written (`diagram.excalidraw`). Word export
+ * has no drawing renderer of its own, so it borrows the PDF export's hidden
+ * preview, which already waits for each drawing to finish or fail (#1078). A
+ * drawing that failed, or did not finish in time, is missing from the map and
+ * exports as its alt text.
+ */
+async function renderNoteDrawingPngs(
+  relPath: string,
+  parentWindow: BrowserWindow | null | undefined,
+): Promise<Map<string, Buffer>> {
+  return withExportWindow(relPath, parentWindow, async (exportWindow) => {
+    const found: unknown = await exportWindow.webContents.executeJavaScript(
+      `Array.from(document.querySelectorAll('[data-excalidraw-embed]')).map((host) => [
+        (host.getAttribute('data-excalidraw-embed') || '').trim(),
+        host.querySelector('img[data-excalidraw-state="ready"]')?.getAttribute('src') || ''
+      ])`,
+      true,
+    );
+    const pngs = new Map<string, Buffer>();
+    if (!Array.isArray(found)) return pngs;
+    for (const entry of found) {
+      if (!Array.isArray(entry)) continue;
+      const [target, src] = entry as unknown[];
+      if (typeof target !== "string" || typeof src !== "string") continue;
+      if (!target || pngs.has(target)) continue;
+      const match = /^data:image\/png;base64,([A-Za-z0-9+/=]+)$/.exec(src);
+      if (match) pngs.set(target, Buffer.from(match[1], "base64"));
+    }
+    return pngs;
+  });
+}
+
 async function exportNoteDocx(
   relPath: string,
   parentWindow: BrowserWindow | null | undefined,
@@ -2974,6 +3040,10 @@ async function exportNoteDocx(
   const noteDir = path.posix.dirname(relPath);
   const rootAbs = path.resolve(v.root);
 
+  // Drawings are rendered once, on the first drawing the document reaches,
+  // and only for a note that embeds one (#1078).
+  let drawings: Promise<Map<string, Buffer>> | null = null;
+
   // Resolve a markdown image src to bytes + pixel size, or null for anything
   // that cannot be embedded (remote URLs, files outside the vault, formats
   // Word rejects that nativeImage cannot decode either). Null degrades to the
@@ -2981,9 +3051,18 @@ async function exportNoteDocx(
   const resolveImage = async (
     src: string,
     size?: { width: number; height?: number },
-  ) => {
+  ): Promise<ResolvedImage | null> => {
     if (/^[a-z][a-z0-9+.-]*:/i.test(src)) return null;
     const decoded = decodeURIComponent(src);
+    if (isDrawingEmbedTarget(decoded)) {
+      drawings ??= renderNoteDrawingPngs(relPath, parentWindow).catch((err) => {
+        console.warn("[export] drawings did not render for Word export", err);
+        return new Map<string, Buffer>();
+      });
+      const png = (await drawings).get(decoded.trim());
+      // The preview exports a drawing at 2x, so its natural size is half the bitmap.
+      return png ? fitDocxImage(png, "png", size, 2) : null;
+    }
     const candidates = [
       path.resolve(rootAbs, noteDir === "." ? "" : noteDir, decoded),
       path.resolve(rootAbs, decoded.replace(/^\/+/, "")),
@@ -3017,25 +3096,7 @@ async function exportNoteDocx(
         data = converted.toPNG();
         type = "png";
       }
-      const imageSize = nativeImage.createFromBuffer(data).getSize();
-      if (imageSize.width === 0 || imageSize.height === 0) return null;
-      // Fit the printable Letter column (6.5in at Word's 96dpi), scaling only
-      // ever DOWN so small images keep their intrinsic size. An author's
-      // `|600` hint is honoured inside that column; `|600x400` fixes both.
-      const maxWidth = 624;
-      const requestedWidth = size?.width
-        ? Math.min(size.width, maxWidth)
-        : Math.min(imageSize.width, maxWidth);
-      const scale = requestedWidth / imageSize.width;
-      const height = size?.width && size.height
-        ? Math.round((size.height * requestedWidth) / size.width)
-        : Math.round(imageSize.height * scale);
-      return {
-        data,
-        width: Math.round(requestedWidth),
-        height,
-        type,
-      };
+      return fitDocxImage(data, type, size);
     }
     return null;
   };
@@ -3076,12 +3137,12 @@ async function waitForExportWindowState(
     }
     if (Date.now() - startedAt >= timeoutMs) {
       throw new Error(
-        "Timed out while preparing the note preview for PDF export.",
+        "Timed out while preparing the note preview for export.",
       );
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  throw new Error("The export window closed before PDF export completed.");
+  throw new Error("The export window closed before the export completed.");
 }
 
 async function exportNotePdf(
@@ -3112,6 +3173,31 @@ async function exportNotePdf(
   if (result.canceled || !result.filePath) return null;
 
   const targetPath = ensurePdfExtension(result.filePath);
+  return withExportWindow(relPath, parentWindow, async (exportWindow) => {
+    await exportWindow.webContents.executeJavaScript(
+      "document.fonts ? document.fonts.ready.then(() => true) : Promise.resolve(true)",
+      true,
+    );
+    const pdf = await exportWindow.webContents.printToPDF({
+      printBackground: true,
+      preferCSSPageSize: true,
+    });
+    await fsp.mkdir(path.dirname(targetPath), { recursive: true });
+    await fsp.writeFile(targetPath, pdf);
+    return targetPath;
+  });
+}
+
+/**
+ * Open the hidden export window on a note, run `use` once its preview has
+ * rendered (every image and drawing settled), then close it. PDF export prints
+ * it; Word export reads the drawings out of it.
+ */
+async function withExportWindow<T>(
+  relPath: string,
+  parentWindow: BrowserWindow | null | undefined,
+  use: (exportWindow: BrowserWindow) => Promise<T>,
+): Promise<T> {
   const mac = isMac();
   const exportWindow = new BrowserWindow({
     width: 1024,
@@ -3153,17 +3239,7 @@ async function exportNotePdf(
     }
 
     await waitForExportWindowState(exportWindow);
-    await exportWindow.webContents.executeJavaScript(
-      "document.fonts ? document.fonts.ready.then(() => true) : Promise.resolve(true)",
-      true,
-    );
-    const pdf = await exportWindow.webContents.printToPDF({
-      printBackground: true,
-      preferCSSPageSize: true,
-    });
-    await fsp.mkdir(path.dirname(targetPath), { recursive: true });
-    await fsp.writeFile(targetPath, pdf);
-    return targetPath;
+    return await use(exportWindow);
   } finally {
     windowVaults.clearWindow(exportWindow.id);
     if (!exportWindow.isDestroyed()) {

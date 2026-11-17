@@ -122,6 +122,16 @@ export function isImageEmbedTarget(target: string): boolean {
   return IMAGE_EMBED_EXTENSIONS.has(clean.slice(dot + 1).toLowerCase())
 }
 
+/**
+ * An Excalidraw drawing, native (`.excalidraw`) or Obsidian's (`.excalidraw.md`).
+ * The reading preview draws these itself, so they are not image targets; a
+ * consumer with no drawing renderer (the Word export) opts in to receive them
+ * as images and supplies each drawing's picture through its image resolver.
+ */
+export function isDrawingEmbedTarget(target: string): boolean {
+  return /\.excalidraw(?:\.md)?$/i.test(target.trim().split('#')[0])
+}
+
 const WIKILINK_IMAGE_RE = /!\[\[([^\]|]+?)(?:\\?\|([^\]]*))?\]\]/g
 const FENCE_RE = /^\s{0,3}(`{3,}|~{3,})/
 
@@ -131,9 +141,13 @@ const FENCE_RE = /^\s{0,3}(`{3,}|~{3,})/
  * its size hint, so a consumer reads it back with `splitEmbedLabel(alt,
  * 'markdown')`. Note embeds (`![[Some note]]`) and anything inside a fenced
  * code block are left alone. An embed a table escapes as `![[chart.png\|600]]`
- * keeps the escape in its alt, or the pipe would end the cell.
+ * keeps the escape in its alt, or the pipe would end the cell. With
+ * `drawings`, Excalidraw embeds are rewritten too (see `isDrawingEmbedTarget`).
  */
-export function rewriteWikilinkImageEmbeds(markdown: string): string {
+export function rewriteWikilinkImageEmbeds(
+  markdown: string,
+  options: { drawings?: boolean } = {}
+): string {
   const lines = markdown.split('\n')
   let fence: string | null = null
   for (let i = 0; i < lines.length; i += 1) {
@@ -147,7 +161,9 @@ export function rewriteWikilinkImageEmbeds(markdown: string): string {
     }
     if (fence || !line.includes('![[')) continue
     lines[i] = line.replace(WIKILINK_IMAGE_RE, (whole, target: string, label?: string) => {
-      if (!isImageEmbedTarget(target)) return whole
+      if (!isImageEmbedTarget(target) && !(options.drawings && isDrawingEmbedTarget(target))) {
+        return whole
+      }
       const { alt, size } = splitEmbedLabel(label, 'wikilink')
       const sizeText = size ? (size.height ? `${size.width}x${size.height}` : String(size.width)) : ''
       // A bare size keeps its leading pipe (`![|320](x)`): in markdown alt

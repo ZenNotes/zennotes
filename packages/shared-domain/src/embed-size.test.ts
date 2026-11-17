@@ -31,6 +31,15 @@ describe('splitEmbedLabel', () => {
 })
 
 describe('rewriteWikilinkImageEmbeds', () => {
+  it('leaves drawings alone unless the caller opts in', () => {
+    const doc = '![[diagram.excalidraw]]\n\n![[Old.excalidraw.md|Flow|400]]'
+    expect(rewriteWikilinkImageEmbeds(doc)).toBe(doc)
+    expect(rewriteWikilinkImageEmbeds(doc, { drawings: true })).toBe(
+      '![](diagram.excalidraw)\n\n![Flow|400](Old.excalidraw.md)'
+    )
+    expect(rewriteWikilinkImageEmbeds('![[Some note]]', { drawings: true })).toBe('![[Some note]]')
+  })
+
   it('turns image embeds into standard markdown and keeps the size in the alt', () => {
     expect(rewriteWikilinkImageEmbeds('![[chart.png]]')).toBe('![](chart.png)')
     expect(rewriteWikilinkImageEmbeds('![[chart.png|320]]')).toBe('![|320](chart.png)')

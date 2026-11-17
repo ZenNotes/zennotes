@@ -23,7 +23,9 @@
 // `![[chart.png|600]]` image embeds are rewritten to standard image syntax
 // before parsing (the shared `rewriteWikilinkImageEmbeds`), so the pictures
 // the app itself inserts export like any other (#629); a `|600` hint sizes
-// the run. Note embeds still pass through as text. Those upgrades want the
+// the run. Drawing embeds (`![[diagram.excalidraw]]`) become image blocks the
+// same way, and the caller's resolver supplies the PNG the app renders for
+// them (#1078). Note embeds still pass through as text. Those upgrades want the
 // real renderers and belong to a follow-up, not to a worse approximation here.
 import { unified } from 'unified'
 import remarkParse from 'remark-parse'
@@ -262,8 +264,9 @@ function blockOf(node: RootContent): IRBlock[] | null {
  *  `^block-id` markers are addressing, not prose, and a Word document handed
  *  to non-ZenNotes readers is the last place they should print. (#601) */
 export function noteMarkdownToIR(markdown: string): IRBlock[] {
-  // `![[chart.png|600]]` becomes `![|600](chart.png)` before remark sees it (#629).
-  markdown = rewriteWikilinkImageEmbeds(markdown)
+  // `![[chart.png|600]]` becomes `![|600](chart.png)` before remark sees it
+  // (#629), and so does a drawing embed, whose picture the resolver renders (#1078).
+  markdown = rewriteWikilinkImageEmbeds(markdown, { drawings: true })
   const processor = unified()
     .use(remarkParse)
     .use(remarkSingleDashParagraph)
