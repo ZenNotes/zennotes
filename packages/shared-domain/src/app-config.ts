@@ -48,6 +48,26 @@ export function defaultTimeFormat(): TimeFormat {
   return '24h'
 }
 
+/** The range a separate PDF export font size may take, in px. */
+export const PDF_EXPORT_FONT_SIZE_MIN = 8
+export const PDF_EXPORT_FONT_SIZE_MAX = 32
+
+/**
+ * A stored PDF export font size: 0 (use the editor's size, the default) or a
+ * whole px value inside the range. Anything else, including a hand-edited
+ * config.toml value, falls back to 0 so an export never prints at an
+ * unreadable size. (#1078)
+ */
+export function normalizePdfExportFontSize(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return 0
+  return Math.min(PDF_EXPORT_FONT_SIZE_MAX, Math.max(PDF_EXPORT_FONT_SIZE_MIN, Math.round(value)))
+}
+
+/** The text size a PDF export prints at: its own size when set, else the editor's. */
+export function pdfExportFontSizePx(pdfExportFontSize: unknown, editorFontSize: number): number {
+  return normalizePdfExportFontSize(pdfExportFontSize) || editorFontSize
+}
+
 const PORTABLE_KEY_SET: ReadonlySet<string> = new Set(PORTABLE_PREF_KEYS)
 
 /** True when `key` is one of the portable preference keys. */
@@ -137,6 +157,7 @@ export const PORTABLE_DEFAULTS: Record<PortablePrefKey, unknown> = {
   previewSmoothScroll: true,
   pdfEmbedInEditMode: 'compact',
   pdfExportUseTheme: false,
+  pdfExportFontSize: 0,
   themeId: 'dark-hard',
   themeFamily: 'gruvbox',
   themeMode: 'dark',

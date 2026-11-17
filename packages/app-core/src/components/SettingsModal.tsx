@@ -18,7 +18,12 @@ import {
   DEFAULT_MONTHLY_NOTE_TITLE_PATTERN,
   DEFAULT_MONTHLY_NOTES_DIRECTORY,
 } from "@shared/ipc";
-import type { VimWrappedLineMotionMode } from "@shared/app-config";
+import {
+  PDF_EXPORT_FONT_SIZE_MAX,
+  PDF_EXPORT_FONT_SIZE_MIN,
+  normalizePdfExportFontSize,
+  type VimWrappedLineMotionMode,
+} from "@shared/app-config";
 import { HARPER_DIALECTS } from "@shared/harper-settings";
 import { harperSupported } from "../lib/harper-runtime";
 import { setKeepRunningInTray, useTrayStore } from "../lib/tray-runtime";
@@ -1067,6 +1072,8 @@ export function SettingsModal(): JSX.Element {
   const setNestedTags = useStore((s) => s.setNestedTags);
   const pdfExportUseTheme = useStore((s) => s.pdfExportUseTheme);
   const setPdfExportUseTheme = useStore((s) => s.setPdfExportUseTheme);
+  const pdfExportFontSize = useStore((s) => s.pdfExportFontSize);
+  const setPdfExportFontSize = useStore((s) => s.setPdfExportFontSize);
   const [editingRemoteProfile, setEditingRemoteProfile] = useState<{
     mode: "create" | "edit";
     value?: RemoteWorkspaceProfileInput;
@@ -1777,6 +1784,12 @@ export function SettingsModal(): JSX.Element {
             "paper",
           ],
         },
+        {
+          id: "pdf-export-font-size",
+          title: "Separate PDF font size",
+          description: "Give PDF exports their own text size instead of the editor's.",
+          keywords: ["pdf", "export pdf", "pdf font", "font size", "text size", "print"],
+        },
       ],
       content: (
         <div className="space-y-6">
@@ -2242,6 +2255,28 @@ export function SettingsModal(): JSX.Element {
               settingId="pdf-export-use-theme"
               onChange={setPdfExportUseTheme}
             />
+            <ToggleRow
+              label="Separate PDF font size"
+              description="Off: PDFs use the editor's font size."
+              value={pdfExportFontSize > 0}
+              settingId="pdf-export-font-size"
+              onChange={(on) =>
+                setPdfExportFontSize(
+                  on ? normalizePdfExportFontSize(editorFontSize) : 0,
+                )
+              }
+            />
+            {pdfExportFontSize > 0 && (
+              <SliderRow
+                label="PDF font size"
+                value={pdfExportFontSize}
+                min={PDF_EXPORT_FONT_SIZE_MIN}
+                max={PDF_EXPORT_FONT_SIZE_MAX}
+                step={1}
+                unit="px"
+                onChange={setPdfExportFontSize}
+              />
+            )}
           </Section>
         </div>
       ),

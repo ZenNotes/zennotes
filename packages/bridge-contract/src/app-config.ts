@@ -67,6 +67,7 @@ export const PORTABLE_PREF_KEYS = [
   'previewSmoothScroll',
   'pdfEmbedInEditMode',
   'pdfExportUseTheme',
+  'pdfExportFontSize',
   // appearance
   'themeId',
   'themeFamily',

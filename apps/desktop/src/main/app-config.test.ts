@@ -217,6 +217,12 @@ describe('TOML serialization', () => {
     ])
   })
 
+  it('round-trips a separate PDF export font size under [appearance] (#1078)', () => {
+    const text = serializeConfig({ pdfExportFontSize: 11 })
+    expect(text).toMatch(/\[appearance\][\s\S]*pdf_export_font_size = 11/)
+    expect(deserializeConfig(text).portable.pdfExportFontSize).toBe(11)
+  })
+
   it('persists null as empty string and reads it back as null', () => {
     const text = serializeConfig({
       ripgrepBinaryPath: null,
@@ -239,6 +245,7 @@ describe('TOML serialization', () => {
     expect(text).toContain('theme_mode = "dark"  # light | dark | auto')
     expect(text).toContain('backend = "auto"  # auto | builtin | ripgrep | fzf')
     expect(text).toContain('font_size = 16')
+    expect(text).toContain('pdf_export_font_size = 0  # PDF text size in px (8-32); 0 uses the editor font size')
     expect(text).toContain('auto_pairs = true  # auto-insert matching [] () and {} while typing')
     expect(text).toContain(
       'auto_pair_quotes_in_prose = false  # also auto-insert matching quotes outside Markdown code'

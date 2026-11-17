@@ -14,6 +14,7 @@ import {
   resolveCustomThemeMode
 } from '@renderer/lib/custom-themes'
 import { withExportTitle } from '@shared/export-title'
+import { pdfExportFontSizePx } from '@shared/app-config'
 import { fitExportImageBoxes, settleExportImages } from '@renderer/lib/export-images'
 import { fitExportImagesToPages } from '@renderer/lib/export-pagination'
 import '@renderer/styles/index.css'
@@ -36,6 +37,8 @@ type ExportPrefs = {
    *  carries the user's CSS snippets and color tweaks into the export so the
    *  PDF matches the preview (#401). */
   pdfExportUseTheme: boolean
+  /** The PDF's own text size, or 0 for the editor's (`pdfExportFontSize`). */
+  pdfExportFontSize: number
   themeId: string
   themeFamily: ThemeFamily
   themeMode: ExportThemeMode
@@ -55,6 +58,7 @@ const DEFAULT_EXPORT_PREFS: ExportPrefs = {
   textFont: null,
   monoFont: null,
   pdfExportUseTheme: false,
+  pdfExportFontSize: 0,
   themeId: 'github-light',
   themeFamily: 'github',
   themeMode: 'light',
@@ -111,6 +115,7 @@ function loadExportPrefs(): ExportPrefs {
         typeof parsed.pdfExportUseTheme === 'boolean'
           ? parsed.pdfExportUseTheme
           : DEFAULT_EXPORT_PREFS.pdfExportUseTheme,
+      pdfExportFontSize: safeNumber(parsed.pdfExportFontSize, DEFAULT_EXPORT_PREFS.pdfExportFontSize),
       themeId: safeString(parsed.themeId) ?? DEFAULT_EXPORT_PREFS.themeId,
       themeFamily: (safeString(parsed.themeFamily) ?? DEFAULT_EXPORT_PREFS.themeFamily) as ThemeFamily,
       themeMode,
@@ -209,7 +214,10 @@ function applyExportPrefs(prefs: ExportPrefs): void {
   // preview (#401). Synchronous; the CSS snippet overrides load in the effect.
   // The clean light-for-print export deliberately ignores both.
   if (prefs.pdfExportUseTheme) injectTweaks(prefs.themeTweaks)
-  html.style.setProperty('--z-editor-font-size', `${prefs.editorFontSize}px`)
+  html.style.setProperty(
+    '--z-editor-font-size',
+    `${pdfExportFontSizePx(prefs.pdfExportFontSize, prefs.editorFontSize)}px`
+  )
   html.style.setProperty('--z-editor-line-height', String(prefs.editorLineHeight))
   html.style.setProperty(
     '--z-preview-max-width',

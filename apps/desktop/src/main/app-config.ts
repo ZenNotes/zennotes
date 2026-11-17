@@ -291,6 +291,11 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
     tomlKey: 'pdf_export_use_theme',
     comment: 'true | false: export PDFs using the current theme instead of a clean light print theme'
   },
+  pdfExportFontSize: {
+    section: 'appearance',
+    tomlKey: 'pdf_export_font_size',
+    comment: 'PDF text size in px (8-32); 0 uses the editor font size'
+  },
   themeFamily: {
     section: 'appearance',
     tomlKey: 'theme_family',

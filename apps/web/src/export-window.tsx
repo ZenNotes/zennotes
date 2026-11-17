@@ -5,12 +5,15 @@ import { LazyPreview as Preview } from '@renderer/components/LazyPreview'
 import { useStore } from '@renderer/store'
 import { settleExportImages } from '@renderer/lib/export-images'
 import { withExportTitle } from '@shared/export-title'
+import { pdfExportFontSizePx } from '@shared/app-config'
 import '@renderer/styles/index.css'
 
 const PREFS_KEY = 'zen:prefs:v2'
 
 type ExportPrefs = {
   editorFontSize: number
+  /** The PDF's own text size, or 0 for the editor's (`pdfExportFontSize`). */
+  pdfExportFontSize: number
   editorLineHeight: number
   previewMaxWidth: number
   editorMaxWidth: number
@@ -22,6 +25,7 @@ type ExportPrefs = {
 
 const DEFAULT_EXPORT_PREFS: ExportPrefs = {
   editorFontSize: 16,
+  pdfExportFontSize: 0,
   editorLineHeight: 1.7,
   previewMaxWidth: 920,
   editorMaxWidth: 920,
@@ -47,6 +51,7 @@ function loadExportPrefs(): ExportPrefs {
     const contentAlign = parsed.contentAlign === 'left' ? 'left' : 'center'
     return {
       editorFontSize: safeNumber(parsed.editorFontSize, DEFAULT_EXPORT_PREFS.editorFontSize),
+      pdfExportFontSize: safeNumber(parsed.pdfExportFontSize, DEFAULT_EXPORT_PREFS.pdfExportFontSize),
       editorLineHeight: safeNumber(parsed.editorLineHeight, DEFAULT_EXPORT_PREFS.editorLineHeight),
       previewMaxWidth: safeNumber(parsed.previewMaxWidth, DEFAULT_EXPORT_PREFS.previewMaxWidth),
       editorMaxWidth: safeNumber(parsed.editorMaxWidth, DEFAULT_EXPORT_PREFS.editorMaxWidth),
@@ -76,7 +81,10 @@ function applyExportPrefs(prefs: ExportPrefs): void {
   html.dataset.contentAlign = prefs.contentAlign
   html.setAttribute('data-opaque', '')
   html.style.colorScheme = 'light'
-  html.style.setProperty('--z-editor-font-size', `${prefs.editorFontSize}px`)
+  html.style.setProperty(
+    '--z-editor-font-size',
+    `${pdfExportFontSizePx(prefs.pdfExportFontSize, prefs.editorFontSize)}px`
+  )
   html.style.setProperty('--z-editor-line-height', String(prefs.editorLineHeight))
   html.style.setProperty(
     '--z-preview-max-width',
