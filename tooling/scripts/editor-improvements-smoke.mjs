@@ -448,14 +448,44 @@ async function main() {
     if (!firstReady) throw new Error('Primary editor did not become ready')
     await dismissWhatsNew(client)
 
-    const labels = await evaluate(
+    // The 2.86.0 gate saw this read return ["H2","H2"] once under a load
+    // average near 19, and 21 reruns never repeated it. Poll instead of
+    // reading once, and on a miss print what the editor held at that moment,
+    // so the next failure names its cause instead of being struck as a flake.
+    const labelsExpression = `Array.from(document.querySelectorAll('.cm-heading-level-label')).map((node) => node.textContent)`
+    const labelsComplete = await until(
       client,
-      `Array.from(document.querySelectorAll('.cm-heading-level-label')).map((node) => node.textContent)`
+      `(() => {
+        const labels = ${labelsExpression}
+        return labels.includes('H1') && labels.filter((label) => label === 'H2').length >= 2
+      })()`,
+      3000
     )
+    const labels = await evaluate(client, labelsExpression)
+    let labelsDetail = JSON.stringify(labels)
+    if (!labelsComplete) {
+      const editorState = await evaluate(
+        client,
+        `(() => {
+          const editor = document.querySelector('.cm-editor')
+          const scroller = document.querySelector('.cm-scroller')
+          return {
+            labelsClass: !!editor?.classList.contains('zen-heading-level-labels'),
+            scrollTop: scroller ? Math.round(scroller.scrollTop) : null,
+            scrollerHeight: scroller ? Math.round(scroller.clientHeight) : null,
+            lines: Array.from(document.querySelectorAll('.cm-line'))
+              .slice(0, 6)
+              .map((line) => ({ text: line.textContent, cls: line.className })),
+            activeElement: document.activeElement?.className ?? null
+          }
+        })()`
+      )
+      labelsDetail = `${labelsDetail} after 3 s; editor ${JSON.stringify(editorState)}`
+    }
     check(
       'heading level labels render from the portable setting',
-      Array.isArray(labels) && labels.includes('H1') && labels.filter((label) => label === 'H2').length >= 2,
-      JSON.stringify(labels)
+      !!labelsComplete,
+      labelsDetail
     )
 
     // DOM presence is not paint: at this window size the chips once rendered
