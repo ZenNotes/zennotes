@@ -87,6 +87,7 @@ import { StatusBar } from "./StatusBar";
 import { cloudSyncNeedsUser, useCloudSyncStatusStore } from "../lib/cloud-auto-sync";
 import { statusBarVisible } from "../lib/status-bar-visibility";
 import { defineStatusBarOption } from "../lib/vim-status-bar-option";
+import { defineWrapOption } from "../lib/vim-wrap-option";
 import { EditorPane } from "./EditorPane";
 import { focusPaneInDirection, focusPaneOrEdgePanel } from "../lib/pane-nav";
 import { requestPaneMode } from "../lib/pane-mode";
@@ -674,6 +675,7 @@ function registerVimCommands(): void {
     },
   );
   defineStatusBarOption();
+  defineWrapOption();
   // `:harper on|off` (or bare `:harper` to toggle) is the ex twin of the
   // Settings toggle "Grammar and spelling with Harper".
   Vim.defineEx(

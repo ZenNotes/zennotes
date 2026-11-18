@@ -1113,6 +1113,11 @@ export const HELP_VIM_COMMANDS: HelpExCommand<HelpText>[] = [
     detail: 'The same switch as Settings, Appearance, Chrome, Status bar: `:set nostatusbar` hides the bar along the bottom, `:set statusbar` brings it back and `:set statusbar?` says which it is (`stb` for short). Hidden, the bar still shows while ZenNotes Cloud needs you.'
   },
   {
+    command: ':set [no]wrap',
+    summary: 'Wrap long lines, or scroll them sideways',
+    detail: 'The same switch as Settings, Editor, Word wrap, the Toggle Word Wrap command and Alt+Z (Option+Z on a Mac): `:set nowrap` lets long lines run off to the right and scroll, `:set wrap` wraps them again, `:set wrap!` flips it and `:set wrap?` says which it is. The choice is saved as [editor].word_wrap in config.toml.'
+  },
+  {
     command: ':harper [on|off]',
     summary: 'Grammar and spelling with Harper',
     detail: 'Turn Harper on or off for the editor, or toggle it with no argument. The same switch as Settings, Editor, Grammar and spelling with Harper.'
@@ -1571,7 +1576,7 @@ export const HELP_SETTINGS: HelpSettingsSection<HelpText>[] = [
       { label: 'Link popover on hover', detail: 'On by default. Resting the pointer on a `[[wikilink]]` in the editor opens the link popover, where the linked note can be edited, or created when it does not exist yet, without leaving the note you are in. Off, the popover opens only from the keyboard: `K` in Vim mode, or Shift+Cmd+K (Shift+Ctrl+K on Windows and Linux). `link_popover_on_hover` under `[editor]` in config.toml.' },
       { label: 'Text replacements', detail: 'Enable or disable typed expansions and manage the trigger-to-text rules under the dedicated Text replacements tab.' },
       { label: 'Note tabs and wrap tabs', detail: 'Enable or disable tab-based editing and split-friendly note workflows, and wrap the tab strip onto extra rows when it overflows.' },
-      { label: 'Word wrap', detail: 'Wrap long lines to the editor width or let them scroll horizontally.' },
+      { label: 'Word wrap', detail: 'Wrap long lines to the editor width or let them scroll horizontally. Alt+Z (Option+Z on a Mac) and the Toggle Word Wrap command flip it from anywhere, and in Vim mode `:set nowrap`, `:set wrap` and `:set wrap?` turn it off, turn it on and say which it is. The preference is saved as [editor].word_wrap in config.toml.' },
       { label: 'Blinking cursor', detail: 'Blink the editor caret and the Vim block cursor, or turn it off for a solid cursor (for example, to match the macOS "Prefer non-blinking cursor" accessibility setting). Applies to both the insert-mode caret and the Vim normal-mode block cursor.' },
       { label: 'PDFs in edit mode', detail: 'Choose between compact PDF cards or full inline PDF embeds while writing.' },
       { label: 'Date-titled Quick Notes', detail: 'Name quick notes by date instead of timestamp-based titles.' },

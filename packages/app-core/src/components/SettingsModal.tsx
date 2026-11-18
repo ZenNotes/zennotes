@@ -2748,7 +2748,7 @@ export function SettingsModal(): JSX.Element {
           title: "Word wrap",
           description:
             "Wrap long lines to the editor width. Turn off to scroll horizontally instead.",
-          keywords: ["wrap", "line wrap"],
+          keywords: ["wrap", "nowrap", "line wrap", "vim"],
         },
         {
           id: "cursor-blink",
