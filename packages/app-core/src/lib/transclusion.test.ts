@@ -148,6 +148,35 @@ describe('expandEmbeds: block transclusion (#601)', () => {
     expect(out).toContain('First note')
     expect(out).toContain('Third note')
   })
+
+  // A repeating parent task with chips, a subtask rollup and an id on a child
+  // once looked clipped ("ter the plants") while #1083 was verified. The text on
+  // disk had been split by a test harness typing into the note; the embed was
+  // right. This keeps the whole chain honest: extract, expand, render.
+  it('renders a marked parent task in full, with its chips and rollup', async () => {
+    const chores = {
+      Chores: {
+        title: 'Chores',
+        body:
+          '# Chores\n\n' +
+          '- [ ] Water the plants @repeat:weekly due:2026-11-22 ^plants\n' +
+          '  - [ ] Ferns ^ferns\n' +
+          '  - [ ] Cactus\n'
+      }
+    }
+    const out = await expandEmbeds('![[Chores^plants]]', 'Dashboard.md', anchorAwareCtxFor(chores))
+    const host = document.createElement('div')
+    host.innerHTML = renderMarkdown(out)
+    const parent = host.querySelector('.note-embed > ul > li')?.cloneNode(true) as HTMLElement
+    parent.querySelector('ul')?.remove()
+    // The due chip and the rollup chip are adjacent spans; CSS spaces them.
+    expect(parent.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+      'Water the plants @repeat:weekly due:2026-11-220/2'
+    )
+    expect(host.querySelector('.zen-task-rollup')?.textContent).toBe('0/2')
+    expect(host.textContent).not.toContain('^plants')
+    expect(host.textContent).not.toContain('^ferns')
+  })
 })
 
 describe('note embeds with an escaped pipe', () => {

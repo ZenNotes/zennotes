@@ -1,4 +1,5 @@
 import type { TaskPriority, VaultTask } from '@zennotes/bridge-contract/tasks'
+import { trailingBlockIdRange } from './block-anchors'
 import { parseFrontmatterFields, unquote } from './frontmatter'
 import type { NoteFolder } from './ipc'
 import { FENCE_RE, TASK_LINE_RE } from './tasklists'
@@ -309,7 +310,14 @@ export function parseTasksFromBody(
     const cancelled = checkedChar === '-'
     const inProgress = checkedChar === '/'
 
-    const tokens = extractTokens(tail)
+    // A trailing `^id` names the line for `[[Note^id]]` links; it is
+    // addressing, not the task's words. Home, Tasks, Kanban, Calendar and
+    // reminder titles all read `content`, so the marker leaves here, with the
+    // block-id grammar itself, the way the reading view hides it. `rawText`
+    // keeps it, and every write starts from `rawText`, so the id stays on disk.
+    const anchor = trailingBlockIdRange(tail)
+    const text = anchor ? tail.slice(0, anchor.from) : tail
+    const tokens = extractTokens(text)
 
     const task: VaultTask = {
       id,
@@ -319,7 +327,7 @@ export function parseTasksFromBody(
       lineNumber: i,
       taskIndex,
       rawText: line,
-      content: tokens.stripped || tail.trim(),
+      content: tokens.stripped || text.trim(),
       checked,
       forwarded,
       cancelled,
