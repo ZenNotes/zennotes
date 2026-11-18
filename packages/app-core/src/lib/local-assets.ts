@@ -541,8 +541,12 @@ export function enhanceLocalAssetNodes(
     /** When set, PDF embeds matching this vault-relative path are
      *  collapsed to a compact placeholder instead of a full iframe. */
     pinnedAssetPath?: string | null
-    onActivatePinnedRef?: (() => void) | null
-    onOpenAsset?: ((assetPath: string) => void) | null
+    /** A card for the pinned PDF was clicked; `href` is the link it was
+     *  written with, `#page=…` and all. */
+    onActivatePinnedRef?: ((href: string) => void) | null
+    /** Open a vault file in its tab. `href` is the link as written, so a
+     *  PDF's `#page=…` reaches the tab (#1085). */
+    onOpenAsset?: ((assetPath: string, href?: string) => void) | null
     /** The Cloud notice for the file at a vault-relative path, or null.
      *  Left out while no file is over the limit, and then no embed is
      *  looked up for it at all. */
@@ -696,7 +700,7 @@ export function enhanceLocalAssetNodes(
       anchor.addEventListener('click', (event) => {
         event.preventDefault()
         event.stopPropagation()
-        onOpenAsset(assetVaultRel)
+        onOpenAsset(assetVaultRel, raw)
       })
     }
 
@@ -732,7 +736,7 @@ export function enhanceLocalAssetNodes(
         paragraph.replaceWith(
           withCloudNotice(
             buildPinnedRefPlaceholder(resolved, raw, label, () => {
-              onActivatePinnedRef?.()
+              onActivatePinnedRef?.(raw)
             }),
             assetVaultRel
           )
@@ -747,7 +751,7 @@ export function enhanceLocalAssetNodes(
           resolved,
           label,
           raw,
-          assetVaultRel && onOpenAsset ? () => onOpenAsset(assetVaultRel) : null
+          assetVaultRel && onOpenAsset ? () => onOpenAsset(assetVaultRel, raw) : null
         ),
         assetVaultRel
       )

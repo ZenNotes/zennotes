@@ -43,7 +43,7 @@ import {
   oversizedCloudFiles,
 } from "../lib/cloud-oversized-files";
 import { assetTabPath } from "../lib/asset-tabs";
-import { openAssetInTab } from "../lib/asset-tab-location";
+import { openAssetInTab, pinPdfReferenceAt } from "../lib/asset-tab-location";
 import { isExcalidrawPath, isObsidianExcalidrawPath } from "@shared/excalidraw";
 import { resolveExcalidrawEmbedPath } from "../lib/excalidraw-preview";
 import { LazyExcalidrawPreview } from "./LazyExcalidrawPreview";
@@ -831,11 +831,21 @@ export const Preview = memo(function Preview({
       notePath,
       onRequestEdit,
       pinnedAssetPath,
-      onActivatePinnedRef: () => {
+      onActivatePinnedRef: (href) => {
+        // A card that names a page goes there; one that does not only
+        // reveals the pane, keeping the reader's place. (#1085)
+        const fragment = hrefFragment(href);
+        const root = vaultRootRef.current;
+        const vaultRel =
+          fragment && root ? resolveAssetVaultRelativePath(root, notePath, href) : null;
+        if (vaultRel) {
+          pinPdfReferenceAt(notePath, vaultRel, fragment);
+          return;
+        }
         if (!pinnedRefVisible) togglePinnedRefVisible();
       },
-      onOpenAsset: (path) => {
-        void openNoteInTabRef.current(assetTabPath(path));
+      onOpenAsset: (path, href) => {
+        void openAssetInTab(path, href ? hrefFragment(href) : null);
       },
       cloudSyncNotice:
         oversizedFiles.size > 0
@@ -1103,7 +1113,7 @@ export const Preview = memo(function Preview({
         disabled: !vaultRel,
         onSelect: async () => {
           if (vaultRel) {
-            pinAssetReferenceForNote(notePath, vaultRel, fragment);
+            pinPdfReferenceAt(notePath, vaultRel, fragment);
           }
         },
       },

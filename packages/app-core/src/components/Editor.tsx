@@ -63,6 +63,7 @@ import {
 import { promptApp } from "../lib/prompt-requests";
 import { offerCreateNoteFromLink } from "../lib/create-note-from-link";
 import { openWikilinkAttachment } from "../lib/open-wikilink-attachment";
+import { pinPdfReferenceAt } from "../lib/asset-tab-location";
 import { buildVersionReport } from "../lib/version-report";
 import { writeClipboardText } from "../lib/clipboard-text";
 import {
@@ -980,8 +981,8 @@ function registerVimCommands(): void {
           target,
         );
         if (abs) {
-          const fragment = hrefFragment(target);
-          state.pinAssetReferenceForNote(activePath, abs, fragment || null);
+          // A repeated `gd` returns to the link's spot. (#1085)
+          pinPdfReferenceAt(activePath, abs, hrefFragment(target));
           return;
         }
       }

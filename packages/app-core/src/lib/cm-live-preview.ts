@@ -32,7 +32,7 @@ import { setImageBlockDragPayload } from './image-block-dnd'
 import { imageCacheKey, rememberImageOnLoad, takeCachedImage } from './image-element-cache'
 import { attachImageResizeHandle, setImageWidthOnLine } from './image-resize'
 import { assetTabPath } from './asset-tabs'
-import { openAssetInTab } from './asset-tab-location'
+import { openAssetInTab, pinPdfReferenceAt } from './asset-tab-location'
 import { openVaultAssetExternally } from './external-file-link'
 import { canShowPdfInline } from './pdf-inline'
 import { checkOffTaskAtMarker } from './cm-task-recurrence'
@@ -725,7 +725,10 @@ class LocalPdfWidget extends WidgetType {
           if (assetPath) void openVaultAssetExternally(assetPath, { confirm: false })
           return
         }
-        if (this.pinnedAsRef) {
+        const fragment = hrefFragment(this.href)
+        // Already pinned: a card without a page only reveals the pane, so the
+        // reader keeps their place. A card that names a page goes there. (#1085)
+        if (this.pinnedAsRef && !fragment) {
           if (!state.pinnedRefVisible) state.togglePinnedRefVisible()
           return
         }
@@ -735,7 +738,7 @@ class LocalPdfWidget extends WidgetType {
         const abs = resolveAssetVaultRelativePath(root, notePath, this.href)
         // Default to a per-note pin — the PDF stays attached to this
         // note and quietly disappears when the user navigates away.
-        if (abs) state.pinAssetReferenceForNote(notePath, abs, hrefFragment(this.href) || null)
+        if (abs) pinPdfReferenceAt(notePath, abs, fragment)
       })
 
       const icon = document.createElement('span')
@@ -804,7 +807,7 @@ class LocalPdfWidget extends WidgetType {
       const notePath = state.activeNote?.path
       if (!root || !notePath) return
       const abs = resolveAssetVaultRelativePath(root, notePath, this.href)
-      if (abs) state.pinAssetReferenceForNote(notePath, abs, hrefFragment(this.href) || null)
+      if (abs) pinPdfReferenceAt(notePath, abs, hrefFragment(this.href))
     })
 
     const openButton = document.createElement('button')

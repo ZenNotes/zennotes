@@ -22,9 +22,15 @@ export interface AssetTabLocation {
 
 interface AssetTabLocationState {
   byTab: Record<string, AssetTabLocation>
+  /** Reference-pane frame URL (with its fragment) -> the nonce of the last
+   *  link followed to it. */
+  referenceJumps: Record<string, number>
 }
 
-export const useAssetTabLocations = create<AssetTabLocationState>(() => ({ byTab: {} }))
+export const useAssetTabLocations = create<AssetTabLocationState>(() => ({
+  byTab: {},
+  referenceJumps: {}
+}))
 
 let nextNonce = 1
 let pruning = false
@@ -65,6 +71,34 @@ export function openAssetInTab(assetPath: string, fragment?: string | null): Pro
     useAssetTabLocations.setState((s) => ({ byTab: { ...s.byTab, [tabPath]: location } }))
   }
   return useStore.getState().openNoteInTab(tabPath)
+}
+
+/**
+ * Pin a PDF in the reference pane at the spot a followed link names.
+ *
+ * The pane keeps one frame per URL alive so switching between references
+ * leaves each PDF where the reader left it; that is right for switching, but
+ * a followed link must land on its spot. Before this, a card whose PDF was
+ * already pinned only revealed the pane, so `[p. 4](paper.pdf#page=4)` showed
+ * whatever page the pane was on (#1085). The pin takes the link's fragment,
+ * and a fresh nonce for that frame's URL remounts it at the spot, even when
+ * the same location was visited and scrolled away from before. A link with no
+ * fragment pins as it always did.
+ */
+export function pinPdfReferenceAt(
+  notePath: string,
+  assetPath: string,
+  fragment?: string | null
+): void {
+  const state = useStore.getState()
+  const frag = fragment && fragment.length > 1 ? (fragment.startsWith('#') ? fragment : `#${fragment}`) : null
+  state.pinAssetReferenceForNote(notePath, assetPath, frag)
+  const root = state.vault?.root
+  if (!frag || !root) return
+  const url = window.zen.resolveVaultAssetUrl(root, assetPath) + frag
+  useAssetTabLocations.setState((s) => ({
+    referenceJumps: { ...s.referenceJumps, [url]: nextNonce++ }
+  }))
 }
 
 export function assetTabLocation(tabPath: string): AssetTabLocation | null {

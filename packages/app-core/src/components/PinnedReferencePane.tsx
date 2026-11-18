@@ -69,6 +69,7 @@ import { LazyPreview as Preview } from './LazyPreview'
 import { PdfOpenElsewhere } from './PdfOpenElsewhere'
 import { CloseIcon, LinkIcon, PanelLeftIcon, PinIcon } from './icons'
 import { copyPdfLocationLink, nextPdfFrameName, PDF_FRAME_ATTR, pdfFrameForCommand } from '../lib/pdf-location-link'
+import { useAssetTabLocations } from '../lib/asset-tab-location'
 import { editorTabSize } from '../lib/editor-tab-size'
 import { appMarkdownSnippetExtension } from '../lib/markdown-snippets-config'
 import { cursorDrawSelection } from '../lib/cm-cursor-blink'
@@ -481,6 +482,8 @@ export function PinnedReferencePane(): JSX.Element | null {
   }
   const canCopyPdfLink =
     assetKind === 'pdf' && !pdfElsewhere && typeof window.zen.readPdfViewLocation === 'function'
+  // A followed link remounts its frame at the link's spot (pinPdfReferenceAt).
+  const referenceJumps = useAssetTabLocations((s) => s.referenceJumps)
 
   // Track every asset URL the user has pinned this session. One iframe
   // per unique URL stays mounted for the life of the app — show/hide
@@ -680,7 +683,7 @@ export function PinnedReferencePane(): JSX.Element | null {
           >
             {seenAssetUrls.map((url) => (
               <iframe
-                key={url}
+                key={`${url}|${referenceJumps[url] ?? 0}`}
                 src={url}
                 name={frameNameFor(url)}
                 {...(url === assetUrlWithFragment && assetKind === 'pdf' && pinnedRefPath
