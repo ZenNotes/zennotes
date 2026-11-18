@@ -58,6 +58,20 @@ describe('checking off a recurring task in the editor (#1036)', () => {
     )
   })
 
+  it('block ids stay on the copies; the record, ticked subtasks included, drops them (#1083)', () => {
+    const doc =
+      '- [ ] Review @repeat:weekly due:2026-11-01 ^review\n  - [ ] Inbox ^inbox\n  ^inbox-block\n' +
+      '  - [ ] Plan ^plan\n- [ ] other'
+    const view = new EditorView({
+      state: EditorState.create({ doc, selection: EditorSelection.range(0, doc.indexOf('Plan') + 2) })
+    })
+    toggleCheckbox(view)
+    expect(view.state.doc.toString()).toBe(
+      '- [ ] Review @repeat:weekly due:2026-11-08 ^review\n  - [ ] Inbox ^inbox\n  ^inbox-block\n' +
+        '  - [ ] Plan ^plan\n- [x] Review due:2026-11-01\n  - [x] Inbox\n  - [x] Plan\n- [ ] other'
+    )
+  })
+
   it('one undo step: the whole edit is a single transaction', () => {
     const view = viewOf('- [ ] A @repeat:daily due:2026-11-01', 0)
     let transactions = 0

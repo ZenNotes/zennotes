@@ -24,6 +24,7 @@
  * daylight-saving change can never shift a date. The zn CLI mirrors this edit
  * in Go; `task-recurrence.cases.json` holds the cases both test suites run.
  */
+import { trailingBlockIdRange } from './block-anchors'
 import { TASK_LINE_RE, leadingIndentWidth, taskBlockEnd, taskLineNumbers } from './tasklists'
 import { noteFrontmatterDue } from './tasks'
 
@@ -218,6 +219,11 @@ function bare(line: string): string {
   return line.endsWith('\r') ? line.slice(0, -1) : line
 }
 
+/** `text` cut at a block marker found at `from`, trailing blanks trimmed. */
+function withoutMarker(text: string, from: number): string {
+  return text.slice(0, from).replace(/[ \t]+$/, '')
+}
+
 export interface RecurringCompletionOptions {
   /** The day the task is finished, `YYYY-MM-DD` in the user's time zone. */
   today: string
@@ -233,9 +239,11 @@ export interface RecurringLinePlan {
   next: string[]
   /** The finished task's own line, rewritten as the record. */
   record: string
-  /** Its subtree as the record keeps it: the subtasks still open (`[ ]`,
-   *  `[/]`) cancelled, everything else as it was. */
-  recordChildren: string[]
+  /** Its subtree as the record keeps it, one entry per line under the task:
+   *  the subtasks still open (`[ ]`, `[/]`) cancelled, block ids dropped,
+   *  everything else as it was. Null for a line the record leaves out (a
+   *  `^id` marker alone on its line). */
+  recordChildren: (string | null)[]
   /** How many lines the plan replaces: the task's line and its subtree. */
   replaces: number
   nextDue: string
@@ -270,27 +278,52 @@ export function planRecurringCompletion(
   // The occurrence keeps the text, priority, tags and every other field, in
   // their order; `due:` is replaced where it stood. Its per-occurrence state
   // does not carry: `@waiting` and the board's `@status:` start fresh.
+  // A `^id` block marker has to end its line, so a `due:` the roll adds goes
+  // in before it.
+  const ownMarker = trailingBlockIdRange(rest)
   let nextRest = DUE_TOKEN_RE.test(rest)
     ? rest.replace(DUE_TOKEN_RE, `$1due:${nextDue}`)
-    : `${rest.replace(/\s+$/u, '')} due:${nextDue}`
+    : ownMarker
+      ? `${withoutMarker(rest, ownMarker.from)} due:${nextDue} ${rest.slice(ownMarker.from)}`
+      : `${rest.replace(/\s+$/u, '')} due:${nextDue}`
   nextRest = tidy(nextRest.replace(WAITING_TOKEN_RE, '$1').replace(STATUS_TOKEN_RE, '$1'))
   const next = [`${match[1]} ]${nextRest}`]
+
+  // Block ids (`^id`) stay with the open occurrence and leave the record
+  // (#1083). A link or embed of a repeating task means the series, and lookup
+  // takes the first of a repeated id, which was the occurrence above: copying
+  // the id to both lines grew one more duplicate per roll, while moving it to
+  // the record would point every existing link at finished work. A fence
+  // ends a task's subtree, so no line here is code and each `^id` is one.
+  const end = taskBlockEnd(lines.map(bare), at, leadingIndentWidth(bare(line)))
+  const block = lines.slice(at, end).map(bare)
 
   // The subtree comes along with every checkbox open again: a weekly review's
   // checklist starts each week unticked. Notes under it copy verbatim.
   // The record cancels the subtasks it left open, so only the fresh copies
   // above read as live work; ticked, cancelled and forwarded ones stay.
-  const end = taskBlockEnd(lines.map(bare), at, leadingIndentWidth(bare(line)))
-  const recordChildren: string[] = []
-  for (let i = at + 1; i < end; i++) {
-    const child = bare(lines[i])
+  const recordChildren: (string | null)[] = []
+  for (let k = 1; k < block.length; k++) {
+    let child = block[k]
     const childMatch = child.match(TASK_LINE_RE)
     next.push(childMatch ? `${childMatch[1]} ${childMatch[3]}` : child)
-    const open = childMatch && (childMatch[2] === ' ' || childMatch[2] === '/')
-    recordChildren.push(open ? `${childMatch[1]}-${childMatch[3]}` : child)
+    const marker = trailingBlockIdRange(child)
+    if (marker) {
+      // A marker alone on its line names the block above it; the record
+      // has no use for the line once the id is gone.
+      child = withoutMarker(child, marker.from)
+      if (child.trim() === '') {
+        recordChildren.push(null)
+        continue
+      }
+    }
+    const recordMatch = childMatch && child.match(TASK_LINE_RE)
+    const open = recordMatch && (recordMatch[2] === ' ' || recordMatch[2] === '/')
+    recordChildren.push(open ? `${recordMatch[1]}-${recordMatch[3]}` : child)
   }
 
-  const recordRest = tidy(rest.replace(REPEAT_TOKEN_RE, '$1').replace(REMIND_TOKEN_RE, '$1'))
+  const recordSource = ownMarker ? withoutMarker(rest, ownMarker.from) : rest
+  const recordRest = tidy(recordSource.replace(REPEAT_TOKEN_RE, '$1').replace(REMIND_TOKEN_RE, '$1'))
   const record = `${match[1]}${opts.skip ? '-' : 'x'}]${recordRest}`
   return { next, record, recordChildren, replaces: end - at, nextDue, rule }
 }
@@ -343,7 +376,7 @@ export function completeRecurringTaskAtLine(
     plan.replaces,
     ...plan.next.map((l) => l + ending),
     plan.record + ending,
-    ...plan.recordChildren.map((l, k) => l + endingOf(at + 1 + k))
+    ...plan.recordChildren.flatMap((l, k) => (l == null ? [] : [l + endingOf(at + 1 + k)]))
   )
   return {
     body: lines.join('\n'),

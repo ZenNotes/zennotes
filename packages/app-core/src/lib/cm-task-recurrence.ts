@@ -62,10 +62,16 @@ export function recurringCheckOff(
   })
   if (!plan) return null
   const last = state.doc.line(lineNumber + plan.replaces - 1)
-  const recordChildren = plan.recordChildren.map((child, k) => {
-    if (!opts.ticked?.(lineNumber + 1 + k)) return child
+  const recordChildren = plan.recordChildren.flatMap((child, k) => {
+    if (child == null) return []
+    if (!opts.ticked?.(lineNumber + 1 + k)) return [child]
+    // Ticked: the subtask the record would cancel is written done instead.
+    // It starts from the record's line, which has already lost its `^id`.
     const before = state.doc.line(lineNumber + 1 + k).text.match(TASK_LINE_RE)
-    return before && (before[2] === ' ' || before[2] === '/') ? `${before[1]}x${before[3]}` : child
+    const recorded = child.match(TASK_LINE_RE)
+    return before && recorded && (before[2] === ' ' || before[2] === '/')
+      ? [`${recorded[1]}x${recorded[3]}`]
+      : [child]
   })
   return {
     change: {

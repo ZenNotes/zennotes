@@ -159,6 +159,56 @@
       "expected": null
     },
     {
+      "name": "a block id stays on the open occurrence and leaves the record",
+      "body": "- [ ] Water the plants @repeat:weekly due:2026-11-01 ^plants",
+      "taskIndex": 0,
+      "today": "2026-11-01",
+      "expected": "- [ ] Water the plants @repeat:weekly due:2026-11-08 ^plants\n- [x] Water the plants due:2026-11-01"
+    },
+    {
+      "name": "a due the roll adds goes before the block id, which must end the line",
+      "body": "- [ ] Stretch @repeat:3d ^stretch",
+      "taskIndex": 0,
+      "today": "2026-11-01",
+      "expected": "- [ ] Stretch @repeat:3d due:2026-11-04 ^stretch\n- [x] Stretch"
+    },
+    {
+      "name": "subtask and note ids stay on the copies and leave the record",
+      "body": "- [ ] Review @repeat:weekly due:2026-11-01 ^review\n  - [ ] Inbox ^inbox\n  - [x] Plan ^plan\n  Notes on the week ^notes",
+      "taskIndex": 0,
+      "today": "2026-11-01",
+      "expected": "- [ ] Review @repeat:weekly due:2026-11-08 ^review\n  - [ ] Inbox ^inbox\n  - [ ] Plan ^plan\n  Notes on the week ^notes\n- [x] Review due:2026-11-01\n  - [-] Inbox\n  - [x] Plan\n  Notes on the week"
+    },
+    {
+      "name": "a marker alone on its line stays with the copy, and the record drops the line",
+      "body": "- [ ] Weekly review @repeat:weekly due:2026-11-01\n  - [ ] Inbox\n  ^review\n- [ ] after",
+      "taskIndex": 0,
+      "today": "2026-11-01",
+      "expected": "- [ ] Weekly review @repeat:weekly due:2026-11-08\n  - [ ] Inbox\n  ^review\n- [x] Weekly review due:2026-11-01\n  - [-] Inbox\n- [ ] after"
+    },
+    {
+      "name": "a fenced sample after the task is not its subtree and keeps its caret",
+      "body": "- [ ] Deploy @repeat:weekly due:2026-11-01\n  ```\n  echo 2 ^two\n  ```",
+      "taskIndex": 0,
+      "today": "2026-11-01",
+      "expected": "- [ ] Deploy @repeat:weekly due:2026-11-08\n- [x] Deploy due:2026-11-01\n  ```\n  echo 2 ^two\n  ```"
+    },
+    {
+      "name": "skip this time moves the block id the same way",
+      "body": "- [ ] Gym @repeat:mon/thu due:2026-11-02 ^gym",
+      "taskIndex": 0,
+      "today": "2026-11-01",
+      "skip": true,
+      "expected": "- [ ] Gym @repeat:mon/thu due:2026-11-05 ^gym\n- [-] Gym due:2026-11-02"
+    },
+    {
+      "name": "windows line endings survive a record that drops a marker line",
+      "body": "- [ ] Win @repeat:daily due:2026-11-01 ^win\r\n  - [ ] sub ^sub\r\n  ^tail\r\n- [ ] after\r\n",
+      "taskIndex": 0,
+      "today": "2026-11-01",
+      "expected": "- [ ] Win @repeat:daily due:2026-11-02 ^win\r\n  - [ ] sub ^sub\r\n  ^tail\r\n- [x] Win due:2026-11-01\r\n  - [-] sub\r\n- [ ] after\r\n"
+    },
+    {
       "name": "a task without a rule is ordinary",
       "body": "- [ ] Plain due:2026-11-01",
       "taskIndex": 0,
