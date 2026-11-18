@@ -40,6 +40,23 @@ export const CLOUD_ANNOUNCEMENT = {
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    version: '2.87.0',
+    highlights: [
+      {
+        title: 'PDF links open at their page',
+        body: 'A link to a page of a PDF opens there and marks the line it lands on. Copy link at the top of a PDF, or Space P in Vim mode, makes a link to the spot you are reading.'
+      },
+      {
+        title: 'A font size for PDF exports',
+        body: 'Settings, Appearance, PDF export: turn on Separate PDF font size to print larger or smaller than the editor.'
+      },
+      {
+        title: 'Drawings in Word exports',
+        body: 'Excalidraw drawings embedded in a note now appear in its Word export too.'
+      }
+    ]
+  },
+  {
     version: '2.86.0',
     highlights: [
       {
