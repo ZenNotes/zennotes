@@ -5,6 +5,7 @@ import type {
   ZenAppInfo,
   ZenBridge,
   ZenCapabilities,
+  PdfFlashTarget,
   PdfViewLocation
 } from '@zennotes/bridge-contract/bridge'
 import type {
@@ -895,6 +896,8 @@ const api: ZenBridge = {
   clipboardReadText: (): string => clipboard.readText(),
   readPdfViewLocation: (frameName: string): Promise<PdfViewLocation | null> =>
     ipcRenderer.invoke(IPC.APP_PDF_VIEW_LOCATION, frameName),
+  flashPdfLocation: (frameName: string, target: PdfFlashTarget): Promise<boolean> =>
+    ipcRenderer.invoke(IPC.APP_PDF_FLASH_LOCATION, frameName, target),
 
   getConfigSync: (): AppConfigPortable | null => {
     try {

@@ -395,7 +395,7 @@ import {
   isAssetTabPath
 } from '../lib/asset-tabs'
 import { useAssetTabLocations } from '../lib/asset-tab-location'
-import { copyPdfLocationLink, nextPdfFrameName, PDF_FRAME_ATTR } from '../lib/pdf-location-link'
+import { copyPdfLocationLink, flashPdfFrameOnce, nextPdfFrameName, PDF_FRAME_ATTR } from '../lib/pdf-location-link'
 import {
   diagramFromTabPath,
   diagramTitleFromTabPath,
@@ -5263,6 +5263,13 @@ function AssetTabView({
   const pdfFrameRef = useRef<HTMLIFrameElement | null>(null)
   const showsPdf = assetKind === 'pdf' && !!assetPath && !!assetUrl && canShowPdfInline()
   const canCopyPdfLink = showsPdf && typeof window.zen.readPdfViewLocation === 'function'
+  // Mark the spot a followed link landed on, once per follow (#1085).
+  const locationNonce = location?.nonce ?? 0
+  const locationFragment = location?.fragment ?? null
+  useEffect(() => {
+    if (!showsPdf || !locationNonce) return
+    flashPdfFrameOnce(`tab:${tabPath}:${locationNonce}`, pdfFrameName, locationFragment)
+  }, [showsPdf, locationNonce, locationFragment, tabPath, pdfFrameName])
   const canReveal =
     !!assetPath &&
     window.zen.getAppInfo().runtime === 'desktop' &&

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { hrefFragment } from './local-assets'
 import { resolveAssetPathAmong } from './asset-path-resolution'
-import { pdfLocationFragment, pdfLocationMarkdownLink } from './pdf-location-link'
+import { pdfFlashTargetFromFragment, pdfLocationFragment, pdfLocationMarkdownLink } from './pdf-location-link'
 
 describe('pdfLocationMarkdownLink (#1085)', () => {
   const location = { page: 3, zoom: 120, left: 0, top: 410 }
@@ -27,5 +27,20 @@ describe('pdfLocationMarkdownLink (#1085)', () => {
     expect(hrefFragment(href)).toBe('#page=3&zoom=120,0,410')
     // Pasted into a note in another folder, the link still reaches the file.
     expect(resolveAssetPathAmong([{ path }], 'Projects/Reading/notes.md', href)).toBe(path)
+  })
+})
+
+describe('pdfFlashTargetFromFragment (#1085)', () => {
+  it('reads the page and how far down it a link points', () => {
+    expect(pdfFlashTargetFromFragment('#page=4&zoom=150,0,333')).toEqual({ page: 4, top: 333 })
+    expect(pdfFlashTargetFromFragment('#page=3&zoom=150')).toEqual({ page: 3, top: 0 })
+    expect(pdfFlashTargetFromFragment('#page=2')).toEqual({ page: 2, top: 0 })
+  })
+
+  it('has nothing to mark without a page', () => {
+    expect(pdfFlashTargetFromFragment('#search=theorem')).toBeNull()
+    expect(pdfFlashTargetFromFragment('#zoom=150')).toBeNull()
+    expect(pdfFlashTargetFromFragment('')).toBeNull()
+    expect(pdfFlashTargetFromFragment(null)).toBeNull()
   })
 })

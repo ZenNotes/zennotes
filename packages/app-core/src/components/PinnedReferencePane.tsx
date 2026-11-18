@@ -68,7 +68,7 @@ import { canShowPdfInline } from '../lib/pdf-inline'
 import { LazyPreview as Preview } from './LazyPreview'
 import { PdfOpenElsewhere } from './PdfOpenElsewhere'
 import { CloseIcon, LinkIcon, PanelLeftIcon, PinIcon } from './icons'
-import { copyPdfLocationLink, nextPdfFrameName, PDF_FRAME_ATTR, pdfFrameForCommand } from '../lib/pdf-location-link'
+import { copyPdfLocationLink, flashPdfFrameOnce, nextPdfFrameName, PDF_FRAME_ATTR, pdfFrameForCommand } from '../lib/pdf-location-link'
 import { useAssetTabLocations } from '../lib/asset-tab-location'
 import { editorTabSize } from '../lib/editor-tab-size'
 import { appMarkdownSnippetExtension } from '../lib/markdown-snippets-config'
@@ -482,8 +482,15 @@ export function PinnedReferencePane(): JSX.Element | null {
   }
   const canCopyPdfLink =
     assetKind === 'pdf' && !pdfElsewhere && typeof window.zen.readPdfViewLocation === 'function'
-  // A followed link remounts its frame at the link's spot (pinPdfReferenceAt).
+  // A followed link remounts its frame at the link's spot (pinPdfReferenceAt)
+  // and marks that spot once.
   const referenceJumps = useAssetTabLocations((s) => s.referenceJumps)
+  const jumpNonce = assetUrlWithFragment ? referenceJumps[assetUrlWithFragment] ?? 0 : 0
+  useEffect(() => {
+    if (!jumpNonce || !assetUrlWithFragment || assetKind !== 'pdf' || pdfElsewhere) return
+    flashPdfFrameOnce(`ref:${jumpNonce}`, frameNameFor(assetUrlWithFragment), pinnedRefFragment)
+    // frameNameFor is stable per URL, so the nonce alone marks a new jump.
+  }, [jumpNonce, assetUrlWithFragment, assetKind, pdfElsewhere, pinnedRefFragment])
 
   // Track every asset URL the user has pinned this session. One iframe
   // per unique URL stays mounted for the life of the app — show/hide

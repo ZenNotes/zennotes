@@ -5,6 +5,11 @@ import type { ZenPlatform } from './platform.js'
  * `page` counts from 1, `zoom` is a percentage, and `left`/`top` are offsets
  * from the page's top-left corner at 100% zoom.
  */
+export interface PdfFlashTarget {
+  page: number
+  top: number
+}
+
 export interface PdfViewLocation {
   page: number
   zoom: number
@@ -664,6 +669,12 @@ export interface ZenBridge {
    * loaded PDF. Read from the built-in viewer by the main process (#1085).
    */
   readPdfViewLocation?(frameName: string): Promise<PdfViewLocation | null>
+  /**
+   * Desktop only: once the PDF in the iframe named `frameName` has loaded and
+   * scrolled, draw a band over the spot a link named (`page` from 1, `top`
+   * down that page at 100% zoom) and fade it out. Resolves true when drawn.
+   */
+  flashPdfLocation?(frameName: string, target: PdfFlashTarget): Promise<boolean>
 
   /**
    * Portable preferences read synchronously from the on-disk config file at

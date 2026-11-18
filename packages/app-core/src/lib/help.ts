@@ -138,7 +138,8 @@ export const HELP_QUICK_START: HelpCard<HelpText>[] = [
     title: 'Link to a page in a PDF',
     body: [
       'A link to a PDF can name a spot in it: `[Paper, p. 3](assets/paper.pdf#page=3&zoom=150)`. Clicking the link opens the PDF in its tab at that page and zoom, and `gd` pins it in the reference pane at the same spot. Follow the link again after reading on and the PDF returns to the spot.',
-      { only: 'desktop', text: ' To make such a link from what you are reading, press Copy link at the top of the PDF’s tab (the link icon in the reference pane), run Copy Link to PDF Location from the command palette, or press `Space P` in Vim mode. The link names the page, the zoom and how far down the page you are, ready to paste into any note. If the PDF has the keyboard, press Escape first.' }
+      { only: 'desktop', text: ' A soft yellow band marks the spot for a moment as the PDF lands there, then fades; a link to the top of a page outlines the whole page instead.' },
+      { only: 'desktop', text: ' To make such a link from what you are reading, press Copy link at the top of the PDF’s tab (the link icon in the reference pane), run Copy Link to PDF Location from the command palette, or press `Space P` in Vim mode. The link names the page, the zoom and the line you are reading (a fifth of the way down the view), or the page as a whole when its top is in view, ready to paste into any note. Following it brings that line back a fifth of the way down. If the PDF has the keyboard, press Escape first.' }
     ]
   },
   {

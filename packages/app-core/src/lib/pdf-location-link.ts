@@ -1,4 +1,4 @@
-import type { PdfViewLocation } from '@zennotes/bridge-contract/bridge'
+import type { PdfFlashTarget, PdfViewLocation } from '@zennotes/bridge-contract/bridge'
 import { useToastStore } from './toast'
 
 /**
@@ -83,4 +83,36 @@ export async function copyPdfLocationLink(frame: HTMLIFrameElement | null): Prom
     location ? 'success' : 'info'
   )
   return true
+}
+
+/**
+ * The spot a link's fragment names, for marking it once the PDF lands there:
+ * `#page=4&zoom=150,0,333` is page 4, 333 down. A fragment with a page and no
+ * position marks the top of that page. Null without a page (a `#search=`, a
+ * named destination), where there is no single spot to mark.
+ */
+export function pdfFlashTargetFromFragment(fragment: string | null | undefined): PdfFlashTarget | null {
+  if (!fragment) return null
+  const params = new URLSearchParams(fragment.replace(/^#/, ''))
+  const page = Number(params.get('page'))
+  if (!Number.isInteger(page) || page < 1) return null
+  const zoom = params.get('zoom')?.split(',') ?? []
+  const top = zoom.length >= 3 ? Number(zoom[2]) : 0
+  return { page, top: Number.isFinite(top) && top > 0 ? top : 0 }
+}
+
+const flashed = new Set<string>()
+
+/**
+ * Mark the spot a followed link landed on with a band that fades out (#1085).
+ * `jumpKey` names one jump (a tab's or the reference pane's nonce), so a frame
+ * that remounts later, when its tab comes back to the front, does not flash
+ * again. Desktop only; elsewhere, and on any failure, nothing is drawn.
+ */
+export function flashPdfFrameOnce(jumpKey: string, frameName: string, fragment: string | null | undefined): void {
+  if (flashed.has(jumpKey)) return
+  const target = pdfFlashTargetFromFragment(fragment)
+  if (!target || typeof window.zen.flashPdfLocation !== 'function') return
+  flashed.add(jumpKey)
+  void window.zen.flashPdfLocation(frameName, target).catch(() => false)
 }

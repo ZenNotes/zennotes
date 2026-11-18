@@ -32,7 +32,7 @@ import type { TaskReminderTarget } from "@zennotes/bridge-contract/tasks";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { IPC } from "@shared/ipc";
-import { readPdfViewLocation } from "./pdf-view-location";
+import { flashPdfLocation, readPdfViewLocation } from "./pdf-view-location";
 import { openExternalUrl } from "./external-urls";
 import type {
   CloudAccountStatus,
@@ -4089,6 +4089,9 @@ function registerIpc(): void {
 
   handle(IPC.APP_PDF_VIEW_LOCATION, (event, frameName: unknown) =>
     readPdfViewLocation(event.sender, frameName),
+  );
+  handle(IPC.APP_PDF_FLASH_LOCATION, (event, frameName: unknown, target: unknown) =>
+    flashPdfLocation(event.sender, frameName, target),
   );
   handle(IPC.APP_LIST_FONTS, async () => {
     return await listFontFamilies();

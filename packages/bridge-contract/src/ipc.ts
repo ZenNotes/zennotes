@@ -112,6 +112,8 @@ export const IPC = {
   APP_FRAME_ESCAPE: 'app:frame-escape',
   /** Where a PDF frame of this window is scrolled to (#1085). */
   APP_PDF_VIEW_LOCATION: 'app:pdf-view-location',
+  /** Briefly mark the spot a followed PDF link landed on (#1085). */
+  APP_PDF_FLASH_LOCATION: 'app:pdf-flash-location',
   APP_RENDERER_READY: 'app:renderer-ready',
   APP_ZOOM_IN: 'app:zoom-in',
   APP_ZOOM_OUT: 'app:zoom-out',
