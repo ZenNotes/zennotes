@@ -4,7 +4,8 @@ import appPackage from '../../package.json'
 import type {
   ZenAppInfo,
   ZenBridge,
-  ZenCapabilities
+  ZenCapabilities,
+  PdfViewLocation
 } from '@zennotes/bridge-contract/bridge'
 import type {
   CustomTemplateFile,
@@ -892,6 +893,8 @@ const api: ZenBridge = {
     ipcRenderer.invoke(IPC.RAYCAST_INSTALL),
   clipboardWriteText: (text: string): void => clipboard.writeText(text),
   clipboardReadText: (): string => clipboard.readText(),
+  readPdfViewLocation: (frameName: string): Promise<PdfViewLocation | null> =>
+    ipcRenderer.invoke(IPC.APP_PDF_VIEW_LOCATION, frameName),
 
   getConfigSync: (): AppConfigPortable | null => {
     try {

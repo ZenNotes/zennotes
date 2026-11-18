@@ -14,7 +14,8 @@ const state = vi.hoisted(() => ({
   setFocusedPanel: vi.fn(),
   editorViewRef: null,
   selectNote: vi.fn(() => Promise.resolve()),
-  assetFiles: [{ path: 'assets/diagram.png' }],
+  assetFiles: [{ path: 'assets/diagram.png' }, { path: 'assets/papers/paper.pdf' }],
+  paneLayout: { kind: 'leaf' as const, id: 'p1', tabs: [] as string[], pinnedTabs: [] as string[] },
   openNoteInTab: vi.fn(() => Promise.resolve())
 }))
 
@@ -23,7 +24,7 @@ const offerCreateNoteFromLink = vi.hoisted(() => vi.fn())
 const createNoteFromLinkNow = vi.hoisted(() => vi.fn())
 
 vi.mock('../store', () => ({
-  useStore: { getState: () => state }
+  useStore: { getState: () => state, subscribe: vi.fn(() => () => undefined) }
 }))
 
 vi.mock('./wikilink-navigation', () => ({
@@ -36,6 +37,7 @@ vi.mock('./create-note-from-link', () => ({ offerCreateNoteFromLink, createNoteF
 
 const { followLinkTarget } = await import('./follow-link')
 const { useToastStore } = await import('./toast')
+const { assetTabLocation } = await import('./asset-tab-location')
 
 describe('followLinkTarget: same-note anchors (#601)', () => {
   it('opens [[^block]] in the selected note instead of offering to create a note', () => {
@@ -55,6 +57,28 @@ describe('followLinkTarget: wikilinks at vault files (#757)', () => {
 
     expect(state.openNoteInTab).toHaveBeenCalledWith('zen://asset/assets%2Fdiagram.png')
     expect(offerCreateNoteFromLink).not.toHaveBeenCalled()
+  })
+
+  it("opens a PDF link's tab at the page and zoom the link names (#1085)", () => {
+    state.openNoteInTab.mockClear()
+    const tab = 'zen://asset/assets%2Fpapers%2Fpaper.pdf'
+
+    expect(followLinkTarget('assets/papers/paper.pdf#page=3&zoom=120,0,400')).toBe(true)
+    expect(state.openNoteInTab).toHaveBeenCalledWith(tab)
+    const first = assetTabLocation(tab)
+    expect(first?.fragment).toBe('#page=3&zoom=120,0,400')
+
+    // Following the same link again is a new request, so the frame returns
+    // to the spot even if the reader scrolled away.
+    followLinkTarget('assets/papers/paper.pdf#page=3&zoom=120,0,400')
+    expect(assetTabLocation(tab)?.nonce).not.toBe(first?.nonce)
+  })
+
+  it('opens a PDF link without a fragment where it always did', () => {
+    state.openNoteInTab.mockClear()
+    followLinkTarget('assets/diagram.png#ignored')
+    expect(state.openNoteInTab).toHaveBeenCalledWith('zen://asset/assets%2Fdiagram.png')
+    expect(assetTabLocation('zen://asset/assets%2Fdiagram.png')).toBeNull()
   })
 
   it('still offers to create a note for a target no file answers', () => {

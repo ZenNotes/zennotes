@@ -43,6 +43,7 @@ import {
   oversizedCloudFiles,
 } from "../lib/cloud-oversized-files";
 import { assetTabPath } from "../lib/asset-tabs";
+import { openAssetInTab } from "../lib/asset-tab-location";
 import { isExcalidrawPath, isObsidianExcalidrawPath } from "@shared/excalidraw";
 import { resolveExcalidrawEmbedPath } from "../lib/excalidraw-preview";
 import { LazyExcalidrawPreview } from "./LazyExcalidrawPreview";
@@ -571,7 +572,8 @@ export const Preview = memo(function Preview({
         const vaultRel = vaultRoot
           ? resolveAssetVaultRelativePath(vaultRoot, notePathRef.current, href || localAssetUrl)
           : null;
-        if (vaultRel) void openNoteInTabRef.current(assetTabPath(vaultRel));
+        // A PDF link's `#page=…` travels to the tab. (#1085)
+        if (vaultRel) void openAssetInTab(vaultRel, hrefFragment(href || localAssetUrl));
         return;
       }
       // External links: let Electron's window-open handler send them to the OS browser.

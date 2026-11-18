@@ -109,6 +109,7 @@ function resolveShortcutKeys(
         shortcut(overrides, 'vim.leaderCalloutType')
       )
     }
+    if (action === 'Copy PDF link') return leaderShortcut(overrides, 'vim.leaderCopyPdfLink')
     if (action === 'Code block language') {
       return chord(
         leaderShortcut(overrides, 'vim.leaderNoteActions'),

@@ -191,4 +191,24 @@ describe("escapeEmbedFrame", () => {
     expect(escapeEmbedFrame()).toBe(true);
     expect(document.activeElement).toBe(host);
   });
+
+  it("hands the keyboard back from a PDF in its tab or the reference pane (#1085)", () => {
+    const pane = document.createElement("section");
+    pane.innerHTML = '<iframe name="zen-pdf-1" data-zen-pdf-path="assets/paper.pdf"></iframe>';
+    document.body.appendChild(pane);
+    const iframe = pane.querySelector("iframe");
+    iframe?.focus();
+    expect(document.activeElement).toBe(iframe);
+
+    expect(escapeEmbedFrame()).toBe(true);
+    expect(document.activeElement).not.toBe(iframe);
+  });
+
+  it("leaves any other iframe alone", () => {
+    const frame = document.createElement("iframe");
+    document.body.appendChild(frame);
+    frame.focus();
+    expect(escapeEmbedFrame()).toBe(false);
+    expect(document.activeElement).toBe(frame);
+  });
 });

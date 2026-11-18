@@ -92,6 +92,7 @@ import {
 import { runWorkflowById } from './workflow-trigger'
 import { requestPublishNote } from './publish-note-requests'
 import { activeReferencePath } from './pinned-reference'
+import { copyPdfLocationLink, pdfFrameForCommand } from './pdf-location-link'
 import {
   hasCloudVaultRemovalNotice,
   hasPendingCloudReview,
@@ -2321,6 +2322,23 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       when: () => !!activeReferencePath(getState()),
       run: () => {
         getState().togglePinnedRefVisible()
+      }
+    },
+    // A Markdown link to the spot the open PDF shows, in its tab or the
+    // reference pane (#1085). Desktop only: main reads the PDF viewer.
+    {
+      id: 'pdf.copy-location-link',
+      title: 'Copy Link to PDF Location',
+      category: 'Reference',
+      shortcut: vimOnly(
+        chord('vim.leaderPrefix', 'vim.leaderCopyPdfLink')
+      ),
+      keywords: 'pdf page link source cite citation location position zoom copy paper',
+      unavailableReason: () => 'Open a PDF in a tab or the reference pane first',
+      when: () =>
+        typeof window.zen.readPdfViewLocation === 'function' && pdfFrameForCommand() !== null,
+      run: async () => {
+        await copyPdfLocationLink(pdfFrameForCommand())
       }
     },
     {

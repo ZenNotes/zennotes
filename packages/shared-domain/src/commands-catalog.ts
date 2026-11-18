@@ -210,6 +210,7 @@ export const COMMAND_CATALOG: CommandCatalogEntry[] = [
   { id: "ref.pin", title: "Pin Active Note as Reference", category: "Reference", keywords: "sticky side companion research" },
   { id: "ref.unpin", title: "Unpin Reference", category: "Reference" },
   { id: "ref.toggle", title: "Show or Hide Reference Pane", category: "Reference" },
+  { id: "pdf.copy-location-link", title: "Copy Link to PDF Location", category: "Reference", keywords: "pdf page link source cite citation location position zoom copy paper" },
   { id: "ref.focus", title: "Focus Reference Pane", category: "Reference" },
   { id: "ui.themes", title: "Themes…", category: "UI", keywords: "color appearance palette dark light" },
   { id: "ui.newTheme", title: "New Custom Theme…", category: "UI", keywords: "custom theme create css appearance author new" },

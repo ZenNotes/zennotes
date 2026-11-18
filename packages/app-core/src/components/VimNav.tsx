@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { copyPdfLocationLink, pdfFrameForCommand } from '../lib/pdf-location-link'
 import { completionStatus } from '@codemirror/autocomplete'
 import {
   isAtlasViewActive,
@@ -522,6 +523,13 @@ export function VimNav(): JSX.Element | null {
           ]
         : [])
     ]
+    if (typeof window.zen.readPdfViewLocation === 'function' && pdfFrameForCommand()) {
+      items.push({
+        keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderCopyPdfLink'),
+        label: 'Copy PDF link',
+        detail: 'Copy a Markdown link to the page the open PDF is showing.'
+      })
+    }
     if (whichKeyState.allowEditorActions) {
       items.push({
         keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderNoteActions'),
@@ -1233,6 +1241,13 @@ export function VimNav(): JSX.Element | null {
           e.preventDefault()
           e.stopImmediatePropagation()
           armLeader('leader-l', true)
+          return
+        }
+        if (matchesSequenceToken(e, overrides, 'vim.leaderCopyPdfLink') && pdfFrameForCommand()) {
+          e.preventDefault()
+          e.stopImmediatePropagation()
+          resetLeader()
+          void copyPdfLocationLink(pdfFrameForCommand())
           return
         }
         if (matchesSequenceToken(e, overrides, 'vim.leaderQuickCapture')) {

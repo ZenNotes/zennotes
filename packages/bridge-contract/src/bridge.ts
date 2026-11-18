@@ -1,4 +1,16 @@
 import type { ZenPlatform } from './platform.js'
+
+/**
+ * A spot in a PDF, in the terms of the viewer's `#page=…&zoom=…` fragment:
+ * `page` counts from 1, `zoom` is a percentage, and `left`/`top` are offsets
+ * from the page's top-left corner at 100% zoom.
+ */
+export interface PdfViewLocation {
+  page: number
+  zoom: number
+  left: number
+  top: number
+}
 import type { ClipApplyRequest, ClipNotice } from './clip.js'
 import type {
   AppUpdateState,
@@ -646,6 +658,12 @@ export interface ZenBridge {
   raycastInstall(): Promise<RaycastExtensionStatus>
   clipboardWriteText(text: string): void
   clipboardReadText(): string
+  /**
+   * Desktop only: the page, zoom and scroll spot of the PDF shown in the
+   * iframe whose `name` is `frameName`, or null when that frame is not a
+   * loaded PDF. Read from the built-in viewer by the main process (#1085).
+   */
+  readPdfViewLocation?(frameName: string): Promise<PdfViewLocation | null>
 
   /**
    * Portable preferences read synchronously from the on-disk config file at

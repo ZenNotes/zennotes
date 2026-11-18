@@ -110,6 +110,8 @@ export const IPC = {
   /** A clip outcome main reports itself (main -> renderer). */
   APP_CLIP_NOTICE: 'app:clip-notice',
   APP_FRAME_ESCAPE: 'app:frame-escape',
+  /** Where a PDF frame of this window is scrolled to (#1085). */
+  APP_PDF_VIEW_LOCATION: 'app:pdf-view-location',
   APP_RENDERER_READY: 'app:renderer-ready',
   APP_ZOOM_IN: 'app:zoom-in',
   APP_ZOOM_OUT: 'app:zoom-out',

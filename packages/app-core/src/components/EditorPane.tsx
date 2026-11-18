@@ -394,6 +394,8 @@ import {
   assetTitleFromPath,
   isAssetTabPath
 } from '../lib/asset-tabs'
+import { useAssetTabLocations } from '../lib/asset-tab-location'
+import { copyPdfLocationLink, nextPdfFrameName, PDF_FRAME_ATTR } from '../lib/pdf-location-link'
 import {
   diagramFromTabPath,
   diagramTitleFromTabPath,
@@ -4706,6 +4708,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     <section
       ref={paneRootRef}
       data-pane-id={paneId}
+      data-active-pane={isActive ? 'true' : undefined}
       className={paneFrameClass}
       onMouseDownCapture={() => {
         setActivePane(paneId)
@@ -5253,6 +5256,13 @@ function AssetTabView({
   const assetUrl =
     assetPath && vaultRoot ? window.zen.resolveVaultAssetUrl(vaultRoot, assetPath) : null
   const assetKind = assetPath ? classifyLocalAssetHref(assetPath) ?? 'file' : 'file'
+  // The page a followed link named (#1085). A new nonce remounts the frame, so
+  // following the same link again returns to that spot.
+  const location = useAssetTabLocations((s) => s.byTab[tabPath] ?? null)
+  const [pdfFrameName] = useState(nextPdfFrameName)
+  const pdfFrameRef = useRef<HTMLIFrameElement | null>(null)
+  const showsPdf = assetKind === 'pdf' && !!assetPath && !!assetUrl && canShowPdfInline()
+  const canCopyPdfLink = showsPdf && typeof window.zen.readPdfViewLocation === 'function'
   const canReveal =
     !!assetPath &&
     window.zen.getAppInfo().runtime === 'desktop' &&
@@ -5285,7 +5295,11 @@ function AssetTabView({
     <PdfOpenElsewhere assetPath={assetPath} title={title} />
   ) : (
     <iframe
-      src={assetUrl}
+      key={assetKind === 'pdf' && location ? location.nonce : 0}
+      ref={pdfFrameRef}
+      src={assetKind === 'pdf' && location ? assetUrl + location.fragment : assetUrl}
+      name={showsPdf ? pdfFrameName : undefined}
+      {...(showsPdf ? { [PDF_FRAME_ATTR]: assetPath } : {})}
       title={title}
       className="min-h-0 min-w-0 flex-1 border-0 bg-paper-50"
     />
@@ -5298,15 +5312,28 @@ function AssetTabView({
           <DocumentIcon width={15} height={15} className="shrink-0 text-accent" />
           <span className="truncate">{title}</span>
         </div>
-        {canReveal && assetPath && (
-          <button
-            type="button"
-            className="rounded-md px-2 py-1 text-xs font-medium text-ink-500 hover:bg-paper-200 hover:text-ink-900"
-            onClick={() => void window.zen.revealNote(assetPath)}
-          >
-            Reveal
-          </button>
-        )}
+        <div className="flex shrink-0 items-center gap-1">
+          {canCopyPdfLink && (
+            <button
+              type="button"
+              title="Copy a Markdown link to the page you're on"
+              className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-ink-500 hover:bg-paper-200 hover:text-ink-900"
+              onClick={() => void copyPdfLocationLink(pdfFrameRef.current)}
+            >
+              <LinkIcon width={13} height={13} />
+              Copy link
+            </button>
+          )}
+          {canReveal && assetPath && (
+            <button
+              type="button"
+              className="rounded-md px-2 py-1 text-xs font-medium text-ink-500 hover:bg-paper-200 hover:text-ink-900"
+              onClick={() => void window.zen.revealNote(assetPath)}
+            >
+              Reveal
+            </button>
+          )}
+        </div>
       </header>
       {body}
     </div>

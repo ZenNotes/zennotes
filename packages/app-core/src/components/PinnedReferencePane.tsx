@@ -67,7 +67,8 @@ import { classifyLocalAssetHref, hrefFragment, type LocalAssetKind } from '../li
 import { canShowPdfInline } from '../lib/pdf-inline'
 import { LazyPreview as Preview } from './LazyPreview'
 import { PdfOpenElsewhere } from './PdfOpenElsewhere'
-import { CloseIcon, PanelLeftIcon, PinIcon } from './icons'
+import { CloseIcon, LinkIcon, PanelLeftIcon, PinIcon } from './icons'
+import { copyPdfLocationLink, nextPdfFrameName, PDF_FRAME_ATTR, pdfFrameForCommand } from '../lib/pdf-location-link'
 import { editorTabSize } from '../lib/editor-tab-size'
 import { appMarkdownSnippetExtension } from '../lib/markdown-snippets-config'
 import { cursorDrawSelection } from '../lib/cm-cursor-blink'
@@ -467,6 +468,19 @@ export function PinnedReferencePane(): JSX.Element | null {
     pinnedRefPath && isAsset ? classifyLocalAssetHref(pinnedRefPath) ?? 'file' : null
   const pdfElsewhere = assetKind === 'pdf' && !canShowPdfInline()
   const useAssetIframe = (assetKind === 'pdf' && !pdfElsewhere) || assetKind === 'file'
+  // Each cached frame keeps one name for its life, so main can find the one
+  // on screen when its location is copied (#1085).
+  const frameNamesRef = useRef(new Map<string, string>())
+  const frameNameFor = (url: string): string => {
+    let name = frameNamesRef.current.get(url)
+    if (!name) {
+      name = nextPdfFrameName()
+      frameNamesRef.current.set(url, name)
+    }
+    return name
+  }
+  const canCopyPdfLink =
+    assetKind === 'pdf' && !pdfElsewhere && typeof window.zen.readPdfViewLocation === 'function'
 
   // Track every asset URL the user has pinned this session. One iframe
   // per unique URL stays mounted for the life of the app — show/hide
@@ -556,6 +570,23 @@ export function PinnedReferencePane(): JSX.Element | null {
                     </button>
                   ))}
                 </div>
+              )}
+              {canCopyPdfLink && (
+                <button
+                  type="button"
+                  title="Copy a Markdown link to the page you're on"
+                  aria-label="Copy link to PDF location"
+                  onClick={(event) => {
+                    const section = event.currentTarget.closest('section')
+                    const frame = section?.querySelector<HTMLIFrameElement>(
+                      `iframe[${PDF_FRAME_ATTR}]`
+                    )
+                    void copyPdfLocationLink(frame ?? pdfFrameForCommand())
+                  }}
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-ink-500 hover:bg-paper-200 hover:text-ink-900"
+                >
+                  <LinkIcon width={14} height={14} />
+                </button>
               )}
               <button
                 type="button"
@@ -651,6 +682,10 @@ export function PinnedReferencePane(): JSX.Element | null {
               <iframe
                 key={url}
                 src={url}
+                name={frameNameFor(url)}
+                {...(url === assetUrlWithFragment && assetKind === 'pdf' && pinnedRefPath
+                  ? { [PDF_FRAME_ATTR]: pinnedRefPath }
+                  : {})}
                 title={url}
                 className="absolute inset-0 h-full w-full border-0 bg-paper-50"
                 style={{

@@ -1,6 +1,7 @@
 import { useStore } from '../store'
 import { resolveAssetPathAmong } from './asset-path-resolution'
-import { assetTabPath } from './asset-tabs'
+import { openAssetInTab } from './asset-tab-location'
+import { hrefFragment } from './local-assets'
 
 /**
  * Open the vault file a wikilink names (`[[assets/diagram.png]]`, a PDF, an
@@ -12,11 +13,14 @@ import { assetTabPath } from './asset-tabs'
  * (cm-wikilink-render.ts) and the Vim `gd` action (Editor.tsx). Each fell
  * through to the create offer for a file target and proposed a note named
  * `assets/diagram.png.md`. This is the one step they share. (#757)
+ *
+ * A PDF link's `#page=3&zoom=150` comes along, so the tab opens where the
+ * link points rather than at page 1. (#1085)
  */
 export function openWikilinkAttachment(target: string): boolean {
   const state = useStore.getState()
   const assetPath = resolveAssetPathAmong(state.assetFiles, state.selectedPath ?? '', target)
   if (!assetPath) return false
-  void state.openNoteInTab(assetTabPath(assetPath))
+  void openAssetInTab(assetPath, hrefFragment(target))
   return true
 }

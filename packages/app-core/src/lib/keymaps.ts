@@ -75,6 +75,7 @@ export type KeymapId =
   | "vim.leaderNoteCoverUnsplash"
   | "vim.leaderCalloutType"
   | "vim.leaderCodeLanguage"
+  | "vim.leaderCopyPdfLink"
   | "vim.leaderQuickCapture"
   | "vim.leaderHideToTray"
   | "vim.leaderTemplatePicker"
@@ -817,6 +818,21 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description:
       "Open the code block language picker for the code block the cursor is in: pick a language to write after its fence, or Text (plain) to take it away.",
     defaultBinding: "l",
+    vimOnly: true,
+    maxTokens: 1,
+  },
+  {
+    id: "vim.leaderCopyPdfLink",
+    kind: "sequence",
+    scope: "leader",
+    group: "vim",
+    title: "Leader: copy link to PDF location",
+    // `P` for PDF, beside the leader's other capitals. It sits on the leader
+    // itself, not under Leader l: a PDF tab has no editor for the note group
+    // to act in. Escape hands the keyboard back from a PDF first.
+    description:
+      "Copy a Markdown link to the page, zoom and spot the open PDF is showing, in its tab or the reference pane.",
+    defaultBinding: "P",
     vimOnly: true,
     maxTokens: 1,
   },

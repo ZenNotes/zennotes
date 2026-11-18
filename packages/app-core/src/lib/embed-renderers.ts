@@ -19,6 +19,7 @@
  * note with several videos does not spawn several players on open.
  */
 import { EditorView } from '@codemirror/view'
+import { PDF_FRAME_ATTR } from './pdf-location-link'
 
 export type EmbedProvider = 'youtube' | 'vimeo'
 
@@ -259,6 +260,14 @@ export function renderEmbedElement(
 export function escapeEmbedFrame(): boolean {
   const active = document.activeElement
   if (!(active instanceof HTMLIFrameElement)) return false
+  // A PDF in its tab or the reference pane keeps the keyboard the same way,
+  // so Escape is how a reader gets back to the leader keys (`Space l p` copies
+  // a link to the page, #1085).
+  if (active.hasAttribute(PDF_FRAME_ATTR)) {
+    active.blur()
+    active.closest<HTMLElement>('[tabindex]')?.focus()
+    return true
+  }
   const surface = active.closest<HTMLElement>('.zen-embed-frame')
   if (!surface) return false
   // findFromDOM wants the editor root (it looks the content element up from

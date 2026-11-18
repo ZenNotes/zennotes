@@ -32,6 +32,7 @@ import { setImageBlockDragPayload } from './image-block-dnd'
 import { imageCacheKey, rememberImageOnLoad, takeCachedImage } from './image-element-cache'
 import { attachImageResizeHandle, setImageWidthOnLine } from './image-resize'
 import { assetTabPath } from './asset-tabs'
+import { openAssetInTab } from './asset-tab-location'
 import { openVaultAssetExternally } from './external-file-link'
 import { canShowPdfInline } from './pdf-inline'
 import { checkOffTaskAtMarker } from './cm-task-recurrence'
@@ -820,9 +821,8 @@ class LocalPdfWidget extends WidgetType {
       const assetPath = root && notePath
         ? resolveAssetVaultRelativePath(root, notePath, this.href)
         : null
-      if (assetPath) {
-        void state.openNoteInTab(assetTabPath(assetPath))
-      }
+      // The tab opens at the page the embed names, as the frame above does. (#1085)
+      if (assetPath) void openAssetInTab(assetPath, hrefFragment(this.href))
     })
 
     // Collapse the inline iframe back to the compact card without
