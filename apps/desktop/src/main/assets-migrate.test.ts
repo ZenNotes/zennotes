@@ -43,6 +43,17 @@ describe('migrateLooseAssets (#185 assets/ unification)', () => {
     expect(await exists(root, 'books.csv')).toBe(true)
   })
 
+  it('leaves a drawing at the vault root, where New Drawing writes it in Vault Root mode (#1086)', async () => {
+    const root = await makeVault()
+    await writeFile(path.join(root, 'Untitled drawing.excalidraw'), '{}', 'utf8')
+    await writeFile(path.join(root, 'photo.png'), 'x', 'utf8')
+
+    const { moved } = await migrateLooseAssets(root)
+    expect(moved).toEqual(['assets/photo.png'])
+    expect(await exists(root, 'Untitled drawing.excalidraw')).toBe(true)
+    expect(await exists(root, 'assets/Untitled drawing.excalidraw')).toBe(false)
+  })
+
   it('skips a file whose basename already exists in assets/ (keeps refs unambiguous)', async () => {
     const root = await makeVault()
     await mkdir(path.join(root, 'assets'), { recursive: true })

@@ -1868,6 +1868,11 @@ export async function migrateLooseAssets(
       if (entry.name.startsWith('.') || !entry.isFile()) continue
       if (isAtomicWriteTempPath(entry.name)) continue
       if (entry.name.toLowerCase().endsWith('.md')) continue // a note
+      // A drawing is listed with notes, and in a Vault Root vault the root is
+      // where New Drawing writes it. `assets/` is walked by neither the note
+      // list nor listAssets (which leaves drawings to the note list), so a
+      // moved drawing vanished from the app on the next launch (#1086).
+      if (isExcalidrawPath(entry.name)) continue
       if (databaseCsvPathFor(entry.name) || isDatabaseInternalPath(entry.name)) continue // a database
       await moveIntoAssets(entry.name)
     }
