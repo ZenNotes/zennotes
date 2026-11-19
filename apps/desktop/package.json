@@ -84,7 +84,7 @@
     "remark-math": "^6.0.0",
     "remark-parse": "^11.0.0",
     "remark-rehype": "^11.1.1",
-    "smol-toml": "^1.7.0",
+    "smol-toml": "^1.9.1",
     "unified": "^11.0.5",
     "unist-util-visit": "^5.0.0",
     "vscode-oniguruma": "^2.0.1",
