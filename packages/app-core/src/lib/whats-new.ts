@@ -40,6 +40,15 @@ export const CLOUD_ANNOUNCEMENT = {
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    version: '2.88.0',
+    highlights: [
+      {
+        title: 'Drawings stay where you made them',
+        body: 'A drawing created at the vault root no longer moves into assets on the next launch. If one went missing, it is in the assets folder: move it back to the vault root.'
+      }
+    ]
+  },
+  {
     version: '2.87.0',
     highlights: [
       {
