@@ -40,6 +40,15 @@ export const CLOUD_ANNOUNCEMENT = {
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    version: '2.89.0',
+    highlights: [
+      {
+        title: 'Reach a server behind Cloudflare Access',
+        body: 'Connect to Remote Vault can send extra headers with every request, for a server behind an access gateway such as Cloudflare Access. Choose Add extra headers on the Auth Token step, one Name: value per line.'
+      }
+    ]
+  },
+  {
     version: '2.88.0',
     highlights: [
       {
