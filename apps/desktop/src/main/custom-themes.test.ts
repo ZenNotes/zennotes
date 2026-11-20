@@ -158,6 +158,33 @@ describe('custom themes watcher', () => {
     },
     15_000
   )
+
+  // An edit just before the stop left its 200 ms debounce running, and the
+  // report it then made landed after teardown: in this file it read the
+  // config dir once ZENNOTES_CONFIG_DIR was gone and rejected on electron's
+  // missing `app` (an unhandled error in the 2.89.0 gate run).
+  it('reports nothing after the watcher stops', async () => {
+    const dir = await ensureCustomThemesDir()
+    await mkdir(join(dir, 'busy'))
+    const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+    // chokidar reports an edit once it has settled (about 250 ms here), and the
+    // report then waits out its 200 ms debounce. A stop somewhere in between
+    // must cancel it; stepping the stop across that window hits it on any
+    // machine's timing.
+    const late: number[] = []
+    for (let delay = 150; delay <= 650; delay += 50) {
+      let reports = 0
+      startWatchingCustomThemes(() => reports++)
+      await sleep(150)
+      await writeFile(join(dir, 'busy', 'theme.css'), `:root { --n: ${delay}; }\n`)
+      await sleep(delay)
+      await stopWatchingCustomThemes()
+      const atStop = reports
+      await sleep(450)
+      if (reports !== atStop) late.push(delay)
+    }
+    expect(late).toEqual([])
+  }, 30_000)
 })
 
 describe('resolveThemeAssetPath', () => {

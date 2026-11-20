@@ -378,17 +378,25 @@ export function resolveThemeAssetPath(slug: string, relPath: string): string | n
 }
 
 let watcher: ReturnType<typeof chokidar.watch> | null = null
+// The debounce outlives no watcher: a stop or a restart clears it, or an edit
+// just before the stop reports a list after it (into a torn-down test, once).
+let pendingReport: ReturnType<typeof setTimeout> | null = null
+
+function clearPendingReport(): void {
+  if (pendingReport) clearTimeout(pendingReport)
+  pendingReport = null
+}
 
 /** Watch the themes dir (incl. one level into each theme folder) and call
  *  `onChange` (debounced) with the fresh list. */
 export function startWatchingCustomThemes(onChange: (themes: CustomTheme[]) => void): void {
   const dir = getCustomThemesDir()
   void watcher?.close()
-  let timer: ReturnType<typeof setTimeout> | null = null
+  clearPendingReport()
   const fire = (): void => {
-    if (timer) clearTimeout(timer)
-    timer = setTimeout(() => {
-      timer = null
+    clearPendingReport()
+    pendingReport = setTimeout(() => {
+      pendingReport = null
       void listCustomThemes().then(onChange)
     }, 200)
   }
@@ -412,6 +420,7 @@ export function startWatchingCustomThemes(onChange: (themes: CustomTheme[]) => v
 
 /** Test/teardown hook: stop the themes watcher. */
 export async function stopWatchingCustomThemes(): Promise<void> {
+  clearPendingReport()
   await watcher?.close().catch(() => {})
   watcher = null
 }
