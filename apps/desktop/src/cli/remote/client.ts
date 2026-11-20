@@ -54,8 +54,8 @@ export class CliRemoteClient {
    * `headers` defaults to `ZENNOTES_REMOTE_HEADERS` (#1091): this bundled
    * `zn` and MCP server cannot read the app's secret store, where the desktop
    * app keeps a remote's extra headers, so a server behind an access gateway
-   * gets them from the environment. The standalone Go `zn` (ZenNotes/tui) is
-   * a separate client and does not read this yet. A value that does not parse throws here, before
+   * gets them from the environment. The standalone Go `zn` (ZenNotes/tui)
+   * reads the same variable under the same rules. A value that does not parse throws here, before
    * any request, with the reason.
    */
   constructor(

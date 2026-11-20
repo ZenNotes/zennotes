@@ -9,7 +9,8 @@
  * proxy's documentation write a header. The desktop app's connect dialog and
  * saved remote profiles take it, and so does `ZENNOTES_REMOTE_HEADERS` for the
  * MCP server and `zn` bundled with the app (a JSON env block writes the line
- * break as `\n`). The standalone Go `zn` does not read it yet. Values are secrets: the app keeps them in the OS secret store with
+ * break as `\n`). The standalone Go `zn` (ZenNotes/tui) reads the same variable under the
+ * same rules, in internal/remote/headers.go. Values are secrets: the app keeps them in the OS secret store with
  * the auth token, never in config.toml.
  */
 
