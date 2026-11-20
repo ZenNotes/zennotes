@@ -1068,11 +1068,21 @@ export interface RemoteWorkspaceInfo {
   bootError: string | null
 }
 
+/** One extra header sent to a remote workspace's server (#1091). The values
+ *  are secrets: they go to main and never come back to a renderer. */
+export interface RemoteHeaderInput {
+  name: string
+  value: string
+}
+
 export interface RemoteWorkspaceProfile {
   id: string
   name: string
   baseUrl: string
   hasCredential: boolean
+  /** The names of the extra headers saved for this remote, never their
+   *  values. Absent on hosts without remote headers. */
+  headerNames?: string[]
   vaultPath: string | null
   lastConnectedAt: number | null
 }
@@ -1083,6 +1093,9 @@ export interface RemoteWorkspaceProfileInput {
   baseUrl: string
   authToken?: string | null
   clearAuthToken?: boolean
+  /** Replaces the saved headers when given (an empty list removes them);
+   *  absent keeps what is saved, the way a blank token does. */
+  headers?: RemoteHeaderInput[] | null
   vaultPath?: string | null
 }
 

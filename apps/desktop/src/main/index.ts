@@ -137,6 +137,11 @@ import {
 } from "./agent-edit-files";
 import { parseAgentEditRecord } from "@shared/agent-edits";
 import {
+  formatRemoteHeaders,
+  parseRemoteHeaders,
+  type RemoteHeader,
+} from "@shared/remote-headers";
+import {
   initAppConfig,
   getPortableConfigSnapshot,
   setPortableConfig,
@@ -212,10 +217,13 @@ import {
   getCloudAccountKeySecret,
   setCloudAccountKeySecret,
   deleteCloudAccountKeySecret,
+  deleteRemoteWorkspaceHeaders,
   deleteRemoteWorkspaceSecret,
   getCloudServiceSecret,
+  getRemoteWorkspaceHeaders,
   getRemoteWorkspaceSecret,
   setCloudServiceSecret,
+  setRemoteWorkspaceHeaders,
   setRemoteWorkspaceSecret,
 } from "./secret-store";
 import { CloudAuthManager, resolveCloudBaseUrl } from "./cloud-auth";
@@ -2792,11 +2800,13 @@ async function setRemoteWorkspace(
     persist?: boolean;
     profileId?: string | null;
     vaultPath?: string | null;
+    headers?: readonly RemoteHeader[];
   } = {},
 ): Promise<{ vault: VaultInfo | null; capabilities: ServerCapabilities }> {
   const client = new RemoteServerClient({
     baseUrl,
     authToken,
+    headers: options.headers,
     onStalePath: () => sendRemoteResync(),
   });
   let capabilities = await client.getCapabilities();
@@ -3316,14 +3326,43 @@ async function listRemoteWorkspaceProfiles(): Promise<
       vaultPath: profile.vaultPath ?? null,
       lastConnectedAt: profile.lastConnectedAt ?? null,
       hasCredential: Boolean(await getRemoteWorkspaceSecret(profile.id)),
+      headerNames: (await getRemoteWorkspaceHeaders(profile.id)).map(
+        (header) => header.name,
+      ),
     })),
   );
+}
+
+/**
+ * Headers from a renderer are re-read here: main never trusts the renderer's
+ * list, and a list that does not parse is refused with the reason instead of
+ * being sent in part. `undefined` and `null` mean "not given".
+ */
+function remoteHeadersFromRenderer(value: unknown): RemoteHeader[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value)) {
+    throw new Error("Extra headers must be a list of name and value pairs.");
+  }
+  const pairs = value.map((entry) => {
+    const { name, value: headerValue } = (entry ?? {}) as Record<
+      string,
+      unknown
+    >;
+    if (typeof name !== "string" || typeof headerValue !== "string") {
+      throw new Error("Extra headers must be a list of name and value pairs.");
+    }
+    return { name, value: headerValue };
+  });
+  const parsed = parseRemoteHeaders(formatRemoteHeaders(pairs));
+  if (!parsed.ok) throw new Error(parsed.error);
+  return parsed.headers;
 }
 
 async function saveRemoteWorkspaceProfile(
   input: RemoteWorkspaceProfileInput & { lastConnectedAt?: number | null },
 ): Promise<RemoteWorkspaceProfile> {
   const normalizedId = input.id?.trim() || randomUUID();
+  const nextHeaders = remoteHeadersFromRenderer(input.headers);
   const nextToken = input.clearAuthToken
     ? null
     : typeof input.authToken === "string" && input.authToken.trim()
@@ -3392,6 +3431,14 @@ async function saveRemoteWorkspaceProfile(
   } else if (typeof input.authToken === "string" && input.authToken.trim()) {
     await setRemoteWorkspaceSecret(normalizedId, input.authToken.trim());
   }
+  if (nextHeaders !== undefined) {
+    const stored = await setRemoteWorkspaceHeaders(normalizedId, nextHeaders);
+    if (nextHeaders.length > 0 && !stored) {
+      throw new Error(
+        "ZenNotes could not store the extra headers securely, because no OS secret store is available.",
+      );
+    }
+  }
   if (nextToken !== undefined) {
     await followSharedServerToken(input.baseUrl, previousToken, nextToken);
   }
@@ -3414,6 +3461,9 @@ async function saveRemoteWorkspaceProfile(
       : typeof input.authToken === "string" && input.authToken.trim()
         ? true
         : Boolean(await getRemoteWorkspaceSecret(normalized.id)),
+    headerNames: (await getRemoteWorkspaceHeaders(normalized.id)).map(
+      (header) => header.name,
+    ),
   };
 }
 
@@ -3462,6 +3512,7 @@ async function deleteRemoteWorkspaceProfile(id: string): Promise<void> {
     };
   });
   await deleteRemoteWorkspaceSecret(id);
+  await deleteRemoteWorkspaceHeaders(id);
   if (forgottenServer) {
     await followSharedServerToken(forgottenServer, deletedSecret, null);
   }
@@ -3479,11 +3530,13 @@ async function connectRemoteWorkspaceProfile(
     throw new Error("That saved remote workspace no longer exists.");
   }
   const authToken = await getRemoteWorkspaceSecret(profile.id);
+  const headers = await getRemoteWorkspaceHeaders(profile.id);
   let result: Awaited<ReturnType<typeof setRemoteWorkspace>>;
   try {
     result = await setRemoteWorkspace(profile.baseUrl, authToken, {
       profileId: profile.id,
       vaultPath: profile.vaultPath,
+      headers,
     });
   } catch (err) {
     // A profile with no saved token that the server turns away is missing a
@@ -3568,12 +3621,16 @@ async function loadCurrentVaultFromConfig(): Promise<VaultInfo | null> {
       (remoteProfile && (await getRemoteWorkspaceSecret(remoteProfile.id))) ??
       cfg.remoteWorkspace.authToken ??
       null;
+    const headers = remoteProfile
+      ? await getRemoteWorkspaceHeaders(remoteProfile.id)
+      : [];
     try {
       const loadRemote = async () =>
         await setRemoteWorkspace(cfg.remoteWorkspace!.baseUrl, authToken, {
           persist: false,
           profileId: remoteProfile?.id ?? cfg.remoteWorkspaceProfileId,
           vaultPath: remoteProfile?.vaultPath ?? null,
+          headers,
         });
       const result =
         win && !win.isDestroyed()
@@ -4227,8 +4284,15 @@ function registerIpc(): void {
   handle(IPC.WORKSPACE_GET_INFO, async () => currentRemoteWorkspaceInfo());
   handle(
     IPC.WORKSPACE_CONNECT_REMOTE,
-    async (_e, baseUrl: string, authToken?: string | null) => {
-      return await setRemoteWorkspace(baseUrl, authToken);
+    async (
+      _e,
+      baseUrl: string,
+      authToken?: string | null,
+      headers?: unknown,
+    ) => {
+      return await setRemoteWorkspace(baseUrl, authToken, {
+        headers: remoteHeadersFromRenderer(headers) ?? [],
+      });
     },
   );
   handle(IPC.WORKSPACE_DISCONNECT_REMOTE, async () => {

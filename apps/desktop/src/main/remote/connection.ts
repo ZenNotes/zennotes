@@ -10,11 +10,14 @@
  * module instead and stays fetch-only.
  */
 
+import { applyRemoteHeaders, type RemoteHeader } from '@shared/remote-headers'
 import { trustSystemCertificates } from '../system-trust'
 
 export interface RemoteRequestOptions {
   baseUrl: string
   authToken?: string | null
+  /** Extra headers for an access gateway in front of the server (#1091). */
+  headers?: readonly RemoteHeader[] | null
   method?: string
   /** Serialised as JSON; sets Content-Type when present. */
   body?: unknown
@@ -58,13 +61,54 @@ export function connectionErrorMessage(
 export function requestErrorMessage(
   baseUrl: string,
   path: string,
-  response: { status: number; statusText: string },
+  response: {
+    status: number
+    statusText: string
+    headers?: { get(name: string): string | null }
+  },
   text: string
 ): string {
   if (response.status === 401) {
     return `The ZenNotes server rejected the connection. Check the auth token for ${baseUrl} and try again.`
   }
+  // The ZenNotes server answers in plain text. An HTML 403 came from
+  // something in front of it, most often an access gateway turning away a
+  // request without its headers (#1091); its page would only be noise here.
+  if (
+    response.status === 403 &&
+    /text\/html/i.test(response.headers?.get('content-type') ?? '')
+  ) {
+    return gatewayRefusedMessage(baseUrl)
+  }
   return `Remote server request failed (${response.status} ${response.statusText}) for ${path}${text ? `: ${text}` : ''}`
+}
+
+/** An access gateway in front of the server turned the request away. */
+export function gatewayRefusedMessage(baseUrl: string): string {
+  return `Something in front of the ZenNotes server at ${baseUrl} refused the request. If it sits behind an access gateway such as Cloudflare Access, check the extra headers for this remote.`
+}
+
+/**
+ * A gateway such as Cloudflare Access answers a request without its headers by
+ * redirecting it to a sign-in page on another host. fetch follows that, lands
+ * on HTML, and the caller would report a JSON parse error, so name the gateway
+ * instead. A redirect that stays on the server's host (http to https) is fine.
+ */
+export function gatewayRedirectMessage(
+  baseUrl: string,
+  response: { redirected: boolean; url: string }
+): string | null {
+  if (!response.redirected || !response.url) return null
+  let from: string
+  let to: string
+  try {
+    from = new URL(baseUrl).hostname.toLowerCase()
+    to = new URL(response.url).hostname.toLowerCase()
+  } catch {
+    return null
+  }
+  if (from === to) return null
+  return `The ZenNotes server at ${baseUrl} sent the request to a sign-in page at ${to}. If the server sits behind an access gateway such as Cloudflare Access, add the gateway's headers to this remote.`
 }
 
 /** A non-2xx server answer, with the HTTP status attached so callers can
@@ -90,6 +134,7 @@ async function remoteFetch(
   if (options.authToken && !headers.has('Authorization')) {
     headers.set('Authorization', `Bearer ${options.authToken}`)
   }
+  applyRemoteHeaders(headers, options.headers)
   trustSystemCertificates()
   let response: Response
   try {
@@ -101,6 +146,8 @@ async function remoteFetch(
   } catch (error) {
     throw new Error(connectionErrorMessage(options.baseUrl, error))
   }
+  const redirected = gatewayRedirectMessage(options.baseUrl, response)
+  if (redirected) throw new RemoteRequestError(redirected, 403)
   if (!response.ok) {
     const text = (await response.text().catch(() => '')).trim()
     throw new RemoteRequestError(

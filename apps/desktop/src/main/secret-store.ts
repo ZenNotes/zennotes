@@ -2,12 +2,15 @@ import { app, safeStorage } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
+import { sanitizeRemoteHeaders, type RemoteHeader } from '@shared/remote-headers'
 
 const KEYTAR_SERVICE = 'ZenNotes Remote Workspace'
 const KEYTAR_ACCOUNT_PREFIX = 'remote-workspace:'
 const CLOUD_KEYTAR_SERVICE = 'ZenNotes Cloud'
 const CLOUD_KEYTAR_ACCOUNT_PREFIX = 'cloud:'
 const CLOUD_E2EE_ACCOUNT_PREFIX = 'cloud-e2ee:'
+const HEADERS_ACCOUNT_PREFIX = 'remote-workspace-headers:'
+const HEADERS_FALLBACK_PREFIX = 'headers:'
 const FALLBACK_FILE = 'remote-workspace-secrets.json'
 
 let warnedAboutFallback = false
@@ -160,30 +163,33 @@ function decodeSecret(encoded: string): string | null {
   }
 }
 
-export async function getRemoteWorkspaceSecret(id: string): Promise<string | null> {
-  const normalizedId = id.trim()
-  if (!normalizedId) return null
-
+/**
+ * One remote workspace secret: in keytar under `account`, else in the
+ * safeStorage fallback file under `fallbackKey`. The auth token and the extra
+ * headers (#1091) are two such secrets per profile.
+ */
+async function getWorkspaceSecret(account: string, fallbackKey: string): Promise<string | null> {
   const keytar = await loadKeytar()
   if (keytar) {
-    return await keytar.getPassword(KEYTAR_SERVICE, accountName(normalizedId))
+    return await keytar.getPassword(KEYTAR_SERVICE, account)
   }
 
   const fallback = await loadFallbackSecrets()
-  const encoded = fallback[normalizedId]
+  const encoded = fallback[fallbackKey]
   return encoded ? decodeSecret(encoded) : null
 }
 
-export async function setRemoteWorkspaceSecret(id: string, secret: string | null): Promise<boolean> {
-  const normalizedId = id.trim()
-  if (!normalizedId) return false
-
+async function setWorkspaceSecret(
+  account: string,
+  fallbackKey: string,
+  secret: string | null
+): Promise<boolean> {
   const keytar = await loadKeytar()
   if (keytar) {
     if (secret && secret.trim()) {
-      await keytar.setPassword(KEYTAR_SERVICE, accountName(normalizedId), secret.trim())
+      await keytar.setPassword(KEYTAR_SERVICE, account, secret.trim())
     } else {
-      await keytar.deletePassword(KEYTAR_SERVICE, accountName(normalizedId))
+      await keytar.deletePassword(KEYTAR_SERVICE, account)
     }
     return Boolean(secret && secret.trim())
   }
@@ -192,31 +198,91 @@ export async function setRemoteWorkspaceSecret(id: string, secret: string | null
     const encoded = encodeSecret(secret.trim())
     if (!encoded) return false
     await updateFallbackSecrets((fallback) => {
-      fallback[normalizedId] = encoded
+      fallback[fallbackKey] = encoded
     })
   } else {
     await updateFallbackSecrets((fallback) => {
-      delete fallback[normalizedId]
+      delete fallback[fallbackKey]
     })
   }
   return Boolean(secret && secret.trim())
 }
 
-export async function deleteRemoteWorkspaceSecret(id: string): Promise<void> {
-  const normalizedId = id.trim()
-  if (!normalizedId) return
-
+async function deleteWorkspaceSecret(account: string, fallbackKey: string): Promise<void> {
   const keytar = await loadKeytar()
   if (keytar) {
-    await keytar.deletePassword(KEYTAR_SERVICE, accountName(normalizedId))
+    await keytar.deletePassword(KEYTAR_SERVICE, account)
     return
   }
 
   const fallback = await loadFallbackSecrets()
-  if (!(normalizedId in fallback)) return
+  if (!(fallbackKey in fallback)) return
   await updateFallbackSecrets((secrets) => {
-    delete secrets[normalizedId]
+    delete secrets[fallbackKey]
   })
+}
+
+export async function getRemoteWorkspaceSecret(id: string): Promise<string | null> {
+  const normalizedId = id.trim()
+  if (!normalizedId) return null
+  return await getWorkspaceSecret(accountName(normalizedId), normalizedId)
+}
+
+export async function setRemoteWorkspaceSecret(id: string, secret: string | null): Promise<boolean> {
+  const normalizedId = id.trim()
+  if (!normalizedId) return false
+  return await setWorkspaceSecret(accountName(normalizedId), normalizedId, secret)
+}
+
+export async function deleteRemoteWorkspaceSecret(id: string): Promise<void> {
+  const normalizedId = id.trim()
+  if (!normalizedId) return
+  await deleteWorkspaceSecret(accountName(normalizedId), normalizedId)
+}
+
+/** The headers live beside the token, as JSON, so a header value is never in
+ *  config.toml. The fallback key cannot collide with a profile id (a UUID). */
+function headersAccountName(id: string): string {
+  return `${HEADERS_ACCOUNT_PREFIX}${id}`
+}
+
+function headersFallbackKey(id: string): string {
+  return `${HEADERS_FALLBACK_PREFIX}${id}`
+}
+
+/** The saved headers for a profile, checked again before anything sends them. */
+export async function getRemoteWorkspaceHeaders(id: string): Promise<RemoteHeader[]> {
+  const normalizedId = id.trim()
+  if (!normalizedId) return []
+  const raw = await getWorkspaceSecret(headersAccountName(normalizedId), headersFallbackKey(normalizedId))
+  if (!raw) return []
+  try {
+    return sanitizeRemoteHeaders(JSON.parse(raw))
+  } catch {
+    return []
+  }
+}
+
+/** Saves the list, or removes the entry for an empty one. Returns whether a
+ *  list is now stored (false when no secure store could take it). */
+export async function setRemoteWorkspaceHeaders(
+  id: string,
+  headers: readonly RemoteHeader[]
+): Promise<boolean> {
+  const normalizedId = id.trim()
+  if (!normalizedId) return false
+  const clean = sanitizeRemoteHeaders(headers)
+  return await setWorkspaceSecret(
+    headersAccountName(normalizedId),
+    headersFallbackKey(normalizedId),
+    clean.length > 0 ? JSON.stringify(clean) : null
+  )
+}
+
+export async function deleteRemoteWorkspaceHeaders(id: string): Promise<void> {
+  const normalizedId = id.trim()
+  if (!normalizedId) return
+  await deleteWorkspaceSecret(headersAccountName(normalizedId), headersFallbackKey(normalizedId))
 }
 
 function cloudFallbackKey(baseUrl: string): string {

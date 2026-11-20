@@ -17,6 +17,7 @@ import {
   remoteFormRequest,
   remoteJsonRequest
 } from '../../main/remote/connection.js'
+import { remoteHeadersFromEnv, type RemoteHeader } from '@shared/remote-headers'
 import type {
   CustomTemplateFile,
   DeletedVaultAsset,
@@ -49,19 +50,33 @@ export interface RemoteAssetMeta {
 }
 
 export class CliRemoteClient {
+  /**
+   * `headers` defaults to `ZENNOTES_REMOTE_HEADERS` (#1091): this bundled
+   * `zn` and MCP server cannot read the app's secret store, where the desktop
+   * app keeps a remote's extra headers, so a server behind an access gateway
+   * gets them from the environment. The standalone Go `zn` (ZenNotes/tui) is
+   * a separate client and does not read this yet. A value that does not parse throws here, before
+   * any request, with the reason.
+   */
   constructor(
     readonly baseUrl: string,
-    readonly authToken: string | null
+    readonly authToken: string | null,
+    readonly headers: readonly RemoteHeader[] = remoteHeadersFromEnv(process.env)
   ) {}
 
   private get<T>(path: string): Promise<T> {
-    return remoteJsonRequest<T>(path, { baseUrl: this.baseUrl, authToken: this.authToken })
+    return remoteJsonRequest<T>(path, {
+      baseUrl: this.baseUrl,
+      authToken: this.authToken,
+      headers: this.headers
+    })
   }
 
   private post<T>(path: string, body?: unknown): Promise<T> {
     return remoteJsonRequest<T>(path, {
       baseUrl: this.baseUrl,
       authToken: this.authToken,
+      headers: this.headers,
       method: 'POST',
       body: body ?? {}
     })
@@ -130,7 +145,8 @@ export class CliRemoteClient {
   readAsset(relPath: string): Promise<Uint8Array> {
     return remoteBytesRequest(`/api/assets/raw?path=${encodeURIComponent(relPath)}`, {
       baseUrl: this.baseUrl,
-      authToken: this.authToken
+      authToken: this.authToken,
+      headers: this.headers
     })
   }
 
@@ -162,7 +178,8 @@ export class CliRemoteClient {
     form.append('file', new Blob([bytes as Uint8Array<ArrayBuffer>]), filename)
     return remoteFormRequest<ImportedVaultAsset>('/api/assets/upload', form, {
       baseUrl: this.baseUrl,
-      authToken: this.authToken
+      authToken: this.authToken,
+      headers: this.headers
     })
   }
 

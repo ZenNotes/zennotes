@@ -109,6 +109,7 @@ import type {
   RaycastExtensionStatus,
   RemoteWorkspaceInfo,
   RemoteWorkspaceProfile,
+  RemoteHeaderInput,
   RemoteWorkspaceProfileInput,
   ServerCapabilities,
   ServerSessionStatus,
@@ -145,6 +146,7 @@ const DESKTOP_CAPABILITIES: ZenCapabilities = {
   supportsFloatingWindows: true,
   supportsLocalFilesystemPickers: true,
   supportsRemoteWorkspace: true,
+  supportsRemoteHeaders: true,
   supportsCloudSync: true,
   supportsImport: true,
   // CLI install is supported on macOS and Linux via /usr/local/bin or
@@ -481,9 +483,15 @@ const api: ZenBridge = {
     await refreshRemoteWorkspaceInfo(),
   connectRemoteWorkspace: async (
     baseUrl: string,
-    authToken?: string | null
+    authToken?: string | null,
+    headers?: RemoteHeaderInput[] | null
   ): Promise<{ vault: VaultInfo | null; capabilities: ServerCapabilities }> => {
-    const result = await ipcRenderer.invoke(IPC.WORKSPACE_CONNECT_REMOTE, baseUrl, authToken ?? null)
+    const result = await ipcRenderer.invoke(
+      IPC.WORKSPACE_CONNECT_REMOTE,
+      baseUrl,
+      authToken ?? null,
+      headers ?? null
+    )
     await refreshRemoteWorkspaceInfo()
     return result
   },

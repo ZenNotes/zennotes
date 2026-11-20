@@ -46,6 +46,7 @@ import type {
   DirectoryBrowseResult,
   RemoteWorkspaceInfo,
   RemoteWorkspaceProfile,
+  RemoteHeaderInput,
   RemoteWorkspaceProfileInput,
   ServerCapabilities,
   ServerSessionStatus,
@@ -146,6 +147,11 @@ export interface ZenCapabilities {
   supportsFloatingWindows: boolean
   supportsLocalFilesystemPickers: boolean
   supportsRemoteWorkspace: boolean
+  /** Extra request headers on a remote workspace (#1091), for an access
+   *  gateway such as Cloudflare Access in front of the server. Desktop only:
+   *  the phones' remote client does not send them yet, so the field stays
+   *  hidden there. */
+  supportsRemoteHeaders?: boolean
   supportsCloudSync?: boolean
   /** Importing Notion or Obsidian into a local vault. Desktop only: a run
    *  needs a main process to reach Notion, read a folder and write the vault. */
@@ -337,7 +343,8 @@ export interface ZenBridge {
   getRemoteWorkspaceInfo(): Promise<RemoteWorkspaceInfo | null>
   connectRemoteWorkspace(
     baseUrl: string,
-    authToken?: string | null
+    authToken?: string | null,
+    headers?: RemoteHeaderInput[] | null
   ): Promise<{ vault: VaultInfo | null; capabilities: ServerCapabilities }>
   disconnectRemoteWorkspace(): Promise<VaultInfo | null>
   /** Re-attempt the workspace configured on disk (used by the reconnect

@@ -24,14 +24,24 @@ import type { CustomTemplateFile, WriteTemplateInput } from '@zennotes/bridge-co
 import WebSocket from 'ws'
 import {
   connectionErrorMessage,
+  gatewayRedirectMessage,
   normalizeBaseUrl,
   requestErrorMessage
 } from './connection'
 import { trustSystemCertificates } from '../system-trust'
+import {
+  applyRemoteHeaders,
+  sanitizeRemoteHeaders,
+  type RemoteHeader
+} from '@shared/remote-headers'
 
 export interface RemoteServerClientOptions {
   baseUrl: string
   authToken?: string | null
+  /** Sent with every request and the change feed's handshake (#1091), for an
+   *  access gateway such as Cloudflare Access that refuses anything without
+   *  them. Checked again here; a list that would not parse sends nothing. */
+  headers?: readonly RemoteHeader[] | null
   /**
    * Called with the vault-relative path when the server answers 404 to a
    * request about it. The list this app shows is behind the server, so the
@@ -74,6 +84,7 @@ export class RemoteRequestError extends Error {
 export class RemoteServerClient {
   readonly baseUrl: string
   readonly authToken: string | null
+  readonly headers: readonly RemoteHeader[]
   private readonly onStalePath: ((path: string) => void) | null
 
   constructor(options: RemoteServerClientOptions) {
@@ -81,6 +92,7 @@ export class RemoteServerClient {
     trustSystemCertificates()
     this.baseUrl = normalizeBaseUrl(options.baseUrl)
     this.authToken = options.authToken?.trim() || null
+    this.headers = sanitizeRemoteHeaders(options.headers ?? [])
     this.onStalePath = options.onStalePath ?? null
   }
 
@@ -451,10 +463,7 @@ export class RemoteServerClient {
     const blob =
       bytes instanceof Blob ? bytes : new Blob([bytes as Uint8Array<ArrayBuffer>], { type: mimeType })
     form.append('file', blob, filename)
-    const headers = new Headers()
-    if (this.authToken) {
-      headers.set('Authorization', `Bearer ${this.authToken}`)
-    }
+    const headers = this.requestHeaders()
     let response: Response
     try {
       response = await fetch(`${this.baseUrl}/api/assets/upload`, {
@@ -476,10 +485,7 @@ export class RemoteServerClient {
   }
 
   async fetchAssetResponse(assetPath: string): Promise<Response> {
-    const headers = new Headers()
-    if (this.authToken) {
-      headers.set('Authorization', `Bearer ${this.authToken}`)
-    }
+    const headers = this.requestHeaders()
     const response = await fetch(
       `${this.baseUrl}/api/assets/raw?path=${encodeURIComponent(assetPath)}`,
       { headers }
@@ -498,10 +504,10 @@ export class RemoteServerClient {
     options: { onReconnect?: () => void; stableAfterMs?: number; pollWhileDownMs?: number } = {}
   ): () => void {
     const url = new URL('/api/watch', `${this.baseUrl}/`)
-    const headers: Record<string, string> = {}
-    if (this.authToken) {
-      headers['Authorization'] = `Bearer ${this.authToken}`
-    }
+    // The handshake is a plain HTTP request, and a gateway checks it like any
+    // other: without the extra headers the socket never opens and the app
+    // quietly falls back to polling.
+    const headers = Object.fromEntries(this.requestHeaders().entries())
 
     // The subscription must outlive any single socket: a laptop sleep, a
     // Wi-Fi switch, a server restart, or an idle proxy all kill the
@@ -626,11 +632,18 @@ export class RemoteServerClient {
     }
   }
 
-  private async jsonRequest<T>(path: string, init?: JsonRequestInit): Promise<T> {
-    const headers = new Headers(init?.headers)
+  /** Auth plus the extra headers, on top of whatever the request set. */
+  private requestHeaders(init?: RequestInit['headers']): Headers {
+    const headers = new Headers(init)
     if (this.authToken && !headers.has('Authorization')) {
       headers.set('Authorization', `Bearer ${this.authToken}`)
     }
+    applyRemoteHeaders(headers, this.headers)
+    return headers
+  }
+
+  private async jsonRequest<T>(path: string, init?: JsonRequestInit): Promise<T> {
+    const headers = this.requestHeaders(init?.headers)
     const hasBody = init?.body !== undefined
     if (hasBody && !headers.has('Content-Type')) {
       headers.set('Content-Type', 'application/json')
@@ -646,6 +659,8 @@ export class RemoteServerClient {
     } catch (error) {
       throw new RemoteConnectionError(connectionErrorMessage(this.baseUrl, error))
     }
+    const redirected = gatewayRedirectMessage(this.baseUrl, response)
+    if (redirected) throw new RemoteRequestError(redirected, 403)
     if (!response.ok) {
       const text = await response.text().catch(() => '')
       // A 404 for a path this app asked to change means the list is behind

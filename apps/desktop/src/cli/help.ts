@@ -199,6 +199,7 @@ const ENVIRONMENT: CommandRow[] = [
   { name: 'ZENNOTES_VAULT', description: 'Default vault root when --vault is not given' },
   { name: 'ZENNOTES_SERVER', description: 'Default server when neither --vault nor --server is given (otherwise zn follows the vault the app has open)' },
   { name: 'ZENNOTES_REMOTE_TOKEN', description: 'Auth token for a server; for CI and headless use' },
+  { name: 'ZENNOTES_REMOTE_HEADERS', description: 'Extra headers for a server behind an access gateway, one "Name: value" per line' },
   { name: 'ZENNOTES_CONFIG_DIR', description: 'Override the ZenNotes config directory' },
   { name: 'NO_COLOR', description: 'Disable ANSI color (industry standard)' }
 ]

@@ -147,6 +147,7 @@ import { humanIpcError } from './lib/ipc-error'
 import { confirmApp, getConfirmRequest } from './lib/confirm-requests'
 import { pickServerDirectoryApp } from './lib/server-directory-picker-requests'
 import { promptApp, getPromptRequest } from './lib/prompt-requests'
+import { promptRemoteAuthApp } from './lib/remote-auth-requests'
 import {
   buildNoteDestinationPrompt,
   buildTemplateDestinationPrompt,
@@ -12526,18 +12527,28 @@ export const useStore = create<Store>((set, get) => {
 
       const normalizedBaseUrl = normalizeServerBaseUrl(baseUrl)
 
-      const authToken = await promptApp({
-        title: 'Auth Token',
-        description: "The server's auth token. Leave blank if it doesn't need one.",
-        placeholder: 'Optional',
-        okLabel: 'Connect',
-        allowEmptySubmit: true,
-        plainInput: true
-      })
-      if (authToken == null) return
+      // A host that sends extra headers (#1091) asks for them on this same
+      // step, for a server behind an access gateway; the phones keep the
+      // one-field prompt until their remote client sends them too.
+      const auth = capabilities.supportsRemoteHeaders
+        ? await promptRemoteAuthApp()
+        : await promptApp({
+            title: 'Auth Token',
+            description: "The server's auth token. Leave blank if it doesn't need one.",
+            placeholder: 'Optional',
+            okLabel: 'Connect',
+            allowEmptySubmit: true,
+            plainInput: true
+          }).then((token) => (token == null ? null : { authToken: token, headers: [] }))
+      if (auth == null) return
+      const authToken = auth.authToken
 
       let vault: VaultInfo | null = null
-      const result = await window.zen.connectRemoteWorkspace(normalizedBaseUrl, authToken.trim() || null)
+      const result = await window.zen.connectRemoteWorkspace(
+        normalizedBaseUrl,
+        authToken.trim() || null,
+        auth.headers.length > 0 ? auth.headers : null
+      )
       vault = result.vault
 
       if (!vault && result.capabilities.supportsVaultSelection) {
@@ -12575,6 +12586,8 @@ export const useStore = create<Store>((set, get) => {
           deriveRemoteProfileName(normalizedBaseUrl, vault, get().remoteWorkspaceProfiles),
         baseUrl: normalizedBaseUrl,
         authToken: authToken.trim() || null,
+        // Like a blank token, no headers keeps what the profile has saved.
+        ...(auth.headers.length > 0 ? { headers: auth.headers } : {}),
         vaultPath: vault.root
       })
       const [remoteWorkspaceInfo] = await Promise.all([

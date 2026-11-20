@@ -1078,6 +1078,7 @@ export function SettingsModal(): JSX.Element {
     mode: "create" | "edit";
     value?: RemoteWorkspaceProfileInput;
     hasStoredCredential?: boolean;
+    storedHeaderNames?: string[];
   } | null>(null);
 
   // Lazy-load the system font list on mount. Retried on every mount
@@ -1158,6 +1159,7 @@ export function SettingsModal(): JSX.Element {
           vaultPath: profile.vaultPath,
         },
         hasStoredCredential: profile.hasCredential,
+        storedHeaderNames: profile.headerNames ?? [],
       });
     },
     [],
@@ -6755,6 +6757,7 @@ export function SettingsModal(): JSX.Element {
                 : "Save a ZenNotes server so you can reconnect without re-entering the details.",
             initialValue: editingRemoteProfile.value,
             hasStoredCredential: editingRemoteProfile.hasStoredCredential,
+            storedHeaderNames: editingRemoteProfile.storedHeaderNames,
             submitLabel:
               editingRemoteProfile.mode === "edit"
                 ? "Save Changes"
