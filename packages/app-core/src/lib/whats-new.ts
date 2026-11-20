@@ -40,6 +40,15 @@ export const CLOUD_ANNOUNCEMENT = {
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    version: '2.90.0',
+    highlights: [
+      {
+        title: 'New notes keep their own date on Windows',
+        body: 'A note you delete and make again under the same name now shows the day you made it, not the deleted note’s date. The bundled zn CLI 0.18.1 has the same fix.'
+      }
+    ]
+  },
+  {
     version: '2.89.0',
     highlights: [
       {
