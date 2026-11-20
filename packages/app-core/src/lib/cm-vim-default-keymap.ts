@@ -191,11 +191,50 @@ const vimModeKeymapModIsCtrl: readonly KeyBinding[] = deferKeysToVim(
 )
 
 /**
+ * Ctrl+[ belongs to Vim: `<C-[>` is Escape.
+ *
+ * `defaultKeymap` binds `Mod-[` to `indentLess`, which on Linux and Windows
+ * is Ctrl+[ — the key Vim users press to leave insert mode. `indentLess`
+ * reports the key handled even when nothing was dedented, and (like every
+ * binding here) it runs ahead of the Vim plugin, so Ctrl+[ never reached
+ * Vim's `<C-[>` → `<Esc>` mapping and insert mode never ended.
+ *
+ * Unlike the motion keys the collision is in *insert* mode, so the binding
+ * defers to the Vim plugin in every Vim mode: insert mode ends on it, and in
+ * normal/visual modes Vim's no-op Escape consumes it. With Vim off, Ctrl+[
+ * dedents as before. macOS keeps `Cmd-[` → `indentLess` untouched.
+ *
+ * `Mod-]` stays with `indentMore`: Vim does not map Ctrl+] here, so
+ * deferring it would remove the indent shortcut without gaining a motion.
+ */
+function deferCtrlBracketToVim(bindings: readonly KeyBinding[]): KeyBinding[] {
+  return bindings.map((binding) => {
+    if (binding.key !== 'Mod-[' || !binding.run) return binding
+    const native = binding.run
+    return {
+      ...binding,
+      // Same constraint as above: preventDefault would consume the key even
+      // when the command defers.
+      preventDefault: false,
+      run: (view: EditorView): boolean => {
+        const vim = (getCM(view) as { state?: { vim?: unknown } } | null)?.state?.vim
+        return vim ? false : native(view)
+      }
+    }
+  })
+}
+
+const vimModeKeymapModIsCtrlWithBrackets: readonly KeyBinding[] = deferCtrlBracketToVim(
+  vimModeKeymapModIsCtrl
+)
+
+/**
  * CodeMirror's `defaultKeymap`, made Vim-aware: in Vim mode the macOS
  * emacs-style control chords are stripped so Vim's `<C-d>`/`<C-a>`/`<C-v>`/…
  * bindings work, the arrow keys defer to Vim in normal/visual mode so they
  * move/extend like `hjkl`, Escape defers to Vim in insert/visual mode so it
- * leaves the mode, and off macOS Ctrl+A defers to Vim outside insert mode;
+ * leaves the mode, off macOS Ctrl+A defers to Vim outside insert mode, and
+ * Ctrl+[ keeps Vim's `<C-[>` Escape in every mode;
  * with Vim off the full keymap is used. In every case select all leaves the
  * note's title out on its first press (#1006).
  */
@@ -204,7 +243,7 @@ export function vimAwareDefaultKeymap(
   mac: boolean = isMacPlatform()
 ): readonly KeyBinding[] {
   if (!vimMode) return noteDefaultKeymap
-  return mac ? vimModeKeymap : vimModeKeymapModIsCtrl
+  return mac ? vimModeKeymap : vimModeKeymapModIsCtrlWithBrackets
 }
 
 /**
