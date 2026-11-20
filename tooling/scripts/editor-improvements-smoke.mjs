@@ -585,7 +585,7 @@ async function main() {
 
     const equationTags = await evaluate(
       client,
-      `Array.from(document.querySelectorAll('.cm-math-block .katex-html .tag')).map((node) => (node.textContent ?? '').replace(/[\\s\\u200b]/g, ''))`
+      `Array.from(document.querySelectorAll('.cm-math-block .katex-html .katex-tag')).map((node) => (node.textContent ?? '').replace(/[\\s\\u200b]/g, ''))`
     )
     check(
       'live editor numbers equation environments in document order',
@@ -621,7 +621,7 @@ async function main() {
     check('Preview mode opens', !!previewReady)
     const previewTags = await evaluate(
       client,
-      `Array.from(document.querySelectorAll('.prose-zen .katex-html .tag')).map((node) => (node.textContent ?? '').replace(/[\\s\\u200b]/g, ''))`
+      `Array.from(document.querySelectorAll('.prose-zen .katex-html .katex-tag')).map((node) => (node.textContent ?? '').replace(/[\\s\\u200b]/g, ''))`
     )
     check(
       'Preview uses the same equation numbering',

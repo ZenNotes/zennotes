@@ -365,7 +365,7 @@ describe('currency vs inline math (reading view matches the editor)', () => {
     const host = document.createElement('div')
     host.innerHTML = html
     expect(
-      Array.from(host.querySelectorAll('.katex-html .tag')).map((node) =>
+      Array.from(host.querySelectorAll('.katex-html .katex-tag')).map((node) =>
         node.textContent?.replace(/[\s\u200b]/g, '')
       )
     ).toEqual(['(1)', '(2)'])

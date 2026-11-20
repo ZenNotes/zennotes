@@ -82,7 +82,7 @@ describe('mathRenderExtension', () => {
       ].join('\n')
     )
     expect(
-      Array.from(view.dom.querySelectorAll('.katex-html .tag')).map((node) =>
+      Array.from(view.dom.querySelectorAll('.katex-html .katex-tag')).map((node) =>
         node.textContent?.replace(/[\s\u200b]/g, '')
       )
     ).toEqual(['(1)', '(2)'])
