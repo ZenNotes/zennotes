@@ -107,6 +107,18 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # The tests' scratch vaults come from os.tmpdir(), which on a Windows
+      # runner is C:\Users\runneradmin\AppData\Local\Temp, the OS disk, while
+      # the checkout sits on D:. One MCP task update fsyncs four files there,
+      # and on a slow runner that took a 25 ms test past 8 s and failed main
+      # (vitest's 5 s limit, 2026-11-20). RUNNER_TEMP is on D:.
+      - name: Keep test scratch files on the runner's work disk
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "TEMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+          "TMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+
       - name: Verify terminal artifacts and legacy launchers
         if: runner.os != 'Windows'
         run: node --test tooling/scripts/terminal-artifact.test.mjs tooling/scripts/terminal-launcher.test.mjs
