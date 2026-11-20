@@ -15,7 +15,7 @@
   "dependencies": {
     "@scure/bip39": "2.4.0",
     "@zennotes/bridge-contract": "*",
-    "hash-wasm": "4.12.0",
+    "hash-wasm": "4.13.0",
     "lz-string": "^1.5.0"
   },
   "devDependencies": {
