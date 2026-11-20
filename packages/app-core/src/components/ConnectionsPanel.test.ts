@@ -174,6 +174,8 @@ describe('ConnectionsPanel: a row where nothing can hover', () => {
     } finally {
       vi.useRealTimers()
     }
-    await vi.waitFor(() => expect(preview()).not.toBeNull())
+    // The preview takes about 200 ms here, but sharing the CPU with the
+    // desktop suite in one turbo run pushed it past waitFor's 1 s default.
+    await vi.waitFor(() => expect(preview()).not.toBeNull(), { timeout: 5000 })
   })
 })
