@@ -51,7 +51,13 @@ function makeState(
   // Force a full parse so the transactionExtender can rely on a
   // complete syntax tree when it walks for OrderedList nodes.
   ensureSyntaxTree(state, doc.length, 5_000)
-  return state
+  // ensureSyntaxTree finishes the parse in the language state's context, but
+  // syntaxTree(state) keeps returning the tree the state was created with.
+  // insertNewlineContinueMarkup reads syntaxTree(state), so on a runner slow
+  // enough to leave the creation parse partial, Enter missed the list
+  // (Windows, PR #1098). An empty transaction makes the state adopt the
+  // finished tree.
+  return state.update({}).state
 }
 
 function applyAndRead(
