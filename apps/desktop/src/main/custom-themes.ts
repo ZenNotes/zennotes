@@ -378,8 +378,12 @@ export function resolveThemeAssetPath(slug: string, relPath: string): string | n
 }
 
 let watcher: ReturnType<typeof chokidar.watch> | null = null
-// The debounce outlives no watcher: a stop or a restart clears it, or an edit
-// just before the stop reports a list after it (into a torn-down test, once).
+// Reports belong to the watcher that saw the edit, and only while it is still
+// the current one. A stop or a restart clears the pending debounce, and a
+// watcher that is no longer current drops whatever still reaches it: an edit
+// chokidar reports while it closes, or a folder read that was already under
+// way and resolves after the stop (into a torn-down test, once, on a slow
+// runner).
 let pendingReport: ReturnType<typeof setTimeout> | null = null
 
 function clearPendingReport(): void {
@@ -393,11 +397,21 @@ export function startWatchingCustomThemes(onChange: (themes: CustomTheme[]) => v
   const dir = getCustomThemesDir()
   void watcher?.close()
   clearPendingReport()
+  const current = (): boolean => watcher === w
   const fire = (): void => {
+    if (!current()) return
     clearPendingReport()
     pendingReport = setTimeout(() => {
       pendingReport = null
-      void listCustomThemes().then(onChange)
+      if (!current()) return
+      listCustomThemes().then(
+        (themes) => {
+          if (current()) onChange(themes)
+        },
+        (error) => {
+          if (current()) console.warn('[zen] could not list custom themes:', error)
+        }
+      )
     }, 200)
   }
   const w = chokidar.watch(dir, {
@@ -420,9 +434,11 @@ export function startWatchingCustomThemes(onChange: (themes: CustomTheme[]) => v
 
 /** Test/teardown hook: stop the themes watcher. */
 export async function stopWatchingCustomThemes(): Promise<void> {
-  clearPendingReport()
-  await watcher?.close().catch(() => {})
+  // No longer current before the close, so nothing it reports meanwhile lands.
+  const stopping = watcher
   watcher = null
+  clearPendingReport()
+  await stopping?.close().catch(() => {})
 }
 
 /** What to reveal in the file manager: a theme's `theme.css` when the slug is
