@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { randomInt } from 'node:crypto'
 import { renameWithRetry } from './atomic-write'
+import { isEphemeralRoot } from './ephemeral-vaults'
 
 const metadataDirectory = '.zennotes/note-metadata'
 const metadataSuffix = '.metadata.json'
@@ -113,17 +114,49 @@ export async function prepareNoteCreation(
     throw error
   })
   if (!previous) {
-    await fs.rm(metadata, { force: true })
+    await startNoteCreation(root, rel)
     return
   }
   if ((await readCreationMetadata(metadata)) !== null) return
   const createdAt = Math.trunc(previous.birthtimeMs || previous.ctimeMs)
+  await publishCreationMetadata(metadata, createdAt, previous.mode & 0o777)
+}
+
+/**
+ * Record now as the creation date of a note this app is about to create,
+ * replacing any record an earlier note of the same name left behind.
+ *
+ * A new note cannot leave its date to the file's birthtime. On NTFS, a file
+ * created or renamed into a name that was deleted within the last 15 seconds
+ * gets the deleted file's birthtime back (file system tunneling), so a note
+ * deleted and made again under the same name showed the old note's date, and
+ * its first save wrote that date into this record for good. A note created
+ * outside the app still falls back to birthtime; there is nothing to record
+ * for it.
+ */
+export async function startNoteCreation(root: string, rel: string): Promise<void> {
+  if (isEphemeralRoot(root)) return
+  if (
+    rel.replaceAll('\\', '/').startsWith('.zennotes/') ||
+    !/\.(md|excalidraw)$/i.test(rel)
+  )
+    return
+  await publishCreationMetadata(await noteMetadataPath(root, rel), Date.now())
+}
+
+async function publishCreationMetadata(
+  metadata: string,
+  createdAt: number,
+  mode?: number,
+): Promise<void> {
   await fs.mkdir(path.dirname(metadata), { recursive: true })
   const temporary = `${metadata}.${process.pid}.${Date.now()}${String(randomInt(1000000)).padStart(6, '0')}.tmp`
   try {
-    const file = await fs.open(temporary, 'wx', previous.mode & 0o777)
+    const file = await fs.open(temporary, 'wx', mode)
     try {
-      await file.writeFile(JSON.stringify({ version: 1, createdAt }) + '\n')
+      await file.writeFile(
+        JSON.stringify({ version: 1, createdAt: Math.trunc(createdAt) }) + '\n',
+      )
       await file.sync()
     } finally {
       await file.close()

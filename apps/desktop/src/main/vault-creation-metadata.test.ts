@@ -216,6 +216,53 @@ describe('portable note creation metadata across desktop vault operations', () =
     expect((await readNote(root, notePath)).createdAt).toBe(recreated.createdAt)
   })
 
+  // NTFS hands a file made under a name deleted in the last 15 seconds the
+  // deleted file's birthtime (file system tunneling). Windows CI caught the
+  // case above reading that birthtime back; stat is made to answer the same
+  // way here, so every platform runs the Windows case.
+  it.each([
+    ['createNote', (root: string) => createNote(root, 'inbox', 'Original')],
+    ['a first writeNote', (root: string) => writeNote(root, 'inbox/Original.md', '# Original\n')],
+    ['the MCP server', (root: string) => mcpVault.createNote(root, 'inbox', 'Original')]
+  ])(
+    'a note made again after a permanent delete keeps its own date when the file system hands back the old birthtime, through %s',
+    async (_label, create) => {
+      const root = await makeVault()
+      const notePath = 'inbox/Original.md'
+      await seedNote(root, notePath)
+      await deleteNote(root, notePath)
+      invalidateNoteMetaCache(root)
+
+      const fsModule = await import('node:fs')
+      const realStat = fsModule.promises.stat
+      const abs = path.join(root, notePath)
+      const tunneled = vi
+        .spyOn(fsModule.promises, 'stat')
+        .mockImplementation(async (...args: Parameters<typeof realStat>) => {
+          const result = await realStat(...args)
+          if (path.resolve(String(args[0])) !== abs) return result
+          return Object.assign(result, {
+            birthtimeMs: ORIGINAL_CREATED_AT,
+            birthtime: new Date(ORIGINAL_CREATED_AT)
+          })
+        })
+      try {
+        const beforeCreate = Date.now()
+        const created = await create(root)
+        expect(created.path).toBe(notePath)
+        expect(created.createdAt).toBeGreaterThanOrEqual(beforeCreate)
+        expect(created.createdAt).toBeLessThanOrEqual(Date.now())
+
+        // The first save must not write the handed-back birthtime down.
+        const saved = await writeNote(root, notePath, '# Original\n\nEdited.\n')
+        expect(saved.createdAt).toBe(created.createdAt)
+        expect(await readMetadata(root, notePath)).toEqual({ version: 1, createdAt: created.createdAt })
+      } finally {
+        tunneled.mockRestore()
+      }
+    }
+  )
+
   it.each([
     ['malformed JSON', '{"version":'],
     ['unsupported version', JSON.stringify({ version: 2, createdAt: ORIGINAL_CREATED_AT })],

@@ -1,4 +1,4 @@
-import { noteMetadataPath, readNoteCreatedAt, prepareNoteCreation, removeNoteCreation } from './note-creation-metadata'
+import { noteMetadataPath, readNoteCreatedAt, prepareNoteCreation, removeNoteCreation, startNoteCreation } from './note-creation-metadata'
 import {
   noteCommentsPath,
   noteCommentsRoot,
@@ -3613,7 +3613,7 @@ export async function createNote(
   const finalTitle = await uniqueTitle(dir, base)
   const abs = path.join(dir, `${finalTitle}.md`)
   const body = `# ${finalTitle}\n\n`
-  await removeNoteCreation(root, toPosix(path.relative(root, abs)))
+  await startNoteCreation(root, toPosix(path.relative(root, abs)))
   await removeAgentEditRecord(root, toPosix(path.relative(root, abs)))
   await fs.writeFile(abs, body, 'utf8')
   invalidateNoteMetaCache(root, toPosix(path.relative(root, abs)))
@@ -3645,7 +3645,7 @@ export async function createExcalidraw(
     }
   }
   const abs = path.join(dir, `${finalTitle}.excalidraw`)
-  await removeNoteCreation(root, toPosix(path.relative(root, abs)))
+  await startNoteCreation(root, toPosix(path.relative(root, abs)))
   await removeAgentEditRecord(root, toPosix(path.relative(root, abs)))
   await fs.writeFile(abs, JSON.stringify(emptyExcalidrawDocument(), null, 2), 'utf8')
   invalidateNoteMetaCache(root, toPosix(path.relative(root, abs)))
@@ -3687,7 +3687,7 @@ export async function convertObsidianExcalidraw(root: string, rel: string): Prom
     }
   }
   const destAbs = path.join(dir, `${finalTitle}.excalidraw`)
-  await removeNoteCreation(root, toPosix(path.relative(root, destAbs)))
+  await startNoteCreation(root, toPosix(path.relative(root, destAbs)))
   await removeAgentEditRecord(root, toPosix(path.relative(root, destAbs)))
   await fs.writeFile(destAbs, JSON.stringify(scene, null, 2), 'utf8')
   invalidateNoteMetaCache(root, toPosix(path.relative(root, destAbs)))
@@ -3707,7 +3707,7 @@ export async function importExternalNote(root: string, sourceAbsPath: string): P
   const finalTitle = await uniqueTitle(destDir, baseTitle)
   const destAbs = path.join(destDir, `${finalTitle}.md`)
   const body = await fs.readFile(source, 'utf8')
-  await removeNoteCreation(root, toPosix(path.relative(root, destAbs)))
+  await startNoteCreation(root, toPosix(path.relative(root, destAbs)))
   await removeAgentEditRecord(root, toPosix(path.relative(root, destAbs)))
   await fs.writeFile(destAbs, body, 'utf8')
   await fs.rm(source, { force: true })
@@ -4561,7 +4561,7 @@ export async function duplicateNote(root: string, rel: string): Promise<NoteMeta
   const copyTitle = await uniqueTitle(dir, `${baseTitle} copy`)
   const destAbs = path.join(dir, `${copyTitle}${ext}`)
   const body = await fs.readFile(abs, 'utf8')
-  await removeNoteCreation(root, toPosix(path.relative(root, destAbs)))
+  await startNoteCreation(root, toPosix(path.relative(root, destAbs)))
   await removeAgentEditRecord(root, toPosix(path.relative(root, destAbs)))
   await fs.writeFile(destAbs, body, 'utf8')
   const meta = await readMeta(root, destAbs, folder)

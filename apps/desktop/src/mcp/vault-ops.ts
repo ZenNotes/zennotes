@@ -1,4 +1,4 @@
-import { readNoteCreatedAt, prepareNoteCreation, removeNoteCreation, noteMetadataPath } from '../main/note-creation-metadata'
+import { readNoteCreatedAt, prepareNoteCreation, removeNoteCreation, startNoteCreation, noteMetadataPath } from '../main/note-creation-metadata'
 import { noteCommentsPath, noteCommentsRoot, relocateFolderTrees, relocateNote } from '../main/note-sidecars'
 import { agentEditFolderPath, removeAgentEditRecord } from '../main/agent-edit-files'
 import { fileIdentity, isSameFile } from '../main/same-file'
@@ -1841,7 +1841,7 @@ export async function createNote(
   const finalTitle = await uniqueTitle(dir, base)
   const abs = path.join(dir, `${finalTitle}.md`)
   const content = body ?? `# ${finalTitle}\n\n`
-  await removeNoteCreation(root, toPosix(path.relative(root, abs)))
+  await startNoteCreation(root, toPosix(path.relative(root, abs)))
   // A record left by an earlier note of this name would offer a bogus review.
   await removeAgentEditRecord(root, toPosix(path.relative(root, abs)))
   await fs.writeFile(abs, content, { encoding: 'utf8', flag: 'wx' })
@@ -1962,7 +1962,7 @@ export async function duplicateNote(root: string, rel: string): Promise<NoteMeta
   const finalTitle = await uniqueTitle(dir, copyTitle(baseTitle))
   const destAbs = path.join(dir, `${finalTitle}${ext}`)
   const body = await fs.readFile(abs, 'utf8')
-  await removeNoteCreation(root, toPosix(path.relative(root, destAbs)))
+  await startNoteCreation(root, toPosix(path.relative(root, destAbs)))
   await fs.writeFile(destAbs, body, { encoding: 'utf8', flag: 'wx' })
   return await readMeta(root, destAbs, folder)
 }
