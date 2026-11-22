@@ -210,10 +210,58 @@ describe('vimAwareMarkdownKeymap (Enter in Vim normal mode acts as <CR>)', () =>
   it('does not insert a newline on Enter in normal mode', () => {
     const view = mount('hello\n  world')
     // Before the fix, the markdown keymap's Enter → insertNewlineContinueMarkup
-    // fired here and edited the doc. The j^ motion itself can't be asserted:
-    // jsdom has no layout, so Vim's vertical motion cannot measure lines.
+    // fired here and edited the doc.
     press(view, 'Enter', 13)
     expect(view.state.doc.toString()).toBe('hello\n  world')
+    expect(view.state.selection.main.head).toBe(8)
+  })
+
+  it('extends the selection on Enter in visual line mode (V)', () => {
+    const view = mount('first\n  second\nthird')
+    press(view, 'V', 86) // enter visual line mode on line 1
+    press(view, 'Enter', 13) // extend to line 2
+    expect(view.state.doc.toString()).toBe('first\n  second\nthird')
+    expect(view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to)).toBe(
+      'first\n  second'
+    )
+    press(view, 'Enter', 13) // extend to line 3
+    expect(view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to)).toBe(
+      'first\n  second\nthird'
+    )
+  })
+
+  it('extends the selection to first non-blank on Enter in visual char mode (v)', () => {
+    const view = mount('first\n  second\nthird')
+    press(view, 'v', 86) // enter visual char mode at offset 0
+    press(view, 'Enter', 13) // extend to 's' of "  second" (offset 8, inclusive → 9)
+    expect(view.state.doc.toString()).toBe('first\n  second\nthird')
+    expect(view.state.selection.main.from).toBe(0)
+    expect(view.state.selection.main.to).toBe(9)
+  })
+
+  it('supports count with Enter in visual line mode (2<CR>)', () => {
+    const view = mount('one\ntwo\nthree\nfour')
+    press(view, 'V', 86)
+    press(view, '2', 50)
+    press(view, 'Enter', 13)
+    expect(view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to)).toBe(
+      'one\ntwo\nthree'
+    )
+  })
+
+  it('acts as a linewise motion in operator-pending mode (d<CR>)', () => {
+    const view = mount('one\ntwo\nthree')
+    press(view, 'd', 68)
+    press(view, 'Enter', 13)
+    expect(view.state.doc.toString()).toBe('three')
+  })
+
+  it('stays in place on Enter at the last line in normal mode', () => {
+    const view = mount('only line')
+    view.dispatch({ selection: EditorSelection.cursor(5) })
+    press(view, 'Enter', 13)
+    expect(view.state.doc.toString()).toBe('only line')
+    expect(view.state.selection.main.head).toBe(5)
   })
 
   it('still continues list markup on Enter in insert mode', () => {
