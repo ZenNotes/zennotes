@@ -40,6 +40,19 @@ export const CLOUD_ANNOUNCEMENT = {
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    version: '2.91.0',
+    highlights: [
+      {
+        title: 'Remote vaults keep your edits through an outage',
+        body: 'When your server cannot be reached, a note you edit says Not saved and saves itself once the server is back. If someone changed it on the server meanwhile, their version is kept beside yours as a server copy, and quitting with unsaved notes asks first.'
+      },
+      {
+        title: 'Install for OpenCode keeps your settings',
+        body: 'Settings, MCP, Install for OpenCode now changes only the ZenNotes entry in opencode.json, comments and all, and leaves your providers and other settings as they were.'
+      }
+    ]
+  },
+  {
     version: '2.90.0',
     highlights: [
       {
