@@ -5792,6 +5792,28 @@ function applyVaultNameFromSettings(settings: VaultSettings): void {
 }
 
 export const useStore = create<Store>((set, get) => {
+  // A save retry belongs to the vault and host the save failed in, and its
+  // timer can outlive both: a vault switch clears `noteSaveErrors` but not
+  // the timer, and a context taken only when it fires would accept whatever
+  // host is live by then, writing the old buffer through it.
+  const scheduleSaveRetry = (failedPath: string, delayMs: number): void => {
+    const pendingRetry = saveRetryTimers.get(failedPath)
+    if (pendingRetry) clearTimeout(pendingRetry)
+    const scheduledIn = captureFolderActionContext(get)
+    saveRetryTimers.set(
+      failedPath,
+      setTimeout(() => {
+        saveRetryTimers.delete(failedPath)
+        if (!scheduledIn()) {
+          clearSaveRetry(failedPath)
+          dismissSaveFailureToast(failedPath)
+          return
+        }
+        void get().retryFailedSaves([failedPath])
+      }, delayMs)
+    )
+  }
+
   // The buffer is now the only copy of these edits (#1108): say so where
   // the note is, and keep trying, quickly at first, then once a minute.
   // Before this the failure went to the console only, nothing retried, and
@@ -5803,23 +5825,12 @@ export const useStore = create<Store>((set, get) => {
     set((cur) => ({ noteSaveErrors: { ...cur.noteSaveErrors, [failedPath]: message } }))
     const attempt = saveRetryAttempts.get(failedPath) ?? 0
     saveRetryAttempts.set(failedPath, attempt + 1)
-    const pendingRetry = saveRetryTimers.get(failedPath)
-    if (pendingRetry) clearTimeout(pendingRetry)
     // A conditional write the server refused because someone saved the note
     // a moment ago is not an outage: the server is right there, and the
     // retry reads their version and keeps it beside ours. Go again at once,
     // a few times; past that, back off like any other failure.
     const conflict = isNoteChangedOnServerError(err) && attempt < SAVE_CONFLICT_IMMEDIATE_RETRIES
-    saveRetryTimers.set(
-      failedPath,
-      setTimeout(
-        () => {
-          saveRetryTimers.delete(failedPath)
-          void get().retryFailedSaves([failedPath])
-        },
-        conflict ? 0 : saveRetryDelay(attempt)
-      )
-    )
+    scheduleSaveRetry(failedPath, conflict ? 0 : saveRetryDelay(attempt))
     if (first) {
       const toast = `Couldn’t save “${noteTitleForToast(get, failedPath)}”. Your changes are kept here and ZenNotes keeps trying.`
       saveFailureToasts.set(failedPath, toast)
@@ -9529,9 +9540,11 @@ export const useStore = create<Store>((set, get) => {
         // Someone else may have edited this note on the server while it was
         // out of reach, and a plain retry would write over them. Read first;
         // if the server moved away from what this edit started from, keep
-        // its version beside the note before saving ours. Not atomic (the
-        // server has no conditional write), but it closes the window an
-        // outage opens, which is minutes, down to one round trip.
+        // its version beside the note before saving ours. A server that
+        // supports conditional writes then refuses ours if the note moves
+        // again before it lands (the base sha256 below); an older one leaves
+        // only that one round trip open, down from the minutes an outage
+        // opens.
         let serverBody: string | null = null
         let serverSha256: string | undefined
         try {

@@ -244,3 +244,26 @@ describe('#1108 the retry on a server with conditional writes', () => {
     expect(calls.at(-1)).toEqual([NOTE, edited])
   })
 })
+
+describe('#1108 a retry stays with the vault it was armed in', () => {
+  it('never writes the old buffer through a host that replaced it', async () => {
+    vi.useFakeTimers()
+    const { useToastStore } = await openOfflineEdit()
+    // Another vault, or a reloaded store, now owns the bridge. The retry
+    // armed above must not take this host for its own.
+    installZen()
+    await vi.advanceTimersByTimeAsync(2_100)
+    expect(writes).toEqual([])
+    expect(server.get(NOTE)).toBe(ORIGINAL)
+    expect(useToastStore.getState().toasts.some((t) => t.type === 'error')).toBe(false)
+  })
+
+  it('never writes the old buffer into the vault opened after it', async () => {
+    vi.useFakeTimers()
+    const { useStore } = await openOfflineEdit()
+    online = true
+    useStore.setState({ vault: { root: '/other', name: 'Other' } })
+    await vi.advanceTimersByTimeAsync(2_100)
+    expect(writes).toEqual([])
+  })
+})
