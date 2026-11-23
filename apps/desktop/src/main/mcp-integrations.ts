@@ -16,6 +16,14 @@ import path from 'node:path'
 import os from 'node:os'
 import { fileURLToPath } from 'node:url'
 import {
+  applyEdits,
+  modify,
+  parse as parseJsonc,
+  printParseErrorCode,
+  type FormattingOptions,
+  type ParseError
+} from 'jsonc-parser'
+import {
   MCP_CLIENTS,
   type McpClientDescriptor,
   type McpClientId,
@@ -254,7 +262,7 @@ async function writeTomlFile(filePath: string, contents: string): Promise<void> 
   await fsp.writeFile(filePath, contents.endsWith('\n') ? contents : contents + '\n', 'utf8')
 }
 
-/* ---------- OpenCode (JSON with `mcp.<key>` structure) -------------- */
+/* ---------- OpenCode (JSONC with `mcp.<key>` structure) ------------- */
 
 interface OpenCodeMcpEntry {
   type: 'local'
@@ -268,11 +276,110 @@ interface OpenCodeConfig {
   [key: string]: unknown
 }
 
-function readOpenCodeConfig(raw: string): OpenCodeConfig {
+/**
+ * OpenCode reads its config as JSONC: comments and trailing commas are
+ * legal in `opencode.json`, and `opencode.jsonc` is an accepted name too.
+ * A strict JSON.parse rejects a config OpenCode itself is happy with, and
+ * the reader that used to stand here answered that rejection with `{}`, so
+ * Install wrote the file back holding nothing but our entry and every
+ * provider the user had configured was gone (#1104).
+ *
+ * The rule now: a file we cannot read is a file we do not write. Any parse
+ * error throws, and the caller surfaces it, the same way a broken
+ * ~/.claude.json already does for the Claude clients.
+ */
+function parseOpenCodeConfig(raw: string, filePath: string): OpenCodeConfig {
+  if (raw.trim() === '') return {}
+  const errors: ParseError[] = []
+  const parsed: unknown = parseJsonc(raw, errors, {
+    allowTrailingComma: true,
+    disallowComments: false
+  })
+  if (errors.length > 0) {
+    const first = errors[0]
+    const { line, column } = lineAndColumn(raw, first.offset)
+    throw new Error(
+      `ZenNotes could not read ${filePath} (${printParseErrorCode(first.error)} at line ${line}, column ${column}) and left it unchanged. Fix the file, or add the ZenNotes entry to it by hand.`
+    )
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(
+      `${filePath} does not hold a JSON object, so ZenNotes left it unchanged.`
+    )
+  }
+  const cfg = parsed as OpenCodeConfig
+  if (
+    cfg.mcp !== undefined &&
+    (cfg.mcp === null || typeof cfg.mcp !== 'object' || Array.isArray(cfg.mcp))
+  ) {
+    throw new Error(
+      `The "mcp" setting in ${filePath} is not an object, so ZenNotes left the file unchanged.`
+    )
+  }
+  return cfg
+}
+
+function lineAndColumn(text: string, offset: number): { line: number; column: number } {
+  const before = text.slice(0, offset)
+  const lastBreak = before.lastIndexOf('\n')
+  return {
+    line: before.split('\n').length,
+    column: offset - lastBreak
+  }
+}
+
+/** Match the file's own indentation and line endings, so an edit reads like the user's file. */
+function openCodeFormatting(raw: string): FormattingOptions {
+  const eol = raw.includes('\r\n') ? '\r\n' : '\n'
+  const indent = /^([ \t]+)\S/m.exec(raw)?.[1]
+  if (indent?.startsWith('\t')) return { insertSpaces: false, tabSize: 1, eol }
+  return { insertSpaces: true, tabSize: indent ? indent.length : 2, eol }
+}
+
+/**
+ * Set or remove `mcp.<serverKey>` by editing the text in place rather than
+ * re-serializing the parsed object, so the user's comments, key order and
+ * layout survive both Install and Uninstall. An `mcp` block that Uninstall
+ * leaves empty is removed with it, as the strict JSON path always did.
+ */
+function editOpenCodeConfig(
+  raw: string,
+  serverKey: string,
+  entry: OpenCodeMcpEntry | undefined
+): string {
+  const created = raw.trim() === ''
+  const base = created ? '{}' : raw
+  const formattingOptions = openCodeFormatting(base)
+  let next = applyEdits(base, modify(base, ['mcp', serverKey], entry, { formattingOptions }))
+  if (entry === undefined) {
+    const remaining = parseJsonc(next, [], { allowTrailingComma: true }) as OpenCodeConfig
+    if (remaining.mcp && Object.keys(remaining.mcp).length === 0) {
+      next = applyEdits(next, modify(next, ['mcp'], undefined, { formattingOptions }))
+    }
+  }
+  return created ? `${next}\n` : next
+}
+
+/**
+ * OpenCode loads both `opencode.json` and `opencode.jsonc`. Keep writing the
+ * `.json` name we always have, unless the user keeps only a `.jsonc` file:
+ * then edit that one instead of starting a second config beside it.
+ */
+async function resolveClientConfigPath(descriptor: McpClientDescriptor): Promise<string> {
+  const configPath = clientConfigPath(descriptor)
+  if (descriptor.format !== 'opencode') return configPath
+  const jsoncPath = configPath.replace(/\.json$/, '.jsonc')
+  if (await pathExists(configPath)) return configPath
+  if (await pathExists(jsoncPath)) return jsoncPath
+  return configPath
+}
+
+async function pathExists(filePath: string): Promise<boolean> {
   try {
-    return JSON.parse(raw) as OpenCodeConfig
+    await fsp.access(filePath)
+    return true
   } catch {
-    return {}
+    return false
   }
 }
 
@@ -293,7 +400,7 @@ export async function getMcpClientStatuses(): Promise<McpClientStatus[]> {
   const runtime = await getMcpServerRuntime()
   const statuses: McpClientStatus[] = []
   for (const descriptor of MCP_CLIENTS) {
-    const configPath = clientConfigPath(descriptor)
+    const configPath = await resolveClientConfigPath(descriptor)
     let installed = false
     let upToDate = false
     let note: string | undefined
@@ -317,7 +424,7 @@ export async function getMcpClientStatuses(): Promise<McpClientStatus[]> {
         }
       } else if (descriptor.format === 'opencode') {
         const raw = await readTomlFile(configPath)
-        const cfg = readOpenCodeConfig(raw)
+        const cfg = parseOpenCodeConfig(raw, configPath)
         const entry = cfg.mcp?.[descriptor.serverKey]
         installed = entry !== undefined
         if (entry) {
@@ -365,7 +472,7 @@ export async function installMcpForClient(id: McpClientId): Promise<McpClientSta
       'The ZenNotes MCP server has not been built. Run `npm run build` (or launch from a packaged build) so the installer has a file to register.'
     )
   }
-  const configPath = clientConfigPath(descriptor)
+  const configPath = await resolveClientConfigPath(descriptor)
 
   if (descriptor.format === 'json') {
     const cfg = await readJsonConfig(configPath)
@@ -380,18 +487,15 @@ export async function installMcpForClient(id: McpClientId): Promise<McpClientSta
     await writeJsonConfig(configPath, next)
   } else if (descriptor.format === 'opencode') {
     const raw = await readTomlFile(configPath)
-    const cfg = readOpenCodeConfig(raw)
+    parseOpenCodeConfig(raw, configPath)
     const entry = buildOpenCodeEntry({
       command: runtime.command,
       args: runtime.args,
       env: runtime.env
     })
-    const next: OpenCodeConfig = { ...cfg }
-    const mcp = { ...(cfg.mcp ?? {}) }
-    mcp[descriptor.serverKey] = entry
-    next.mcp = mcp
+    const next = editOpenCodeConfig(raw, descriptor.serverKey, entry)
     await fsp.mkdir(path.dirname(configPath), { recursive: true })
-    await fsp.writeFile(configPath, JSON.stringify(next, null, 2) + '\n', 'utf8')
+    await fsp.writeFile(configPath, next, 'utf8')
   } else {
     const raw = await readTomlFile(configPath)
     const stripped = stripManagedBlock(raw)
@@ -410,7 +514,7 @@ export async function installMcpForClient(id: McpClientId): Promise<McpClientSta
 export async function uninstallMcpForClient(id: McpClientId): Promise<McpClientStatus> {
   const descriptor = MCP_CLIENTS.find((c) => c.id === id)
   if (!descriptor) throw new Error(`Unknown MCP client: ${id}`)
-  const configPath = clientConfigPath(descriptor)
+  const configPath = await resolveClientConfigPath(descriptor)
 
   if (descriptor.format === 'json') {
     const cfg = await readJsonConfig(configPath)
@@ -427,18 +531,10 @@ export async function uninstallMcpForClient(id: McpClientId): Promise<McpClientS
     }
   } else if (descriptor.format === 'opencode') {
     const raw = await readTomlFile(configPath)
-    const cfg = readOpenCodeConfig(raw)
+    const cfg = parseOpenCodeConfig(raw, configPath)
     if (cfg.mcp?.[descriptor.serverKey]) {
-      const next: OpenCodeConfig = { ...cfg }
-      const mcp = { ...cfg.mcp }
-      delete mcp[descriptor.serverKey]
-      if (Object.keys(mcp).length === 0) {
-        delete next.mcp
-      } else {
-        next.mcp = mcp
-      }
-      await fsp.mkdir(path.dirname(configPath), { recursive: true })
-      await fsp.writeFile(configPath, JSON.stringify(next, null, 2) + '\n', 'utf8')
+      const next = editOpenCodeConfig(raw, descriptor.serverKey, undefined)
+      await fsp.writeFile(configPath, next, 'utf8')
     }
   } else {
     const raw = await readTomlFile(configPath)
@@ -454,6 +550,8 @@ export async function uninstallMcpForClient(id: McpClientId): Promise<McpClientS
 // Exported for tests / renderer diagnostics if ever useful.
 export const __internal = {
   clientConfigPath,
+  parseOpenCodeConfig,
+  editOpenCodeConfig,
   renderTomlBlock,
   stripManagedBlock,
   tomlBlockMatches,

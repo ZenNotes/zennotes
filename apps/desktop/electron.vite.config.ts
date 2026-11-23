@@ -61,11 +61,17 @@ const MAIN_BUNDLED_MARKDOWN_PACKAGES = [
 // 2.20.0 lost. Neither has native pieces, so Rollup inlines both.
 const MAIN_BUNDLED_WATCHER_PACKAGES = ['chokidar', 'readdirp']
 
+// The JSONC reader and editor the MCP installer uses on OpenCode's config,
+// which allows comments and trailing commas. No dependencies and no native
+// pieces, so bundling costs nothing and leaves no layout to get wrong.
+const MAIN_BUNDLED_CONFIG_PACKAGES = ['jsonc-parser']
+
 const MAIN_EXTERNALIZE_EXCLUSIONS = [
   ...INTERNAL_WORKSPACE_PACKAGES,
   ...PACKAGED_CLI_RUNTIME_PACKAGES,
   ...MAIN_BUNDLED_MARKDOWN_PACKAGES,
-  ...MAIN_BUNDLED_WATCHER_PACKAGES
+  ...MAIN_BUNDLED_WATCHER_PACKAGES,
+  ...MAIN_BUNDLED_CONFIG_PACKAGES
 ]
 
 function onigurumaDataUrl(): Plugin {
