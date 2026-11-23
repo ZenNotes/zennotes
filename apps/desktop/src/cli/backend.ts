@@ -90,6 +90,7 @@ import {
   type DatabaseVaultLayout
 } from '@shared/database-ops'
 import { createAbsenceAwareReader } from '@shared/remote-absence'
+import { rewriteNoteOnServer } from '@shared/remote-conditional-write'
 import {
   normalizeSystemFolderPaths,
   resolveFolderPath,
@@ -524,15 +525,26 @@ class RemoteBackend implements VaultBackend {
     return await this.client.writeNote(meta.path, body)
   }
 
-  appendToNote = async (rel: string, text: string): Promise<NoteMeta> => {
-    const note = await this.client.readNote(rel)
-    return await this.client.writeNote(rel, appendToBody(note.body, text))
-  }
+  /** Read, change, write back on the version read (#1108): a server with
+   *  conditional writes refuses if another device saved the note in between,
+   *  and the change is made again on the newer text instead of over it. */
+  private rewrite = (
+    rel: string,
+    edit: (body: string) => string | null | Promise<string | null>
+  ): Promise<NoteMeta | null> =>
+    rewriteNoteOnServer(
+      {
+        read: () => this.client.readNote(rel),
+        write: (body, base) => this.client.writeNote(rel, body, base)
+      },
+      edit
+    )
 
-  prependToNote = async (rel: string, text: string): Promise<NoteMeta> => {
-    const note = await this.client.readNote(rel)
-    return await this.client.writeNote(rel, prependToBody(note.body, text))
-  }
+  appendToNote = async (rel: string, text: string): Promise<NoteMeta> =>
+    (await this.rewrite(rel, (body) => appendToBody(body, text)))!
+
+  prependToNote = async (rel: string, text: string): Promise<NoteMeta> =>
+    (await this.rewrite(rel, (body) => prependToBody(body, text)))!
 
   renameNote = async (rel: string, nextTitle: string): Promise<NoteMeta> => {
     const meta = await this.client.renameNote(rel, nextTitle)
@@ -549,10 +561,8 @@ class RemoteBackend implements VaultBackend {
   deleteNote = (rel: string): Promise<void> => this.client.deleteNote(rel)
   emptyTrash = (): Promise<void> => this.client.emptyTrash()
 
-  insertAtLine = async (rel: string, lineNumber: number, text: string): Promise<NoteMeta> => {
-    const note = await this.client.readNote(rel)
-    return await this.client.writeNote(rel, insertAtLineInBody(note.body, lineNumber, text))
-  }
+  insertAtLine = async (rel: string, lineNumber: number, text: string): Promise<NoteMeta> =>
+    (await this.rewrite(rel, (body) => insertAtLineInBody(body, lineNumber, text)))!
 
   /** No match means no write: the receipt comes from the listing instead of
    *  from a round trip that would only re-save identical bytes. */
@@ -562,15 +572,17 @@ class RemoteBackend implements VaultBackend {
     replace: string,
     occurrence: 'first' | 'all'
   ): Promise<{ meta: NoteMeta; replacements: number }> => {
-    const note = await this.client.readNote(rel)
-    const { body, replacements } = replaceInBody(note.body, find, replace, occurrence)
-    if (replacements === 0) {
-      const path = normalizeRelPath(rel)
-      const meta = (await this.client.listNotes()).find((n) => n.path === path)
-      if (!meta) throw new Error(`Note not found: ${rel}`)
-      return { meta, replacements: 0 }
-    }
-    return { meta: await this.client.writeNote(rel, body), replacements }
+    let replacements = 0
+    const meta = await this.rewrite(rel, (current) => {
+      const result = replaceInBody(current, find, replace, occurrence)
+      replacements = result.replacements
+      return result.replacements === 0 ? null : result.body
+    })
+    if (meta) return { meta, replacements }
+    const path = normalizeRelPath(rel)
+    const listed = (await this.client.listNotes()).find((n) => n.path === path)
+    if (!listed) throw new Error(`Note not found: ${rel}`)
+    return { meta: listed, replacements: 0 }
   }
 
   createFolder = (folder: NoteFolder, subpath: string): Promise<void> =>
@@ -607,28 +619,26 @@ class RemoteBackend implements VaultBackend {
    *  — which keeps the Go and TypeScript task parsers honest with each other. */
   toggleTask = async (taskId: string): Promise<VaultTask | null> => {
     const { rel, indexStr } = splitTaskId(taskId)
-    const note = await this.client.readNote(rel)
 
     // Exclusion-blind (#458), like the local toggle: an explicit task id is an
     // explicit ask, and ids for excluded tasks only circulate via
     // `zn task list --include-excluded`.
-    let nextBody: string | null
     // A recurring task checked off moves down under its next occurrence
     // (#1036); the reply names the finished task, wherever it went.
     let resultId = taskId
-    if (indexStr === 'task') {
-      const current = (
-        await this.client.scanTasksForPath(rel, { includeExcluded: true })
-      ).find((t) => t.id === taskId)
-      nextBody = current ? toggleFileTaskInBody(note.body, current.checked) : null
-    } else {
-      const toggled = toggleTaskBody(note.body, parseTaskIndex(taskId, indexStr))
-      nextBody = toggled?.body ?? null
+    const written = await this.rewrite(rel, async (body) => {
+      resultId = taskId
+      if (indexStr === 'task') {
+        const current = (
+          await this.client.scanTasksForPath(rel, { includeExcluded: true })
+        ).find((t) => t.id === taskId)
+        return current ? toggleFileTaskInBody(body, current.checked) : null
+      }
+      const toggled = toggleTaskBody(body, parseTaskIndex(taskId, indexStr))
       if (toggled) resultId = `${rel}#${toggled.index}`
-    }
-    if (nextBody == null) return null
-
-    await this.client.writeNote(rel, nextBody)
+      return toggled?.body ?? null
+    })
+    if (!written) return null
     return (
       (await this.client.scanTasksForPath(rel, { includeExcluded: true })).find(
         (t) => t.id === resultId

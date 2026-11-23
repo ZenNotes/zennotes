@@ -105,6 +105,7 @@ import type {
   NoteContent,
   NoteFolder,
   NoteMeta,
+  WriteNoteOptions,
   PastedImageInput,
   RaycastExtensionStatus,
   RemoteWorkspaceInfo,
@@ -658,8 +659,8 @@ const api: ZenBridge = {
   createRecordPage: (csvPath: string, title: string, body: string): Promise<string> =>
     ipcRenderer.invoke(IPC.VAULT_CREATE_RECORD_PAGE, csvPath, title, body),
   listDatabases: (): Promise<DatabaseSummary[]> => ipcRenderer.invoke(IPC.VAULT_LIST_DATABASES),
-  writeNote: (relPath: string, body: string): Promise<NoteMeta> =>
-    ipcRenderer.invoke(IPC.VAULT_WRITE_NOTE, relPath, body),
+  writeNote: (relPath: string, body: string, options?: WriteNoteOptions): Promise<NoteMeta> =>
+    ipcRenderer.invoke(IPC.VAULT_WRITE_NOTE, relPath, body, options),
   appendToNote: (relPath: string, body: string, position: 'start' | 'end'): Promise<NoteMeta> =>
     ipcRenderer.invoke(IPC.VAULT_APPEND_NOTE, relPath, body, position),
   createNote: (folder: NoteFolder, title?: string, subpath?: string): Promise<NoteMeta> =>

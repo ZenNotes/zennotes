@@ -12,6 +12,12 @@
  *  buffer stays dirty. A reconnecting change feed retries at once anyway. */
 export const SAVE_RETRY_DELAYS_MS = [2_000, 5_000, 15_000, 30_000, 60_000] as const
 
+/** How many saves in a row a server may refuse as "changed since read"
+ *  before the retries fall back to the backoff above. Each refusal means
+ *  someone saved the note that instant; a note saved this busily elsewhere
+ *  should not keep this app in a tight loop. */
+export const SAVE_CONFLICT_IMMEDIATE_RETRIES = 3
+
 export function saveRetryDelay(attempt: number): number {
   const index = Math.min(Math.max(attempt, 0), SAVE_RETRY_DELAYS_MS.length - 1)
   return SAVE_RETRY_DELAYS_MS[index]

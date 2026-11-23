@@ -8,7 +8,11 @@ back ([#1108](https://github.com/ZenNotes/zennotes/issues/1108), by @dwnsdp).
 > from the code on `v2.91.0` at `3422803d` (the failed-save retry this builds
 > on), znserver `origin/main` at server 2.84.1, and ZenNotes/tui `origin/main`.
 > Line numbers are from those trees. The eight questions the first draft left
-> open were decided with Adib the same day (see Decisions made at the end). Until
+> open were decided with Adib the same day (see Decisions made at the end).
+> Phase 1 (conditional writes) is built, not released: znserver branch
+> `feat/conditional-note-writes`, and in this repo the 2.91.0 retry, the
+> desktop and web remote clients and the bundled `zn` send the base; the Go
+> `zn` TUI is still to do. Until
 > this ships, a local vault with ZenNotes Cloud is the way to work offline, which
 > is what #1108 was told.
 

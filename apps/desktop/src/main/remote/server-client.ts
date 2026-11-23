@@ -67,6 +67,7 @@ import type {
 } from '@zennotes/bridge-contract/workflows'
 import { prepareWorkflowRun } from '@shared/workflows/prepare-run'
 import { REMOTE_CHANGE_POLL_MS, stalePathMessage } from '@shared/remote-workspace-messages'
+import { noteChangedOnServerMessage } from '@shared/remote-conditional-write'
 
 export class RemoteConnectionError extends Error {}
 
@@ -282,11 +283,22 @@ export class RemoteServerClient {
     return this.jsonRequest<VaultTask[]>(`/api/tasks/for?path=${encodeURIComponent(relPath)}`)
   }
 
-  async writeNote(relPath: string, body: string): Promise<NoteMeta> {
-    return this.jsonRequest<NoteMeta>('/api/notes/write', {
-      method: 'POST',
-      body: { path: relPath, body }
-    })
+  /** With `baseSha256` (the `sha256` a read or a write of this note
+   *  returned), a server with conditional writes refuses with 409 if the note
+   *  changed since, and the error says so in words the renderer recognizes
+   *  across IPC (#1108). An older server ignores the field. */
+  async writeNote(relPath: string, body: string, baseSha256?: string): Promise<NoteMeta> {
+    try {
+      return await this.jsonRequest<NoteMeta>('/api/notes/write', {
+        method: 'POST',
+        body: baseSha256 ? { path: relPath, body, baseSha256 } : { path: relPath, body }
+      })
+    } catch (err) {
+      if (baseSha256 && err instanceof RemoteRequestError && err.status === 409) {
+        throw new RemoteRequestError(noteChangedOnServerMessage(relPath), 409)
+      }
+      throw err
+    }
   }
 
   async createNote(folder: NoteFolder, title?: string, subpath = ''): Promise<NoteMeta> {

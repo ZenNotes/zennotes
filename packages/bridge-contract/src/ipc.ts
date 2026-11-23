@@ -779,6 +779,20 @@ export interface NoteMeta {
    *  is linked into the vault). Notes that merely live inside a symlinked
    *  folder are not flagged — the folder carries the marker instead. */
   isSymlink?: boolean
+  /** The note's bytes as a self-hosted server names them (hex SHA-256), on
+   *  a remote vault's note read and write only, from a server that
+   *  advertises `supportsConditionalNoteWrites`. Sent back as a write's
+   *  `baseSha256` to have it refused if the note changed since (#1108). */
+  sha256?: string
+}
+
+/** Options for one note write. */
+export interface WriteNoteOptions {
+  /** Write only if the note is still the version a read or a write
+   *  returned with this `sha256`; otherwise the write fails and changes
+   *  nothing. Honoured by servers with `supportsConditionalNoteWrites`; an
+   *  older server and a local vault write unconditionally. */
+  baseSha256?: string
 }
 
 export interface ListNotesPageRequest {
@@ -1046,6 +1060,11 @@ export interface ServerCapabilities {
    *  search. Absent before 2.80, whose settings save drops it, so Settings
    *  keeps the Template folder row hidden for a vault on such a server. */
   supportsTemplateFolder?: boolean
+  /** Note reads and writes return `sha256`, and a write that sends it back
+   *  as `baseSha256` is refused with 409 when the note changed in between
+   *  (#1108). Absent before the server release that added it, which ignores
+   *  the field and writes unconditionally. */
+  supportsConditionalNoteWrites?: boolean
 }
 
 export interface ServerSessionStatus {

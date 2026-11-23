@@ -48,6 +48,7 @@ import type {
   NoteContent,
   NoteFolder,
   NoteMeta,
+  WriteNoteOptions,
   RemoteWorkspaceInfo,
   RemoteWorkspaceProfile,
   RemoteWorkspaceProfileInput,
@@ -144,7 +145,13 @@ import { customCodeLanguageRegistry } from './lib/custom-code-languages'
 import { formatMarkdown } from './lib/format-markdown'
 import { confirmDeletePermanently, confirmMoveToTrash } from './lib/confirm-trash'
 import { humanIpcError } from './lib/ipc-error'
-import { saveRetryDelay, serverBodyIsSafeToOverwrite, serverCopyPath } from './lib/save-retry'
+import {
+  SAVE_CONFLICT_IMMEDIATE_RETRIES,
+  saveRetryDelay,
+  serverBodyIsSafeToOverwrite,
+  serverCopyPath
+} from './lib/save-retry'
+import { isNoteChangedOnServerError } from '@shared/remote-conditional-write'
 import { confirmApp, getConfirmRequest, noticeApp } from './lib/confirm-requests'
 import { pickServerDirectoryApp } from './lib/server-directory-picker-requests'
 import { promptApp, getPromptRequest } from './lib/prompt-requests'
@@ -4633,8 +4640,14 @@ interface Store {
   toggleTabPin: (paneId: string, path: string) => void
   /** Update an open note's body (typed into any pane). Flags dirty. */
   updateNoteBody: (path: string, body: string) => void
-  /** Persist a specific note to disk. */
-  persistNote: (path: string, duringFolderMutation?: boolean) => Promise<void>
+  /** Persist a specific note to disk. `options.baseSha256` makes this one
+   *  write conditional on a remote server (#1108): refused, and recorded as
+   *  a failed save, if the note is no longer the version with that hash. */
+  persistNote: (
+    path: string,
+    duringFolderMutation?: boolean,
+    options?: WriteNoteOptions
+  ) => Promise<void>
   /** Try the failed saves again (#1108), every one or just `paths`. Runs on
    *  a backoff after each failure, when a remote change feed reconnects, and
    *  when the OS says the network is back. */
@@ -5792,12 +5805,20 @@ export const useStore = create<Store>((set, get) => {
     saveRetryAttempts.set(failedPath, attempt + 1)
     const pendingRetry = saveRetryTimers.get(failedPath)
     if (pendingRetry) clearTimeout(pendingRetry)
+    // A conditional write the server refused because someone saved the note
+    // a moment ago is not an outage: the server is right there, and the
+    // retry reads their version and keeps it beside ours. Go again at once,
+    // a few times; past that, back off like any other failure.
+    const conflict = isNoteChangedOnServerError(err) && attempt < SAVE_CONFLICT_IMMEDIATE_RETRIES
     saveRetryTimers.set(
       failedPath,
-      setTimeout(() => {
-        saveRetryTimers.delete(failedPath)
-        void get().retryFailedSaves([failedPath])
-      }, saveRetryDelay(attempt))
+      setTimeout(
+        () => {
+          saveRetryTimers.delete(failedPath)
+          void get().retryFailedSaves([failedPath])
+        },
+        conflict ? 0 : saveRetryDelay(attempt)
+      )
     )
     if (first) {
       const toast = `Couldn’t save “${noteTitleForToast(get, failedPath)}”. Your changes are kept here and ZenNotes keeps trying.`
@@ -9394,7 +9415,7 @@ export const useStore = create<Store>((set, get) => {
     await get().persistNote(path)
   },
 
-  persistNote: async (path, duringFolderMutation = false) => {
+  persistNote: async (path, duringFolderMutation = false, options) => {
     const isCurrent = captureFolderActionContext(get)
     const pending = pathSaveTimers.get(path)
     if (pending) {
@@ -9413,7 +9434,9 @@ export const useStore = create<Store>((set, get) => {
         const writtenBody = content.body
         const tagsBefore = s.notes.find((note) => note.path === path)?.tags
         noteContentVersions.set(path, (noteContentVersions.get(path) ?? 0) + 1)
-        const meta = await window.zen.writeNote(path, writtenBody)
+        const meta = options?.baseSha256
+          ? await window.zen.writeNote(path, writtenBody, options)
+          : await window.zen.writeNote(path, writtenBody)
         if (!isCurrent()) return
         // Saving a Typst preamble note changes the definitions every note tagged
         // for it compiles against, so reload and repaint open panes. (#486)
@@ -9510,8 +9533,11 @@ export const useStore = create<Store>((set, get) => {
         // server has no conditional write), but it closes the window an
         // outage opens, which is minutes, down to one round trip.
         let serverBody: string | null = null
+        let serverSha256: string | undefined
         try {
-          serverBody = (await window.zen.readNote(path)).body
+          const server = await window.zen.readNote(path)
+          serverBody = server.body
+          serverSha256 = server.sha256
         } catch {
           // Still unreachable (the save below fails and reschedules), or the
           // note is gone from the server, where saving puts the edits back.
@@ -9552,7 +9578,11 @@ export const useStore = create<Store>((set, get) => {
             )
           void get().refreshNotes()
         }
-        await get().persistNote(path)
+        // On the version just read, where the server can say so: someone
+        // saving the note between that read and this write turns the write
+        // into a refusal instead of a silent overwrite, and the retry that
+        // follows at once (recordSaveFailure) keeps their version beside ours.
+        await get().persistNote(path, false, serverSha256 ? { baseSha256: serverSha256 } : undefined)
       })
     )
   },

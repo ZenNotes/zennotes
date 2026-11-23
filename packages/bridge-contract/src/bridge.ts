@@ -41,6 +41,7 @@ import type {
   NoteContent,
   NoteFolder,
   NoteMeta,
+  WriteNoteOptions,
   PastedImageInput,
   RaycastExtensionStatus,
   DirectoryBrowseResult,
@@ -474,7 +475,7 @@ export interface ZenBridge {
   /** Create a record's "page" note (returns its vault-relative path). */
   createRecordPage(csvPath: string, title: string, body: string): Promise<string>
   listDatabases(): Promise<DatabaseSummary[]>
-  writeNote(relPath: string, body: string): Promise<NoteMeta>
+  writeNote(relPath: string, body: string, options?: WriteNoteOptions): Promise<NoteMeta>
   appendToNote(relPath: string, body: string, position: 'start' | 'end'): Promise<NoteMeta>
   createNote(folder: NoteFolder, title?: string, subpath?: string): Promise<NoteMeta>
   /** Create a new `.excalidraw` drawing seeded with an empty scene. */

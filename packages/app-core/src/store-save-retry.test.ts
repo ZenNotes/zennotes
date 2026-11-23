@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { createHash } from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // #1108: a remote vault keeps nothing on this machine, so a save made while
@@ -30,7 +31,14 @@ const NOTE = 'inbox/Offline.md'
 const ORIGINAL = '# Offline\n\nwritten on the server\n'
 let server: Map<string, string>
 let online: boolean
-const writes: Array<{ path: string; body: string }> = []
+const writes: Array<{ path: string; body: string; baseSha256?: string }> = []
+// A server with conditional writes (#1108) names each note's bytes; null is a
+// server from before them, which returns no hash and ignores any base.
+let conditional: boolean
+// Runs inside the next conditional write, just before the server compares:
+// another device saving the note between the retry's read and its write.
+let beforeConditionalWrite: (() => void) | null
+const sha = (body: string): string => createHash('sha256').update(body).digest('hex')
 const unreachable = (): Error =>
   new Error(
     "Error invoking remote method 'vault:write-note': Error: Could not connect to the ZenNotes server at http://nas:7878."
@@ -40,6 +48,8 @@ function installZen(): void {
   server = new Map([[NOTE, ORIGINAL]])
   online = true
   writes.length = 0
+  conditional = false
+  beforeConditionalWrite = null
   Object.defineProperty(window, 'zen', {
     configurable: true,
     value: {
@@ -64,13 +74,25 @@ function installZen(): void {
         if (!online) throw unreachable()
         if (!server.has(path)) throw new Error(`ENOENT ${path}`)
         const body = server.get(path)!
-        return { ...meta(path, body), body }
+        return { ...meta(path, body), body, ...(conditional ? { sha256: sha(body) } : {}) }
       }),
-      writeNote: vi.fn(async (path: string, body: string) => {
+      writeNote: vi.fn(async (path: string, body: string, options?: { baseSha256?: string }) => {
         if (!online) throw unreachable()
-        writes.push({ path, body })
+        const base = conditional ? options?.baseSha256 : undefined
+        if (base) {
+          const race = beforeConditionalWrite
+          beforeConditionalWrite = null
+          race?.()
+          const current = server.get(path)
+          if (current === undefined || sha(current) !== base) {
+            throw new Error(
+              `Error invoking remote method 'vault:write-note': RemoteRequestError: ${path} changed on the server since it was read, so it was not saved over. Someone else saved it in the meantime.`
+            )
+          }
+        }
+        writes.push({ path, body, ...(base ? { baseSha256: base } : {}) })
         server.set(path, body)
-        return meta(path, body)
+        return { ...meta(path, body), ...(conditional ? { sha256: sha(body) } : {}) }
       })
     }
   })
@@ -183,5 +205,42 @@ describe('#1108 a save that fails while the server is away', () => {
     await vi.waitFor(() => expect(useStore.getState().noteSaveErrors[NOTE]).toBeUndefined())
     expect(useStore.getState().noteDirty[NOTE]).toBe(false)
     expect(writes).toEqual([])
+  })
+})
+
+describe('#1108 the retry on a server with conditional writes', () => {
+  it('saves on the version it just read', async () => {
+    const { useStore, edited } = await openOfflineEdit()
+    conditional = true
+    online = true
+    await useStore.getState().retryFailedSaves()
+    expect(writes).toEqual([{ path: NOTE, body: edited, baseSha256: sha(ORIGINAL) }])
+    expect(useStore.getState().noteSaveErrors[NOTE]).toBeUndefined()
+  })
+
+  it('keeps a save that lands between its read and its write instead of writing over it', async () => {
+    const { useStore, edited } = await openOfflineEdit()
+    conditional = true
+    online = true
+    const theirs = `${ORIGINAL}saved on the phone that very second\n`
+    beforeConditionalWrite = () => server.set(NOTE, theirs)
+    await useStore.getState().retryFailedSaves()
+    // Refused, then tried again at once: the second read sees their save and
+    // keeps it beside ours, and ours lands on the version that read named.
+    await vi.waitFor(() => expect(server.get(NOTE)).toBe(edited))
+    expect(server.get('inbox/Offline (server copy).md')).toBe(theirs)
+    expect(writes.map((w) => w.path)).toEqual(['inbox/Offline (server copy).md', NOTE])
+    expect(writes[1]?.baseSha256).toBe(sha(theirs))
+    expect(useStore.getState().noteSaveErrors[NOTE]).toBeUndefined()
+    expect(useStore.getState().noteDirty[NOTE]).toBe(false)
+  })
+
+  it('sends no base to a server that returns no hash', async () => {
+    const { useStore, edited } = await openOfflineEdit()
+    online = true
+    await useStore.getState().retryFailedSaves()
+    expect(writes).toEqual([{ path: NOTE, body: edited }])
+    const calls = (window.zen.writeNote as unknown as { mock: { calls: unknown[][] } }).mock.calls
+    expect(calls.at(-1)).toEqual([NOTE, edited])
   })
 })

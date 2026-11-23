@@ -46,6 +46,7 @@ import type {
 import type {
   NoteMeta,
   NoteCommentInput,
+  WriteNoteOptions,
   NoteFolder,
   DeletedAsset,
   ExternalFileContent,
@@ -257,6 +258,7 @@ import {
   type DatabaseOps as SharedDatabaseOps,
 } from "@shared/database-ops";
 import { createAbsenceAwareReader } from "@shared/remote-absence";
+import { rewriteNoteOnServer, validBaseSha256 } from "@shared/remote-conditional-write";
 import type {
   DatabaseSeed,
   DatabaseSidecar,
@@ -5093,30 +5095,44 @@ function registerIpc(): void {
     return await listDatabases(requireVault().root);
   });
 
-  handle(IPC.VAULT_WRITE_NOTE, async (_e, relPath: string, body: string) => {
-    if (isRemoteWorkspaceActive()) {
-      return await requireRemoteWorkspaceClient().writeNote(relPath, body);
-    }
-    const v = requireVault();
-    return await writeNote(v.root, relPath, body);
-  });
+  handle(
+    IPC.VAULT_WRITE_NOTE,
+    async (_e, relPath: string, body: string, options?: WriteNoteOptions) => {
+      if (isRemoteWorkspaceActive()) {
+        // Only a well-formed hash goes to the server. A local vault has no
+        // server version to compare with and writes as it always has.
+        return await requireRemoteWorkspaceClient().writeNote(
+          relPath,
+          body,
+          validBaseSha256(options?.baseSha256),
+        );
+      }
+      const v = requireVault();
+      return await writeNote(v.root, relPath, body);
+    },
+  );
 
   handle(
     IPC.VAULT_APPEND_NOTE,
     async (_e, relPath: string, body: string, position: "start" | "end") => {
       const safePosition = position === "start" ? "start" : "end";
       if (isRemoteWorkspaceActive()) {
-        // Remote vaults don't expose appendToNote yet — compose with read+write
-        // so the call works uniformly across local + remote workspaces.
+        // Remote vaults don't expose appendToNote, so it is a read and a
+        // write, the write made on the version read (#1108): an edit another
+        // device saved in between is appended to, never written over.
         const client = requireRemoteWorkspaceClient();
-        const current = await client.readNote(relPath);
         const trimmed = body.replace(/\s+$/u, "");
-        if (!trimmed) return current;
-        const next =
-          safePosition === "end"
-            ? `${current.body}${current.body.endsWith("\n") ? "" : "\n"}\n${trimmed}\n`
-            : `${trimmed}\n\n${current.body}`;
-        return await client.writeNote(relPath, next);
+        if (!trimmed) return await client.readNote(relPath);
+        return (await rewriteNoteOnServer(
+          {
+            read: () => client.readNote(relPath),
+            write: (next, base) => client.writeNote(relPath, next, base),
+          },
+          (current) =>
+            safePosition === "end"
+              ? `${current}${current.endsWith("\n") ? "" : "\n"}\n${trimmed}\n`
+              : `${trimmed}\n\n${current}`,
+        ))!;
       }
       const v = requireVault();
       return await appendToNote(v.root, relPath, body, safePosition);

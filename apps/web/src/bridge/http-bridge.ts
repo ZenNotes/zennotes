@@ -35,6 +35,11 @@ import type {
 } from '@zennotes/bridge-contract/workflows'
 import { prepareWorkflowRun } from '@shared/workflows/prepare-run'
 import { REMOTE_CHANGE_POLL_MS, stalePathMessage } from '@shared/remote-workspace-messages'
+import {
+  noteChangedOnServerMessage,
+  rewriteNoteOnServer,
+  validBaseSha256
+} from '@shared/remote-conditional-write'
 import type {
   AppUpdateState,
   AssetMeta,
@@ -53,6 +58,7 @@ import type {
   NoteContent,
   NoteFolder,
   NoteMeta,
+  WriteNoteOptions,
   PastedImageInput,
   RaycastExtensionStatus,
   RemoteWorkspaceInfo,
@@ -461,26 +467,47 @@ function writeNoteComments(
   })
 }
 
-function writeNote(relPath: string, body: string): Promise<NoteMeta> {
-  return jsonRequest<NoteMeta>('/notes/write', {
-    method: 'POST',
-    body: { path: relPath, body }
-  })
+/** With `baseSha256` (from a read or a write of this note), a server with
+ *  conditional writes refuses with 409 when the note changed since (#1108);
+ *  an older server ignores the field. */
+async function writeNote(
+  relPath: string,
+  body: string,
+  options?: WriteNoteOptions
+): Promise<NoteMeta> {
+  const baseSha256 = validBaseSha256(options?.baseSha256)
+  try {
+    return await jsonRequest<NoteMeta>('/notes/write', {
+      method: 'POST',
+      body: baseSha256 ? { path: relPath, body, baseSha256 } : { path: relPath, body }
+    })
+  } catch (err) {
+    if (baseSha256 && err instanceof HttpRequestError && err.status === 409) {
+      throw new HttpRequestError(409, '/notes/write', noteChangedOnServerMessage(relPath))
+    }
+    throw err
+  }
 }
 
+/** A read and a write, the write made on the version read: an edit another
+ *  device saved in between is appended to, never written over (#1108). */
 async function appendToNote(
   relPath: string,
   body: string,
   position: 'start' | 'end'
 ): Promise<NoteMeta> {
-  const current = await readNote(relPath)
   const trimmed = body.replace(/\s+$/u, '')
-  if (!trimmed) return current
-  const next =
-    position === 'end'
-      ? `${current.body}${current.body.endsWith('\n') ? '' : '\n'}\n${trimmed}\n`
-      : `${trimmed}\n\n${current.body}`
-  return await writeNote(relPath, next)
+  if (!trimmed) return await readNote(relPath)
+  return (await rewriteNoteOnServer(
+    {
+      read: () => readNote(relPath),
+      write: (next, base) => writeNote(relPath, next, { baseSha256: base })
+    },
+    (current) =>
+      position === 'end'
+        ? `${current}${current.endsWith('\n') ? '' : '\n'}\n${trimmed}\n`
+        : `${trimmed}\n\n${current}`
+  ))!
 }
 
 function createNote(

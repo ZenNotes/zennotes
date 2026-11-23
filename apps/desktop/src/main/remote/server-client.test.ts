@@ -401,3 +401,60 @@ describe('custom templates on a remote vault (#723)', () => {
     }
   })
 })
+
+describe('conditional note writes (#1108)', () => {
+  async function withServer(
+    handle: (body: Record<string, unknown>) => { status: number; body: string },
+    run: (client: RemoteServerClient, seen: Array<Record<string, unknown>>) => Promise<void>
+  ): Promise<void> {
+    const seen: Array<Record<string, unknown>> = []
+    const server = http.createServer((req, res) => {
+      let raw = ''
+      req.on('data', (chunk) => (raw += chunk))
+      req.on('end', () => {
+        const parsed = JSON.parse(raw) as Record<string, unknown>
+        seen.push(parsed)
+        const answer = handle(parsed)
+        res.statusCode = answer.status
+        res.setHeader('Content-Type', answer.status === 200 ? 'application/json' : 'text/plain')
+        res.end(answer.body)
+      })
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    try {
+      await run(new RemoteServerClient({ baseUrl: `http://127.0.0.1:${port}` }), seen)
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
+  }
+  const base = 'c'.repeat(64)
+
+  it('sends the base only when there is one', async () => {
+    await withServer(
+      () => ({ status: 200, body: JSON.stringify({ path: 'inbox/A.md' }) }),
+      async (client, seen) => {
+        await client.writeNote('inbox/A.md', 'one')
+        await client.writeNote('inbox/A.md', 'two', base)
+        expect(seen).toEqual([
+          { path: 'inbox/A.md', body: 'one' },
+          { path: 'inbox/A.md', body: 'two', baseSha256: base }
+        ])
+      }
+    )
+  })
+
+  it('names a refusal in words the renderer recognizes across IPC', async () => {
+    await withServer(
+      () => ({ status: 409, body: 'note changed since it was read: inbox/A.md' }),
+      async (client) => {
+        const err = await client.writeNote('inbox/A.md', 'two', base).catch((e: unknown) => e)
+        expect(err).toBeInstanceOf(RemoteRequestError)
+        expect((err as RemoteRequestError).status).toBe(409)
+        expect((err as Error).message).toContain(
+          'inbox/A.md changed on the server since it was read'
+        )
+      }
+    )
+  })
+})

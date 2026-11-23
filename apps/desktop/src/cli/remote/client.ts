@@ -13,11 +13,13 @@
  */
 
 import {
+  RemoteRequestError,
   remoteBytesRequest,
   remoteFormRequest,
   remoteJsonRequest
 } from '../../main/remote/connection.js'
 import { remoteHeadersFromEnv, type RemoteHeader } from '@shared/remote-headers'
+import { noteChangedOnServerMessage } from '@shared/remote-conditional-write'
 import type {
   CustomTemplateFile,
   DeletedVaultAsset,
@@ -203,8 +205,21 @@ export class CliRemoteClient {
     return this.post<RemoteAssetMeta>('/api/assets/restore', deleted)
   }
 
-  writeNote(relPath: string, body: string): Promise<NoteMeta> {
-    return this.post<NoteMeta>('/api/notes/write', { path: relPath, body })
+  /** With `baseSha256` (from a read or a write of this note), a server with
+   *  conditional writes refuses with 409 when the note changed since (#1108);
+   *  an older server ignores the field. */
+  async writeNote(relPath: string, body: string, baseSha256?: string): Promise<NoteMeta> {
+    try {
+      return await this.post<NoteMeta>(
+        '/api/notes/write',
+        baseSha256 ? { path: relPath, body, baseSha256 } : { path: relPath, body }
+      )
+    } catch (err) {
+      if (baseSha256 && err instanceof RemoteRequestError && err.status === 409) {
+        throw new RemoteRequestError(noteChangedOnServerMessage(relPath), 409)
+      }
+      throw err
+    }
   }
 
   createNote(folder: NoteFolder, title?: string, subpath = ''): Promise<NoteMeta> {
