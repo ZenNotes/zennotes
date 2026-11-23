@@ -368,6 +368,12 @@ export const HELP_HOW_TO_GUIDES: HelpCard<HelpText>[] = [
       'Settings → Vault → Remote workspace takes the server URL and its token. **On macOS**, a server on your own network also needs the system Local Network permission: macOS asks the first time ZenNotes reaches a local address, and if you dismiss that prompt the connection fails with no packets sent and no further warning: it looks exactly like a server that is down. Turn it back on under System Settings → Privacy & Security → Local Network. A server reached over the public internet is unaffected. Live updates travel over a WebSocket at /api/watch. If a reverse proxy in front of the server does not pass WebSocket upgrades, the app refreshes on its own every 30 seconds instead, so a note renamed or trashed on another device can show its old name for up to half a minute; passing the upgrade through gives instant updates.'
   },
   {
+    title: 'When the server cannot be reached',
+    only: 'desktop',
+    body:
+      'A remote vault lives on the server, not on this computer, so while the server is unreachable a note you edit cannot be saved. The note\'s header then says **Not saved** (hover it for the reason) and a message stays on screen until it is saved. Keep working: ZenNotes keeps your changes in the window and saves them by itself once the server answers again, within a few seconds of it coming back. If someone changed the same note on the server in the meantime, nothing is overwritten: the server\'s version is kept beside yours as **Note (server copy)**. Quitting ZenNotes or closing the window while a note is not saved asks first, since those changes are only in that window. Undoing your edits back to what the server has clears the warning.'
+  },
+  {
     title: 'Reach a server behind Cloudflare Access or another gateway',
     only: 'desktop',
     body:

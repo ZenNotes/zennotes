@@ -653,6 +653,21 @@ function App(): JSX.Element {
     return () => window.removeEventListener('beforeunload', flush)
   }, [flushDirtyNotes])
 
+  // Notes whose save failed hold the only copy of their edits (#1108). Main
+  // asks before a quit or a close would drop them, so it needs the count;
+  // and the OS saying the network is back is as good a cue as any to retry.
+  const unsavedNoteCount = useStore((s) => Object.keys(s.noteSaveErrors).length)
+  useEffect(() => {
+    window.zen.reportUnsavedNotes?.(unsavedNoteCount)
+  }, [unsavedNoteCount])
+  useEffect(() => {
+    const retry = (): void => {
+      void useStore.getState().retryFailedSaves()
+    }
+    window.addEventListener('online', retry)
+    return () => window.removeEventListener('online', retry)
+  }, [])
+
   // "Keep undo history after quitting" off means the saved histories go too:
   // they hold text the user deleted, so they do not outlive the setting that
   // asked for them. Watched here rather than in the setter, because the

@@ -864,6 +864,8 @@ const api: ZenBridge = {
     return () => ipcRenderer.removeListener(IPC.TASK_REMINDER_OPEN, listener)
   },
   quitApp: (): void => ipcRenderer.send(IPC.APP_QUIT),
+  reportUnsavedNotes: (count: number): void =>
+    ipcRenderer.send(IPC.NOTES_REPORT_UNSAVED, count),
   renderTikz: (source: string): Promise<{ ok: boolean; svg?: string; error?: string }> =>
     ipcRenderer.invoke(IPC.TIKZ_RENDER, source),
 

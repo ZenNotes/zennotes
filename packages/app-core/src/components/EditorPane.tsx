@@ -1029,6 +1029,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     setNoteCoverSlot((current) => (alive ? slot : current === slot ? null : current))
   }, [])
   const isDirty = useStore((s) => (activeTab ? s.noteDirty[activeTab] ?? false : false))
+  const saveError = useStore((s) => (activeTab ? s.noteSaveErrors[activeTab] ?? null : null))
   const comments = useStore((s) =>
     activeTab ? s.noteComments[activeTab] ?? EMPTY_COMMENTS : EMPTY_COMMENTS
   )
@@ -4850,12 +4851,24 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             {supportsCloudPublishing && content.folder !== 'trash' && (
               <PublishedNoteButton key={content.path} note={content} />
             )}
-            {isDirty && (
+            {isDirty && saveError ? (
+              // The save failed and the buffer is the only copy (#1108): a
+              // word, not the dot every pending save shows for a moment.
               <span
-                aria-label="Unsaved changes"
-                title="Unsaved changes"
-                className="ml-2 h-2 w-2 rounded-full bg-accent/80"
-              />
+                role="status"
+                title={`${saveError} ZenNotes keeps trying.`}
+                className="ml-2 shrink-0 rounded-full bg-danger/15 px-2 py-0.5 text-xs font-medium text-danger"
+              >
+                Not saved
+              </span>
+            ) : (
+              isDirty && (
+                <span
+                  aria-label="Unsaved changes"
+                  title="Unsaved changes"
+                  className="ml-2 h-2 w-2 rounded-full bg-accent/80"
+                />
+              )
             )}
           </div>
           {toolbar}

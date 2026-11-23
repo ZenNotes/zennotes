@@ -144,6 +144,7 @@ import { customCodeLanguageRegistry } from './lib/custom-code-languages'
 import { formatMarkdown } from './lib/format-markdown'
 import { confirmDeletePermanently, confirmMoveToTrash } from './lib/confirm-trash'
 import { humanIpcError } from './lib/ipc-error'
+import { saveRetryDelay, serverBodyIsSafeToOverwrite, serverCopyPath } from './lib/save-retry'
 import { confirmApp, getConfirmRequest, noticeApp } from './lib/confirm-requests'
 import { pickServerDirectoryApp } from './lib/server-directory-picker-requests'
 import { promptApp, getPromptRequest } from './lib/prompt-requests'
@@ -3948,6 +3949,11 @@ interface Store {
   noteContents: Record<string, NoteContent>
   /** Dirty flags keyed by path — a buffer with unsaved edits. */
   noteDirty: Record<string, boolean>
+  /** Why the last save of a dirty note failed, keyed by path (#1108). Set
+   *  while the buffer is the only copy of its edits: a remote server that
+   *  went away, a disk that refused the write. Cleared by the save that
+   *  finally lands, or when the buffer stops being dirty. */
+  noteSaveErrors: Record<string, string>
   /** Comment sidecars keyed by note path. Loaded lazily per open note. */
   noteComments: Record<string, NoteComment[]>
   /** Notes an assistant edited through MCP that the user has not reviewed
@@ -4629,6 +4635,10 @@ interface Store {
   updateNoteBody: (path: string, body: string) => void
   /** Persist a specific note to disk. */
   persistNote: (path: string, duringFolderMutation?: boolean) => Promise<void>
+  /** Try the failed saves again (#1108), every one or just `paths`. Runs on
+   *  a backoff after each failure, when a remote change feed reconnects, and
+   *  when the OS says the network is back. */
+  retryFailedSaves: (paths?: string[]) => Promise<void>
   loadNoteComments: (path: string) => Promise<NoteComment[]>
   /** Re-list every note with assistant edits to review. */
   refreshAgentEdits: () => Promise<void>
@@ -4699,6 +4709,37 @@ const pathSaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
  *  older one to the final rename. */
 const pathSaveQueues = new Map<string, Promise<void>>()
 const PATH_SAVE_DEBOUNCE_MS = 350
+/** The next retry of each failed save, and how many failed in a row, which
+ *  picks the wait (lib/save-retry.ts). Both go when the save lands (#1108). */
+const saveRetryTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const saveRetryAttempts = new Map<string, number>()
+/** The error toast each failing note put up, so the save that finally lands
+ *  can take it down instead of leaving a stale alarm on screen. */
+const saveFailureToasts = new Map<string, string>()
+
+function noteTitleForToast(get: () => { notes: NoteMeta[] }, path: string): string {
+  return (
+    get().notes.find((note) => note.path === path)?.title ??
+    path.slice(path.lastIndexOf('/') + 1).replace(/\.md$/i, '')
+  )
+}
+
+function clearSaveRetry(path: string): void {
+  const timer = saveRetryTimers.get(path)
+  if (timer) clearTimeout(timer)
+  saveRetryTimers.delete(path)
+  saveRetryAttempts.delete(path)
+}
+
+function dismissSaveFailureToast(path: string): void {
+  const message = saveFailureToasts.get(path)
+  saveFailureToasts.delete(path)
+  if (!message) return
+  const toasts = useToastStore.getState()
+  for (const toast of toasts.toasts) {
+    if (toast.message === message) toasts.removeToast(toast.id)
+  }
+}
 /** The on-disk body of every dirty note, taken from the buffer the moment it
  *  first drifted from disk (a clean buffer equals disk) and moved forward by
  *  each completed write. An edit that brings the buffer back to these bytes
@@ -5738,6 +5779,33 @@ function applyVaultNameFromSettings(settings: VaultSettings): void {
 }
 
 export const useStore = create<Store>((set, get) => {
+  // The buffer is now the only copy of these edits (#1108): say so where
+  // the note is, and keep trying, quickly at first, then once a minute.
+  // Before this the failure went to the console only, nothing retried, and
+  // the edits died with the window even after the server came back.
+  const recordSaveFailure = (failedPath: string, err: unknown): void => {
+    if (!get().noteDirty[failedPath]) return
+    const message = humanIpcError(err, 'The note could not be saved.')
+    const first = !(failedPath in get().noteSaveErrors)
+    set((cur) => ({ noteSaveErrors: { ...cur.noteSaveErrors, [failedPath]: message } }))
+    const attempt = saveRetryAttempts.get(failedPath) ?? 0
+    saveRetryAttempts.set(failedPath, attempt + 1)
+    const pendingRetry = saveRetryTimers.get(failedPath)
+    if (pendingRetry) clearTimeout(pendingRetry)
+    saveRetryTimers.set(
+      failedPath,
+      setTimeout(() => {
+        saveRetryTimers.delete(failedPath)
+        void get().retryFailedSaves([failedPath])
+      }, saveRetryDelay(attempt))
+    )
+    if (first) {
+      const toast = `Couldn’t save “${noteTitleForToast(get, failedPath)}”. Your changes are kept here and ZenNotes keeps trying.`
+      saveFailureToasts.set(failedPath, toast)
+      useToastStore.getState().addToast(toast, 'error')
+    }
+  }
+
   const mutateNoteImpl = async (
     path: string,
     mutate: () => Promise<NoteMeta | null>,
@@ -6514,6 +6582,7 @@ export const useStore = create<Store>((set, get) => {
         activePaneId: fresh.id,
         noteContents: {},
         noteDirty: {},
+        noteSaveErrors: {},
         loadingNote: false,
         noteBackstack: [],
         noteForwardstack: [],
@@ -6558,6 +6627,7 @@ export const useStore = create<Store>((set, get) => {
           activePaneId: fresh.id,
           noteContents: {},
           noteDirty: {},
+          noteSaveErrors: {},
           loadingNote: false,
           noteBackstack: [],
           noteForwardstack: [],
@@ -6595,6 +6665,7 @@ export const useStore = create<Store>((set, get) => {
         activePaneId: fresh.id,
         noteContents: {},
         noteDirty: {},
+        noteSaveErrors: {},
         loadingNote: false,
         noteBackstack: [],
         noteForwardstack: [],
@@ -6832,6 +6903,7 @@ export const useStore = create<Store>((set, get) => {
   activePaneId: initialPane.id,
   noteContents: {},
   noteDirty: {},
+  noteSaveErrors: {},
   noteComments: {},
   agentEdits: {},
   activeCommentId: null,
@@ -9042,6 +9114,10 @@ export const useStore = create<Store>((set, get) => {
           }
         })
       )
+      // The feed came back, so the server did: the saves that failed while
+      // it was away go now instead of waiting out their backoff (#1108).
+      // The dirty buffers above were left alone for exactly this.
+      void get().retryFailedSaves()
       return
     }
     if (ev.scope === 'comments') {
@@ -9295,6 +9371,8 @@ export const useStore = create<Store>((set, get) => {
         clearTimeout(pending)
         pathSaveTimers.delete(path)
       }
+      // Undone back to what is on disk: nothing is left to lose.
+      if (path in get().noteSaveErrors) void get().retryFailedSaves([path])
       return
     }
     if (folderMutationBlocks(path)) return
@@ -9348,6 +9426,8 @@ export const useStore = create<Store>((set, get) => {
         ) {
           void get().refreshTypstPreambles()
         }
+        const recovered = path in get().noteSaveErrors
+        clearSaveRetry(path)
         set((cur) => {
           // Keystrokes that landed while the write was in flight leave the
           // buffer ahead of disk. The queued caller will persist them next,
@@ -9356,8 +9436,10 @@ export const useStore = create<Store>((set, get) => {
           if (stillCurrent || !cur.noteContents[path]) savedBodies.delete(path)
           else savedBodies.set(path, writtenBody)
           const dirty = stillCurrent ? { ...cur.noteDirty, [path]: false } : cur.noteDirty
+          const { [path]: _settled, ...noteSaveErrors } = cur.noteSaveErrors
           return {
             noteDirty: dirty,
+            ...(path in cur.noteSaveErrors ? { noteSaveErrors } : {}),
             notes: cur.notes.map((n) => (n.path === meta.path ? { ...n, ...meta } : n)),
             ...activeFieldsFrom(cur.paneLayout, cur.activePaneId, cur.noteContents, dirty)
           }
@@ -9368,6 +9450,10 @@ export const useStore = create<Store>((set, get) => {
         if (isPathInTemplateFolder(path, resolveTemplateFolder(get().vaultSettings))) {
           void get().loadFolderTemplates()
         }
+        if (recovered) {
+          dismissSaveFailureToast(path)
+          useToastStore.getState().addToast(`Saved “${noteTitleForToast(get, path)}”.`, 'success')
+        }
         // This app saved the note, which is what the workflow event triggers
         // listen for. A tag the note did not carry before is its own event.
         emitNoteEvent('note-saved', path)
@@ -9376,6 +9462,7 @@ export const useStore = create<Store>((set, get) => {
         }
       } catch (err) {
         console.error('writeNote failed', err)
+        if (isCurrent()) recordSaveFailure(path, err)
       }
     }
     const previous = pathSaveQueues.get(path)
@@ -9389,6 +9476,85 @@ export const useStore = create<Store>((set, get) => {
     } finally {
       if (pathSaveQueues.get(path) === run) pathSaveQueues.delete(path)
     }
+  },
+
+  retryFailedSaves: async (paths) => {
+    const targets = paths ?? Object.keys(get().noteSaveErrors)
+    await Promise.all(
+      targets.map(async (path) => {
+        if (!(path in get().noteSaveErrors)) return
+        const pending = saveRetryTimers.get(path)
+        if (pending) clearTimeout(pending)
+        saveRetryTimers.delete(path)
+        const settle = (): void => {
+          clearSaveRetry(path)
+          dismissSaveFailureToast(path)
+          set((cur) => {
+            if (!(path in cur.noteSaveErrors)) return cur
+            const { [path]: _gone, ...rest } = cur.noteSaveErrors
+            return { noteSaveErrors: rest }
+          })
+        }
+        const before = get()
+        if (!before.noteContents[path] || !before.noteDirty[path]) {
+          settle()
+          return
+        }
+        // A save already running reports its own outcome.
+        if (pathSaveQueues.has(path)) return
+        const isCurrent = captureFolderActionContext(get)
+        // Someone else may have edited this note on the server while it was
+        // out of reach, and a plain retry would write over them. Read first;
+        // if the server moved away from what this edit started from, keep
+        // its version beside the note before saving ours. Not atomic (the
+        // server has no conditional write), but it closes the window an
+        // outage opens, which is minutes, down to one round trip.
+        let serverBody: string | null = null
+        try {
+          serverBody = (await window.zen.readNote(path)).body
+        } catch {
+          // Still unreachable (the save below fails and reschedules), or the
+          // note is gone from the server, where saving puts the edits back.
+        }
+        if (!isCurrent()) return
+        const buffer = get().noteContents[path]?.body
+        if (buffer === undefined || !get().noteDirty[path]) {
+          settle()
+          return
+        }
+        if (
+          serverBody !== null &&
+          !serverBodyIsSafeToOverwrite(serverBody, savedBodies.get(path), buffer)
+        ) {
+          const copy = serverCopyPath(path, (candidate) =>
+            get().notes.some((note) => note.path === candidate)
+          )
+          try {
+            await window.zen.writeNote(copy, serverBody)
+          } catch (err) {
+            console.error('writeNote failed', err)
+            recordSaveFailure(path, err)
+            return
+          }
+          if (!isCurrent()) return
+          // The original path now holds what the copy holds; our save
+          // replaces those bytes, and nothing of theirs is lost.
+          savedBodies.set(path, serverBody)
+          const title = noteTitleForToast(get, path)
+          const copyTitle = copy.slice(copy.lastIndexOf('/') + 1).replace(/\.md$/i, '')
+          useToastStore
+            .getState()
+            .addToast(
+              `“${title}” changed on the server while it could not be saved here. The server’s version is kept as “${copyTitle}”.`,
+              'info',
+              undefined,
+              10_000
+            )
+          void get().refreshNotes()
+        }
+        await get().persistNote(path)
+      })
+    )
   },
 
   refreshAgentEdits: async () => {
@@ -12351,6 +12517,7 @@ export const useStore = create<Store>((set, get) => {
       activePaneId: fresh.id,
       noteContents: {},
       noteDirty: {},
+      noteSaveErrors: {},
       loadingNote: false,
       noteBackstack: [],
       noteForwardstack: [],
@@ -12443,6 +12610,7 @@ export const useStore = create<Store>((set, get) => {
           activePaneId: fresh.id,
           noteContents: {},
           noteDirty: {},
+          noteSaveErrors: {},
           loadingNote: false,
           noteBackstack: [],
           noteForwardstack: [],
@@ -12481,6 +12649,7 @@ export const useStore = create<Store>((set, get) => {
         activePaneId: fresh.id,
         noteContents: {},
         noteDirty: {},
+        noteSaveErrors: {},
         loadingNote: false,
         noteBackstack: [],
         noteForwardstack: [],
@@ -12630,6 +12799,7 @@ export const useStore = create<Store>((set, get) => {
         activePaneId: fresh.id,
         noteContents: {},
         noteDirty: {},
+        noteSaveErrors: {},
         loadingNote: false,
         noteBackstack: [],
         noteForwardstack: [],
@@ -12720,6 +12890,7 @@ export const useStore = create<Store>((set, get) => {
         activePaneId: fresh.id,
         noteContents: {},
         noteDirty: {},
+        noteSaveErrors: {},
         loadingNote: false,
         noteBackstack: [],
         noteForwardstack: [],
@@ -12808,6 +12979,7 @@ export const useStore = create<Store>((set, get) => {
         activePaneId: fresh.id,
         noteContents: {},
         noteDirty: {},
+        noteSaveErrors: {},
         loadingNote: false,
         noteBackstack: [],
         noteForwardstack: [],

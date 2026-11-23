@@ -639,6 +639,10 @@ export interface ZenBridge {
   /** Quit the app for real. Linux and Windows have no app menu, so with the
    *  tray holding the window this is the way out besides the icon's menu. */
   quitApp?(): void
+  /** How many notes in this window hold edits a save failed to write (the
+   *  server went away, #1108). Main asks before a quit or a window close
+   *  would throw those buffers away. Desktop-only. */
+  reportUnsavedNotes?(count: number): void
   renderTikz(source: string): Promise<TikzRenderResponse>
 
   mcpGetRuntime(): Promise<McpServerRuntime>

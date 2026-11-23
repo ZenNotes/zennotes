@@ -219,6 +219,7 @@ export const IPC = {
   TASK_REMINDER_OPEN: 'tasks:reminder-open',
   WINDOW_HIDE_TO_TRAY: 'window:hide-to-tray',
   APP_QUIT: 'app:quit',
+  NOTES_REPORT_UNSAVED: 'notes:report-unsaved',
   APP_READ_EXTERNAL_FILE: 'app:read-external-file',
   APP_WRITE_EXTERNAL_FILE: 'app:write-external-file',
   APP_MOVE_EXTERNAL_FILE_TO_VAULT: 'app:move-external-file-to-vault',

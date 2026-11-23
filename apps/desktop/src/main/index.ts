@@ -335,6 +335,10 @@ import {
   shouldHideOnClose,
   showTray,
 } from "./tray";
+import {
+  UnsavedNotesLedger,
+  unsavedNotesPrompt,
+} from "./unsaved-notes-guard";
 import { shouldQuitWithOnlyQuickCaptureLeft } from "./last-window";
 import { quickCaptureBoundsOnDisplay } from "./quick-capture-placement";
 import {
@@ -437,6 +441,16 @@ const sessionEnd = new SessionEndWatch();
 // Workspace windows a close hid to the tray, so the tray brings back exactly
 // those and never a window that is still loading behind `show: false`.
 const trayHiddenWindowIds = new Set<number>();
+// Notes whose save failed in each window (#1108): their buffers are the only
+// copy, so a quit or a close asks first. Once the user says to leave anyway,
+// the windows that quit closes do not ask again.
+const unsavedNotes = new UnsavedNotesLedger();
+let unsavedNotesLeaveConfirmed = false;
+let unsavedNotesPromptOpen = false;
+// An update install drives its own quit (Squirrel.Mac closes the windows
+// itself, electron-updater relaunches); a question in the middle of that
+// would stall it, so the guard stands aside once the user chose to install.
+let installingUpdate = false;
 let currentVault: VaultInfo | null = null;
 let currentWorkspaceMode: "local" | "remote" = "local";
 let remoteWorkspaceConfig: PersistedRemoteWorkspaceConfig | null = null;
@@ -1744,6 +1758,39 @@ function isPathInsideWindowVault(win: BrowserWindow, absPath: string): boolean {
   return resolved === root || resolved.startsWith(root + path.sep);
 }
 
+/**
+ * Ask whether to leave edits that could not be saved. Resolves true to go on
+ * with the quit or the close. One question at a time: a second Cmd+Q while
+ * the first is open answers "keep open" rather than stacking dialogs.
+ */
+async function askToLeaveUnsavedNotes(
+  win: BrowserWindow | null,
+  count: number,
+  action: "quit" | "close",
+): Promise<boolean> {
+  if (unsavedNotesPromptOpen) return false;
+  unsavedNotesPromptOpen = true;
+  try {
+    const prompt = unsavedNotesPrompt(count, action);
+    const options: Electron.MessageBoxOptions = {
+      type: "warning",
+      buttons: prompt.buttons,
+      defaultId: 0,
+      cancelId: 0,
+      title: "Unsaved Changes",
+      message: prompt.message,
+      detail: prompt.detail,
+    };
+    const { response } =
+      win && !win.isDestroyed()
+        ? await dialog.showMessageBox(win, options)
+        : await dialog.showMessageBox(options);
+    return response === 1;
+  } finally {
+    unsavedNotesPromptOpen = false;
+  }
+}
+
 function installNavigationGuards(win: BrowserWindow): void {
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith(`${LOCAL_ASSET_SCHEME}://`)) {
@@ -2316,7 +2363,23 @@ async function createWindow(
           other.isVisible(),
       ).length,
     });
-    if (!hide) return;
+    if (!hide) {
+      const unsaved = unsavedNotes.countFor(win.webContents.id);
+      if (
+        unsaved > 0 &&
+        !unsavedNotesLeaveConfirmed &&
+        !installingUpdate &&
+        !sessionEnd.isEnding(performance.now())
+      ) {
+        event.preventDefault();
+        void askToLeaveUnsavedNotes(win, unsaved, "close").then((leave) => {
+          if (!leave || win.isDestroyed()) return;
+          unsavedNotes.forget(win.webContents.id);
+          win.close();
+        });
+      }
+      return;
+    }
     event.preventDefault();
     hideWindowToTray(win);
   });
@@ -2325,7 +2388,9 @@ async function createWindow(
   // lapses unless `session-end` follows.
   win.on("query-session-end", () => sessionEnd.query(performance.now()));
   win.on("session-end", () => sessionEnd.end());
+  const unsavedNotesKey = win.webContents.id;
   win.on("closed", () => {
+    unsavedNotes.forget(unsavedNotesKey);
     if (persistWindowStateTimer) clearTimeout(persistWindowStateTimer);
     trayHiddenWindowIds.delete(win.id);
     workspaceWindowIds.delete(win.id);
@@ -4278,6 +4343,7 @@ function registerIpc(): void {
   });
   handle(IPC.APP_UPDATER_DOWNLOAD, async () => await downloadAppUpdate());
   handle(IPC.APP_UPDATER_INSTALL, () => {
+    installingUpdate = true;
     installAppUpdate();
   });
 
@@ -5787,6 +5853,10 @@ function registerIpc(): void {
     app.quit();
   });
 
+  on(IPC.NOTES_REPORT_UNSAVED, (event, count: unknown) => {
+    unsavedNotes.report(event.sender.id, count);
+  });
+
   // The whole reminder schedule of one window (#1036). Untrusted like any
   // renderer payload: the scheduler keeps only well-formed, vault-relative
   // items, and only ever shows their text and hands their path back.
@@ -7024,11 +7094,37 @@ app.on("browser-window-created", (_event, win) => {
 // installs an update, and a close hidden to the tray would stall that install.
 if (process.platform === "darwin") {
   nativeAutoUpdater.on("before-quit-for-update", () => {
+    installingUpdate = true;
     appQuitting = true;
   });
 }
 
-app.on("before-quit", () => {
+app.on("before-quit", (event) => {
+  // Asked here, before anything below stops: a quit cancelled later would
+  // leave the remote watcher and Cloud sync stopped in a running app.
+  const unsaved = unsavedNotes.total();
+  if (
+    unsaved > 0 &&
+    !unsavedNotesLeaveConfirmed &&
+    !installingUpdate &&
+    !sessionEnd.isEnding(performance.now())
+  ) {
+    event.preventDefault();
+    // The tray's Quit and the in-app Quit set this before calling quit();
+    // the user just chose to stay, so close-to-tray applies again.
+    appQuitting = false;
+    void askToLeaveUnsavedNotes(
+      currentIpcWindow() ?? mainWindow,
+      unsaved,
+      "quit",
+    ).then((leave) => {
+      if (!leave) return;
+      unsavedNotesLeaveConfirmed = true;
+      appQuitting = true;
+      app.quit();
+    });
+    return;
+  }
   appQuitting = true;
   cloudSyncService?.stop();
   void cloudAuthLoopbackServer?.stop();
