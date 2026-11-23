@@ -144,7 +144,7 @@ import { customCodeLanguageRegistry } from './lib/custom-code-languages'
 import { formatMarkdown } from './lib/format-markdown'
 import { confirmDeletePermanently, confirmMoveToTrash } from './lib/confirm-trash'
 import { humanIpcError } from './lib/ipc-error'
-import { confirmApp, getConfirmRequest } from './lib/confirm-requests'
+import { confirmApp, getConfirmRequest, noticeApp } from './lib/confirm-requests'
 import { pickServerDirectoryApp } from './lib/server-directory-picker-requests'
 import { promptApp, getPromptRequest } from './lib/prompt-requests'
 import { promptRemoteAuthApp } from './lib/remote-auth-requests'
@@ -4970,6 +4970,12 @@ function deriveRemoteProfileName(
   while (existing.some((entry) => entry.name === `${base} ${suffix}`)) suffix += 1
   return `${base} ${suffix}`
 }
+
+/** The address the last Connect to Remote Vault tried, until one connects.
+ *  A failed try saves no profile and leaves no current remote, so without
+ *  this the next try opened on localhost again (#1106). This session only:
+ *  it is a typing aid, not a setting. */
+let lastTriedRemoteBaseUrl: string | null = null
 
 function findMatchingRemoteProfile(
   profiles: RemoteWorkspaceProfile[],
@@ -12508,7 +12514,7 @@ export const useStore = create<Store>((set, get) => {
         title: 'Connect to Remote Vault',
         description:
           "Your ZenNotes server's address, like http://localhost:7878 or https://notes.example.com.",
-        initialValue: currentRemote?.baseUrl ?? 'http://localhost:7878',
+        initialValue: lastTriedRemoteBaseUrl ?? currentRemote?.baseUrl ?? 'http://localhost:7878',
         placeholder: 'http://localhost:7878',
         okLabel: 'Next',
         plainInput: true,
@@ -12526,6 +12532,7 @@ export const useStore = create<Store>((set, get) => {
       if (!baseUrl) return
 
       const normalizedBaseUrl = normalizeServerBaseUrl(baseUrl)
+      lastTriedRemoteBaseUrl = normalizedBaseUrl
 
       // A host that sends extra headers (#1091) asks for them on this same
       // step, for a server behind an access gateway; the phones keep the
@@ -12550,6 +12557,9 @@ export const useStore = create<Store>((set, get) => {
         auth.headers.length > 0 ? auth.headers : null
       )
       vault = result.vault
+      // The server took these details; from here on it is the current
+      // remote that the next Connect opens on.
+      lastTriedRemoteBaseUrl = null
 
       if (!vault && result.capabilities.supportsVaultSelection) {
         const enteredPath = await pickServerDirectoryApp(
@@ -12634,7 +12644,12 @@ export const useStore = create<Store>((set, get) => {
       savePrefs(collectPrefs(get()))
       await openVaultWorkspace(vault)
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : String(error))
+      // In the app's own dialog, not window.alert: on Windows a native alert
+      // left every text field deaf to typing, this step's included (#1106).
+      await noticeApp({
+        title: "Couldn't connect to the server",
+        description: humanIpcError(error, 'The connection failed.')
+      })
     }
   }),
 
@@ -12715,7 +12730,10 @@ export const useStore = create<Store>((set, get) => {
       savePrefs(collectPrefs(get()))
       await openVaultWorkspace(vault)
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : String(error))
+      await noticeApp({
+        title: "Couldn't connect to the server",
+        description: humanIpcError(error, 'The connection failed.')
+      })
     }
   }),
 
@@ -12800,7 +12818,10 @@ export const useStore = create<Store>((set, get) => {
       savePrefs(collectPrefs(get()))
       await openVaultWorkspace(selectedVault)
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : String(error))
+      await noticeApp({
+        title: "Couldn't change the vault folder",
+        description: humanIpcError(error, 'The vault folder did not change.')
+      })
     }
     })
   },

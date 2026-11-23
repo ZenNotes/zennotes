@@ -32,6 +32,16 @@ export function confirmApp(options: ConfirmOptions): Promise<boolean> {
   })
 }
 
+export type NoticeOptions = Pick<ConfirmOptions, 'title' | 'description' | 'confirmLabel'>
+
+/** Tells the user something in the app's own dialog and settles once it is
+ *  dismissed. It stands where window.alert would: on Windows a native alert
+ *  hands the window back without keyboard focus, and no text field takes
+ *  typing again until the window is left and refocused (#1106). */
+export function noticeApp(options: NoticeOptions): Promise<void> {
+  return confirmApp({ ...options, notice: true }).then(() => undefined)
+}
+
 export function settleConfirmRequest(request: ConfirmRequest, value: boolean): void {
   const resolve = request.resolve
   if (currentRequest === request) {

@@ -85,3 +85,24 @@ describe('ConfirmModal and Enter', () => {
     }
   })
 })
+
+describe('ConfirmModal as a notice (#1106)', () => {
+  it('shows one button, labelled OK, and Enter on it dismisses', () => {
+    open({ title: "Couldn't connect to the server", description: 'The server said no.', notice: true })
+    const buttons = [...document.querySelectorAll<HTMLButtonElement>('[data-confirm-modal] button')]
+    expect(buttons.map((b) => b.textContent)).toEqual(['OK'])
+    expect(document.activeElement).toBe(button('OK'))
+
+    enter()
+
+    expect(onConfirm).toHaveBeenCalledTimes(1)
+  })
+
+  it('dismisses on Escape like any dialog', () => {
+    open({ title: "Couldn't connect to the server", notice: true })
+    act(() => {
+      document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+    })
+    expect(onCancel).toHaveBeenCalledTimes(1)
+  })
+})

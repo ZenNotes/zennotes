@@ -8,6 +8,8 @@ export interface ConfirmOptions {
   confirmLabel?: string
   cancelLabel?: string
   danger?: boolean
+  /** A message rather than a question: one button, the only answer. */
+  notice?: boolean
 }
 
 export function ConfirmModal({
@@ -45,16 +47,18 @@ export function ConfirmModal({
       size="sm"
       layer="modal"
       onClose={onCancel}
-      initialFocus={options.danger ? cancelRef : confirmRef}
+      initialFocus={options.danger && !options.notice ? cancelRef : confirmRef}
       data={{ 'data-confirm-modal': '', 'data-prompt-modal': '' }}
     >
       <Modal.Header title={options.title} description={options.description} />
       <Modal.Footer>
-        <Button ref={cancelRef} variant="secondary" onClick={onCancel}>
-          {options.cancelLabel ?? 'Cancel'}
-        </Button>
+        {!options.notice && (
+          <Button ref={cancelRef} variant="secondary" onClick={onCancel}>
+            {options.cancelLabel ?? 'Cancel'}
+          </Button>
+        )}
         <Button ref={confirmRef} variant={options.danger ? 'danger' : 'primary'} onClick={onConfirm}>
-          {options.confirmLabel ?? 'Confirm'}
+          {options.confirmLabel ?? (options.notice ? 'OK' : 'Confirm')}
         </Button>
       </Modal.Footer>
     </Modal>
