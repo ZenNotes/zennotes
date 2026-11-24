@@ -57,6 +57,8 @@ import type {
   RemoteWorkspaceProfile,
   RemoteWorkspaceProfileInput,
   ServerCapabilities,
+  RemoteMirrorOrigin,
+  RemoteOfflineCopyState,
   VaultSettings,
   VaultChangeEvent,
   VaultInfo,
@@ -233,6 +235,8 @@ import { CloudAuthLoopbackServer } from "./cloud-auth-loopback";
 import type { DesktopPublishAssetFiles } from "./cloud-publish-assets";
 import { createCloudSyncClient } from "./cloud-sync-client";
 import { DesktopCloudSyncService } from "./cloud-sync-service";
+import { RemoteMirrorSyncService } from "./remote-mirror/service";
+import { remoteMirrorAttachmentOfflineMessage } from "@zennotes/shared-domain/remote-mirror-copy";
 import type {
   CloudAccountKeyStore,
   CloudEncryptionSecret,
@@ -670,6 +674,12 @@ function requireLocalCloudVaultRoot(): string {
     throw new Error("ZenNotes Cloud sync is only available for local vaults.");
   }
   const vault = requireVault();
+  // Two engines on one folder would each read the other's writes as edits.
+  if (vault.mirrorOf || isRemoteMirrorPath(vault.root)) {
+    throw new Error(
+      `This window shows the offline copy of ${vault.mirrorOf?.profileName ?? "a server vault"}, which syncs with that server. ZenNotes Cloud syncs local vaults.`,
+    );
+  }
   if (vault.temporary) {
     throw new Error(
       "Save this folder as a local vault before enabling ZenNotes Cloud sync.",
@@ -2708,6 +2718,11 @@ async function setVaultForWindow(
   // write anything into the folder: skip the vault layout, and register the
   // root so the settings/tab/cache writers stay hands-off. persist:false keeps
   // it out of the saved config and the remembered-vaults list.
+  if (isRemoteMirrorPath(root)) {
+    throw new Error(
+      "This folder is the offline copy of a server vault. Open it from its remote under Settings → Vault.",
+    );
+  }
   if (options.ephemeral) {
     registerEphemeralRoot(root);
   } else {
@@ -2743,6 +2758,9 @@ async function setVault(root: string): Promise<VaultInfo> {
   const win = currentIpcWindow() ?? mainWindow;
   if (win && !win.isDestroyed()) return await setVaultForWindow(win, root);
 
+  if (isRemoteMirrorPath(root)) {
+    throw new Error("This folder is the offline copy of a server vault.");
+  }
   await ensureVaultLayout(root);
   const vault = await describeVault(path.resolve(root));
   currentVault = vault;
@@ -2781,6 +2799,7 @@ async function closeLocalVaultForWindow(): Promise<VaultInfo | null> {
     candidates.set(path.resolve(entry.root), entry);
   }
   for (const entry of windowVaults.localVaultsExcept(vault.root)) {
+    if (isRemoteMirrorPath(entry.root)) continue;
     const root = path.resolve(entry.root);
     if (!candidates.has(root)) candidates.set(root, entry);
   }
@@ -2894,6 +2913,32 @@ async function setRemoteWorkspace(
   }
 
   const win = currentIpcWindow() ?? mainWindow;
+  const mirrorOrigin =
+    options.profileId && (capabilities.supportsSync ?? 0) >= 1
+      ? await getRemoteMirrorService()
+          .openableOrigin(options.profileId)
+          .catch(() => null)
+      : null;
+  if (mirrorOrigin && win && !win.isDestroyed()) {
+    const profileId = mirrorOrigin.profileId;
+    mirrorCapabilities.set(profileId, capabilities);
+    if (!mirrorClients.has(profileId)) {
+      mirrorClients.set(profileId, client);
+      startMirrorWatch(profileId, client, capabilities);
+    }
+    currentRemoteWorkspaceProfileId = profileId;
+    remoteWorkspaceConfig = { baseUrl: client.baseUrl };
+    const mirrorVault = await openMirrorForWindow(win, mirrorOrigin);
+    if (options.persist !== false) {
+      await updateConfig((cfg) => ({
+        ...cfg,
+        workspaceMode: "remote",
+        remoteWorkspace: remoteWorkspaceConfig,
+        remoteWorkspaceProfileId: profileId,
+      }));
+    }
+    return { vault: mirrorVault, capabilities };
+  }
   currentWorkspaceMode = "remote";
   currentVault = vault;
   if (win && !win.isDestroyed()) {
@@ -3642,6 +3687,14 @@ async function connectRemoteWorkspaceProfile(
  * sidebar header reads the list. Returns the name in effect.
  */
 async function syncLocalVaultName(root: string): Promise<string> {
+  if (isRemoteMirrorPath(root)) {
+    // A copy is named after its remote, not its folder, and is never in the
+    // remembered list.
+    const shown = windowVaults
+      .localVaultsExcept("")
+      .find((entry) => path.resolve(entry.root) === path.resolve(root));
+    return shown?.name ?? path.basename(root);
+  }
   const { name } = await describeVault(root);
   windowVaults.renameLocalVault(root, name);
   if (
@@ -3670,10 +3723,11 @@ async function loadCurrentVaultFromConfig(): Promise<VaultInfo | null> {
     const existing = windowVaults.vaultForWindow(win.id);
     if (existing) {
       if (windowVaults.modeForWindow(win.id) !== "local") return existing;
+      if (existing.mirrorOf) return existing;
       return { ...existing, name: await syncLocalVaultName(existing.root) };
     }
   } else if (currentVault) {
-    if (currentWorkspaceMode !== "local") return currentVault;
+    if (currentWorkspaceMode !== "local" || currentVault.mirrorOf) return currentVault;
     return { ...currentVault, name: await syncLocalVaultName(currentVault.root) };
   }
   const cfg = await loadConfig();
@@ -3691,6 +3745,21 @@ async function loadCurrentVaultFromConfig(): Promise<VaultInfo | null> {
     const headers = remoteProfile
       ? await getRemoteWorkspaceHeaders(remoteProfile.id)
       : [];
+    // A remote with an offline copy opens the copy at once, reachable or
+    // not (#1108): the copy comes first, and its sync reaches the server in
+    // the background. A boot never waits on a server that is away.
+    if (remoteProfile && win && !win.isDestroyed()) {
+      const origin = await getRemoteMirrorService()
+        .openableOrigin(remoteProfile.id)
+        .catch(() => null);
+      if (origin) {
+        remoteWorkspaceBootError = null;
+        currentRemoteWorkspaceProfileId = remoteProfile.id;
+        const vault = await openMirrorForWindow(win, origin);
+        void connectMirrorClient(remoteProfile.id);
+        return vault;
+      }
+    }
     try {
       const loadRemote = async () =>
         await setRemoteWorkspace(cfg.remoteWorkspace!.baseUrl, authToken, {
@@ -3757,13 +3826,321 @@ function requireRemoteWorkspaceClient(): RemoteServerClient {
 /** The delete/duplicate/restore endpoints shipped with server 2.24; against
  *  an older server the request would just 404. Name the real remedy instead. */
 function requireRemoteAssetOps(action: string): RemoteServerClient {
-  const client = requireRemoteWorkspaceClient();
-  if (!remoteServerCapabilities?.supportsAssetOps) {
+  const client = requireAssetServerClient();
+  const mirrorProfileId = currentMirrorProfileId();
+  const capabilities = mirrorProfileId
+    ? mirrorCapabilities.get(mirrorProfileId)
+    : remoteServerCapabilities;
+  if (!capabilities?.supportsAssetOps) {
     throw new Error(
       `${action} needs a newer ZenNotes server. Update the server and reconnect this workspace.`,
     );
   }
   return client;
+}
+
+// --- Offline copies of remote vaults (#1108) ---------------------------
+//
+// A window on a remote whose copy is on is a LOCAL window rooted at the copy,
+// with `mirrorOf` naming the server: every vault handler takes the local path,
+// so the vault reads and saves while the server is away. What still needs the
+// server goes through the client below: attachments (not in the copy in this
+// phase) and the change feed that tells the windows to pull.
+
+let remoteMirrorService: RemoteMirrorSyncService | null = null;
+/** One live client per remote whose copy a window shows. */
+const mirrorClients = new Map<string, RemoteServerClient>();
+const mirrorCapabilities = new Map<string, ServerCapabilities>();
+const mirrorWatchStops = new Map<string, () => void>();
+const mirrorConnecting = new Map<string, Promise<RemoteServerClient | null>>();
+
+function getRemoteMirrorService(): RemoteMirrorSyncService {
+  remoteMirrorService ??= new RemoteMirrorSyncService({
+    storageDirectory: path.join(app.getPath("userData"), "remote-mirrors"),
+    profileName: async (id) =>
+      findRemoteProfileById((await loadConfig()).remoteWorkspaceProfiles, id)
+        ?.name ?? null,
+    connection: async (id) => {
+      const profile = findRemoteProfileById(
+        (await loadConfig()).remoteWorkspaceProfiles,
+        id,
+      );
+      if (!profile) return null;
+      const capabilities =
+        mirrorCapabilities.get(id) ?? (await probeServerCapabilities(id));
+      return {
+        baseUrl: normalizeBaseUrl(profile.baseUrl),
+        authToken: await getRemoteWorkspaceSecret(profile.id),
+        headers: await getRemoteWorkspaceHeaders(profile.id),
+        // Unreachable: the request that follows says so. A copy exists only
+        // for a server that spoke the protocol, so assume version 1.
+        syncVersion: capabilities ? (capabilities.supportsSync ?? 0) : 1,
+      };
+    },
+    withWindowSync: (root, run) => cloudSyncWindowBarrier.run(root, run),
+  });
+  return remoteMirrorService;
+}
+
+function isRemoteMirrorPath(candidate: string): boolean {
+  return getRemoteMirrorService().isMirrorPath(candidate);
+}
+
+/** The remote whose offline copy the asking window shows, if any. */
+function currentMirrorProfileId(win = currentIpcWindow()): string | null {
+  if (!win || win.isDestroyed()) return null;
+  if (windowVaults.modeForWindow(win.id) !== "local") return null;
+  return windowVaults.vaultForWindow(win.id)?.mirrorOf?.profileId ?? null;
+}
+
+function mirrorWindows(profileId: string): BrowserWindow[] {
+  return BrowserWindow.getAllWindows().filter(
+    (win) => !win.isDestroyed() && currentMirrorProfileId(win) === profileId,
+  );
+}
+
+function notifyMirrorWindows(
+  profileId: string,
+  event: { remote: boolean; removed?: boolean },
+): void {
+  for (const win of mirrorWindows(profileId)) {
+    win.webContents.send(IPC.REMOTE_MIRROR_ON_CHANGE, event);
+  }
+}
+
+async function mirrorProfileClient(
+  profileId: string,
+): Promise<RemoteServerClient | null> {
+  const profile = findRemoteProfileById(
+    (await loadConfig()).remoteWorkspaceProfiles,
+    profileId,
+  );
+  if (!profile) return null;
+  return new RemoteServerClient({
+    baseUrl: profile.baseUrl,
+    authToken: await getRemoteWorkspaceSecret(profile.id),
+    headers: await getRemoteWorkspaceHeaders(profile.id),
+  });
+}
+
+/** What a saved remote's server can do, asked without changing anything on it. */
+async function probeServerCapabilities(
+  profileId: string,
+): Promise<ServerCapabilities | null> {
+  try {
+    const client = await mirrorProfileClient(profileId);
+    if (!client) return null;
+    const capabilities = await client.getCapabilities();
+    mirrorCapabilities.set(profileId, capabilities);
+    return capabilities;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Reach the server behind a copy the way connecting to the remote does: pick
+ * the remote's vault on a server that serves several (the choice is global to
+ * the server), keep the client for attachments, and listen to its change
+ * feed. Null while the server cannot be reached; the next sync tries again.
+ */
+function connectMirrorClient(
+  profileId: string,
+): Promise<RemoteServerClient | null> {
+  const existing = mirrorClients.get(profileId);
+  if (existing) return Promise.resolve(existing);
+  const pending = mirrorConnecting.get(profileId);
+  if (pending) return pending;
+  const attempt = (async () => {
+    const profile = findRemoteProfileById(
+      (await loadConfig()).remoteWorkspaceProfiles,
+      profileId,
+    );
+    const client = await mirrorProfileClient(profileId);
+    if (!profile || !client) return null;
+    try {
+      let capabilities = await client.getCapabilities();
+      const vaultPath = profile.vaultPath?.trim() || null;
+      if (capabilities.supportsVaultSelection && vaultPath) {
+        const served = await client.getCurrentVault();
+        if (served?.root !== vaultPath) {
+          await client.selectVaultPath(vaultPath);
+          capabilities = await client.getCapabilities();
+        }
+      }
+      mirrorCapabilities.set(profileId, capabilities);
+      mirrorClients.set(profileId, client);
+      startMirrorWatch(profileId, client, capabilities);
+      return client;
+    } catch {
+      return null;
+    }
+  })().finally(() => mirrorConnecting.delete(profileId));
+  mirrorConnecting.set(profileId, attempt);
+  return attempt;
+}
+
+function startMirrorWatch(
+  profileId: string,
+  client: RemoteServerClient,
+  capabilities: ServerCapabilities,
+): void {
+  mirrorWatchStops.get(profileId)?.();
+  mirrorWatchStops.delete(profileId);
+  if (!capabilities.supportsWatch) return;
+  // A feed event means "pull now"; the server's change log is the authority.
+  mirrorWatchStops.set(
+    profileId,
+    client.watchVaultChanges(
+      () => notifyMirrorWindows(profileId, { remote: true }),
+      { onReconnect: () => notifyMirrorWindows(profileId, { remote: true }) },
+    ),
+  );
+}
+
+function forgetMirrorClient(profileId: string): void {
+  mirrorWatchStops.get(profileId)?.();
+  mirrorWatchStops.delete(profileId);
+  mirrorClients.delete(profileId);
+}
+
+/** Show the copy in `win`. It never becomes a remembered local vault. */
+async function openMirrorForWindow(
+  win: BrowserWindow,
+  origin: RemoteMirrorOrigin,
+): Promise<VaultInfo> {
+  const root = path.resolve(
+    getRemoteMirrorService().mirrorRoot(origin.profileId, origin.vaultId),
+  );
+  await fsp.mkdir(root, { recursive: true });
+  const vault: VaultInfo = {
+    root,
+    name: origin.profileName,
+    mirrorOf: origin,
+  };
+  windowVaults.setLocalVault(win.id, vault);
+  currentVault = vault;
+  currentWorkspaceMode = "local";
+  if (!windowVaults.hasRemoteWindows()) {
+    remoteWorkspaceClient = null;
+    remoteServerCapabilities = null;
+    stopRemoteWatch();
+  }
+  return vault;
+}
+
+/** A remote's offline copy row, for the profile dialog. */
+async function remoteOfflineCopyState(
+  profileId: string,
+): Promise<RemoteOfflineCopyState> {
+  const service = getRemoteMirrorService();
+  const settings = await service.profileSettings(profileId);
+  const capabilities =
+    mirrorCapabilities.get(profileId) ??
+    (currentRemoteWorkspaceProfileId === profileId && remoteServerCapabilities
+      ? remoteServerCapabilities
+      : await probeServerCapabilities(profileId));
+  return {
+    supported: capabilities ? (capabilities.supportsSync ?? 0) >= 1 : null,
+    serverVersion: capabilities?.version ?? null,
+    enabled: settings?.enabled === true,
+    status: await service.status(profileId),
+  };
+}
+
+/** Attachments of a remote window, or of a window on a copy: both live on
+ *  the server in this phase. */
+function isAssetServerWindow(): boolean {
+  return isRemoteWorkspaceActive() || currentMirrorProfileId() !== null;
+}
+
+function requireAssetServerClient(): RemoteServerClient {
+  if (isRemoteWorkspaceActive()) return requireRemoteWorkspaceClient();
+  const profileId = currentMirrorProfileId();
+  if (!profileId) throw new Error("No remote workspace is connected");
+  const client = mirrorClients.get(profileId);
+  if (!client) {
+    const name = windowVaults.vaultForWindow(currentIpcWindow()!.id)?.mirrorOf
+      ?.profileName;
+    throw new Error(remoteMirrorAttachmentOfflineMessage(name ?? "the server"));
+  }
+  return client;
+}
+
+/**
+ * An attachment a note in an offline copy embeds. The copy holds notes only,
+ * so its bytes come from the server; while the server is away an image says
+ * so in its place instead of showing as broken. Null for a path in no copy.
+ */
+async function mirrorAssetResponse(abs: string): Promise<Response | null> {
+  const resolved = path.resolve(abs);
+  for (const win of BrowserWindow.getAllWindows()) {
+    const vault = win.isDestroyed() ? null : windowVaults.vaultForWindow(win.id);
+    if (!vault?.mirrorOf) continue;
+    const root = path.resolve(vault.root);
+    if (!resolved.startsWith(`${root}${path.sep}`)) continue;
+    const rel = path.relative(root, resolved).split(path.sep).join("/");
+    const client =
+      mirrorClients.get(vault.mirrorOf.profileId) ??
+      (await connectMirrorClient(vault.mirrorOf.profileId));
+    if (client) {
+      try {
+        return await client.fetchAssetResponse(rel);
+      } catch {
+        // Away: the placeholder below says so.
+      }
+    }
+    if (!/\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i.test(rel)) {
+      return new Response("Not in the offline copy", { status: 404 });
+    }
+    return new Response(offlineAttachmentSvg(), {
+      headers: { "content-type": "image/svg+xml", "cache-control": "no-store" },
+    });
+  }
+  return null;
+}
+
+function offlineAttachmentSvg(): string {
+  return [
+    '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="72" viewBox="0 0 320 72">',
+    '<rect x="0.5" y="0.5" width="319" height="71" rx="6" fill="none" stroke="#8a8a8a" stroke-dasharray="4 3"/>',
+    '<text x="160" y="32" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" fill="#8a8a8a">Not in the offline copy</text>',
+    '<text x="160" y="52" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" fill="#8a8a8a">It shows when the server can be reached.</text>',
+    "</svg>",
+  ].join("");
+}
+
+/** A file the copy holds itself, for a window on a copy; null otherwise. */
+async function mirrorLocalFile(rel: string): Promise<string | null> {
+  if (!currentMirrorProfileId()) return null;
+  const abs = absolutePath(requireVault().root, rel);
+  try {
+    return (await fsp.stat(abs)).isFile() ? abs : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A listing on a copy: the server's while it answers, the folder's (notes
+ *  only, so usually nothing) while it is away, never a failed vault load. */
+async function mirrorListing<T>(
+  remote: (client: RemoteServerClient) => Promise<T>,
+  local: () => Promise<T>,
+): Promise<T> {
+  const profileId = currentMirrorProfileId();
+  const client = profileId ? mirrorClients.get(profileId) : null;
+  if (!client) return await local();
+  try {
+    return await remote(client);
+  } catch {
+    return await local();
+  }
+}
+
+/** The copy's server-side half of a Cloud vault call, or null for a window
+ *  that shows no copy. Cloud's review and status run unchanged on a copy. */
+function mirrorCloudProfile(): string | null {
+  return currentMirrorProfileId();
 }
 
 /**
@@ -4011,9 +4388,11 @@ function registerIpc(): void {
   handle(IPC.CLOUD_PUBLISHED_NOTE_DELETE, (_event, shareId: number) =>
     getCloudSyncService().unpublishNote(shareId),
   );
-  handle(IPC.CLOUD_VAULT_LINK_GET, () =>
-    getCloudSyncService().linkedVault(requireLocalCloudVaultRoot()),
-  );
+  handle(IPC.CLOUD_VAULT_LINK_GET, () => {
+    const mirror = mirrorCloudProfile();
+    if (mirror) return getRemoteMirrorService().link(mirror);
+    return getCloudSyncService().linkedVault(requireLocalCloudVaultRoot());
+  });
   handle(IPC.CLOUD_VAULT_LINK_SET, (_event, vaultId: string) =>
     getCloudSyncService().link(requireLocalCloudVaultRoot(), vaultId),
   );
@@ -4062,12 +4441,26 @@ function registerIpc(): void {
   handle(IPC.CLOUD_VAULT_DELETE, () =>
     getCloudSyncService().deleteLinkedVault(requireLocalCloudVaultRoot()),
   );
-  handle(IPC.CLOUD_VAULT_SYNC, () =>
-    getCloudSyncService().sync(requireLocalCloudVaultRoot()),
-  );
-  handle(IPC.CLOUD_VAULT_HAS_CHANGES, () =>
-    getCloudSyncService().hasRemoteChanges(requireLocalCloudVaultRoot()),
-  );
+  handle(IPC.CLOUD_VAULT_SYNC, async () => {
+    const mirror = mirrorCloudProfile();
+    if (mirror) {
+      try {
+        const summary = await getRemoteMirrorService().sync(mirror);
+        // A server that came back gets its client and change feed again,
+        // before the window lists what only the server holds.
+        await connectMirrorClient(mirror);
+        return summary;
+      } finally {
+        notifyMirrorWindows(mirror, { remote: false });
+      }
+    }
+    return await getCloudSyncService().sync(requireLocalCloudVaultRoot());
+  });
+  handle(IPC.CLOUD_VAULT_HAS_CHANGES, () => {
+    const mirror = mirrorCloudProfile();
+    if (mirror) return getRemoteMirrorService().hasRemoteChanges(mirror);
+    return getCloudSyncService().hasRemoteChanges(requireLocalCloudVaultRoot());
+  });
   on(IPC.CLOUD_VAULT_SYNC_WINDOW_ACK, (event, requestId: unknown, error: unknown) => {
     if (typeof requestId !== "string" || requestId.length > 100 ||
       (error !== null && (typeof error !== "string" || error.length > 2000))) return;
@@ -4075,26 +4468,33 @@ function registerIpc(): void {
   });
   handle(
     IPC.CLOUD_VAULT_BOOTSTRAP_CONFLICT_GET,
-    (_event, conflict: CloudSyncBootstrapConflict) =>
-      getCloudSyncService().getBootstrapConflict(
+    (_event, conflict: CloudSyncBootstrapConflict) => {
+      const mirror = mirrorCloudProfile();
+      if (mirror) return getRemoteMirrorService().getBootstrapConflict(mirror, conflict);
+      return getCloudSyncService().getBootstrapConflict(
         requireLocalCloudVaultRoot(),
         conflict,
-      ),
+      );
+    },
   );
   handle(
     IPC.CLOUD_VAULT_BOOTSTRAP_CONFLICT_RESOLVE,
-    (_event, resolution: CloudSyncBootstrapConflictResolution) =>
-      getCloudSyncService().resolveBootstrapConflict(
+    (_event, resolution: CloudSyncBootstrapConflictResolution) => {
+      const mirror = mirrorCloudProfile();
+      if (mirror) return getRemoteMirrorService().resolveBootstrapConflict(mirror, resolution);
+      return getCloudSyncService().resolveBootstrapConflict(
         requireLocalCloudVaultRoot(),
         resolution,
-      ),
+      );
+    },
   );
   const reviewWindows = new Set<number>();
   handle(IPC.CLOUD_VAULT_CONFLICT_GET, async (event, conflictId: string, reviewId = "legacy") => {
     if (typeof conflictId !== "string" || conflictId.length > 200) throw new Error("Invalid conflict ID.");
     if (typeof reviewId !== "string" || reviewId.length > 100) throw new Error("Invalid review ID.");
     const owner = event.sender.id;
-    const root = requireLocalCloudVaultRoot();
+    const mirror = mirrorCloudProfile();
+    const root = mirror ? requireVault().root : requireLocalCloudVaultRoot();
     cloudSyncWindowBarrier.claimReview(owner, root, conflictId, reviewId);
     if (!reviewWindows.has(owner)) {
       reviewWindows.add(owner);
@@ -4104,6 +4504,7 @@ function registerIpc(): void {
       });
     }
     try {
+      if (mirror) return await getRemoteMirrorService().getConflict(mirror, conflictId);
       return await getCloudSyncService().getConflict(root, conflictId);
     } catch (error) {
       cloudSyncWindowBarrier.releaseReview(owner, conflictId, reviewId);
@@ -4117,31 +4518,43 @@ function registerIpc(): void {
   });
   handle(
     IPC.CLOUD_VAULT_CONFLICT_DRAFT_SAVE,
-    (_event, conflictId: string, draftText: string | null) =>
-      getCloudSyncService().saveConflictDraft(
+    (_event, conflictId: string, draftText: string | null) => {
+      const mirror = mirrorCloudProfile();
+      if (mirror) return getRemoteMirrorService().saveConflictDraft(mirror, conflictId, draftText);
+      return getCloudSyncService().saveConflictDraft(
         requireLocalCloudVaultRoot(),
         conflictId,
         draftText,
-      ),
+      );
+    },
   );
   handle(
     IPC.CLOUD_VAULT_CONFLICT_RESOLVE,
-    (_event, resolution: CloudSyncPendingConflictResolution) =>
-      getCloudSyncService().resolveConflict(
+    (_event, resolution: CloudSyncPendingConflictResolution) => {
+      const mirror = mirrorCloudProfile();
+      if (mirror) return getRemoteMirrorService().resolveConflict(mirror, resolution);
+      return getCloudSyncService().resolveConflict(
         requireLocalCloudVaultRoot(),
         resolution,
-      ),
+      );
+    },
   );
-  handle(IPC.CLOUD_VAULT_SETTINGS_CONFLICT_GET, () =>
-    getCloudSyncService().settingsConflict(requireLocalCloudVaultRoot()),
-  );
+  handle(IPC.CLOUD_VAULT_SETTINGS_CONFLICT_GET, () => {
+    const mirror = mirrorCloudProfile();
+    if (mirror) return getRemoteMirrorService().settingsConflict(mirror);
+    return getCloudSyncService().settingsConflict(requireLocalCloudVaultRoot());
+  });
   handle(
     IPC.CLOUD_VAULT_SETTINGS_CONFLICT_RESOLVE,
-    (_event, choice: CloudSyncSettingsChoice) =>
-      getCloudSyncService().resolveSettingsConflict(
+    (_event, choice: CloudSyncSettingsChoice) => {
+      const settled = choice === "cloud" ? "cloud" : "local";
+      const mirror = mirrorCloudProfile();
+      if (mirror) return getRemoteMirrorService().resolveSettingsConflict(mirror, settled);
+      return getCloudSyncService().resolveSettingsConflict(
         requireLocalCloudVaultRoot(),
-        choice === "cloud" ? "cloud" : "local",
-      ),
+        settled,
+      );
+    },
   );
   handle(IPC.CLOUD_BACKUPS_LIST, () =>
     getCloudSyncService().listBackups(requireLocalCloudVaultRoot()),
@@ -4381,7 +4794,49 @@ function registerIpc(): void {
     },
   );
   handle(IPC.WORKSPACE_DELETE_REMOTE_PROFILE, async (_e, id: string) => {
+    // Refuses while the copy holds changes the server has not taken; the
+    // dialog asks first and removes the copy itself when told to.
+    await getRemoteMirrorService().disable(String(id ?? ""));
+    forgetMirrorClient(String(id ?? ""));
     await deleteRemoteWorkspaceProfile(id);
+  });
+  handle(IPC.REMOTE_MIRROR_STATUS, async () => {
+    const profileId = currentMirrorProfileId();
+    return profileId ? await getRemoteMirrorService().status(profileId) : null;
+  });
+  handle(IPC.REMOTE_MIRROR_OFFLINE_COPY_GET, async (_e, profileId: unknown) => {
+    if (typeof profileId !== "string" || !profileId || profileId.length > 200) {
+      throw new Error("Invalid remote.");
+    }
+    return await remoteOfflineCopyState(profileId);
+  });
+  handle(
+    IPC.REMOTE_MIRROR_OFFLINE_COPY_SET,
+    async (_e, profileId: unknown, enabled: unknown, options: unknown) => {
+      if (typeof profileId !== "string" || !profileId || profileId.length > 200) {
+        throw new Error("Invalid remote.");
+      }
+      const service = getRemoteMirrorService();
+      if (enabled === true) {
+        await connectMirrorClient(profileId);
+        await service.enable(profileId);
+      } else {
+        const discardUnsynced =
+          !!options && typeof options === "object" &&
+          (options as { discardUnsynced?: unknown }).discardUnsynced === true;
+        await service.disable(profileId, { discardUnsynced });
+        notifyMirrorWindows(profileId, { remote: false, removed: true });
+        forgetMirrorClient(profileId);
+      }
+      return await remoteOfflineCopyState(profileId);
+    },
+  );
+  handle(IPC.REMOTE_MIRROR_PAUSE, async (_e, paused: unknown) => {
+    const profileId = currentMirrorProfileId();
+    if (!profileId) return null;
+    await getRemoteMirrorService().setPaused(profileId, paused === true);
+    notifyMirrorWindows(profileId, { remote: false });
+    return await getRemoteMirrorService().status(profileId);
   });
   handle(IPC.WORKSPACE_CONNECT_REMOTE_PROFILE, async (_e, id: string) => {
     return await connectRemoteWorkspaceProfile(id);
@@ -4593,6 +5048,8 @@ function registerIpc(): void {
     if (isRemoteWorkspaceActive())
       return await requireRemoteWorkspaceClient().listAssets();
     const v = requireVault();
+    if (v.mirrorOf)
+      return await mirrorListing((client) => client.listAssets(), () => listAssets(v.root));
     return await listAssets(v.root);
   });
 
@@ -4600,8 +5057,12 @@ function registerIpc(): void {
     const rel = String(assetPath ?? "").trim();
     if (!rel) throw new Error("Asset path is required.");
 
-    if (isRemoteWorkspaceActive()) {
-      const response = await requireRemoteWorkspaceClient().fetchAssetResponse(rel);
+    // Text files (drawings, CSV, SVG) are in an offline copy; the rest is
+    // read from the server.
+    const local = await mirrorLocalFile(rel);
+    if (local) return (await fsp.readFile(local)).toString("base64");
+    if (isAssetServerWindow()) {
+      const response = await requireAssetServerClient().fetchAssetResponse(rel);
       return Buffer.from(await response.arrayBuffer()).toString("base64");
     }
 
@@ -4613,6 +5074,8 @@ function registerIpc(): void {
     if (isRemoteWorkspaceActive())
       return await requireRemoteWorkspaceClient().hasAssetsDir();
     const v = requireVault();
+    if (v.mirrorOf)
+      return await mirrorListing((client) => client.hasAssetsDir(), () => hasAssetsDir(v.root));
     return await hasAssetsDir(v.root);
   });
 
@@ -5345,13 +5808,18 @@ function registerIpc(): void {
     try {
       const rel = String(relPath ?? "").trim();
       if (!rel) return { ok: false, error: "Empty path." };
-      if (isRemoteWorkspaceActive()) {
+      const local = await mirrorLocalFile(rel);
+      if (local) {
+        const error = await shell.openPath(local);
+        return error ? { ok: false, error } : { ok: true };
+      }
+      if (isAssetServerWindow()) {
         // The asset lives on the server; the OS opener needs local bytes.
         // Joining the remote vault root onto this machine's filesystem is
         // exactly the "Failed to open path" the reporter hit. Download into
         // a fresh temp dir per open (a second open must not clobber a file
         // the first app still has mapped); the OS owns temp cleanup.
-        const client = requireRemoteWorkspaceClient();
+        const client = requireAssetServerClient();
         const response = await client.fetchAssetResponse(rel);
         const dir = await fsp.mkdtemp(
           path.join(app.getPath("temp"), "zennotes-remote-open-"),
@@ -5399,7 +5867,7 @@ function registerIpc(): void {
   handle(
     IPC.VAULT_IMPORT_FILES,
     async (_e, notePath: string, sourcePaths: string[]) => {
-      if (isRemoteWorkspaceActive()) {
+      if (isAssetServerWindow()) {
         // The dropped files live on THIS machine; the vault does not. Hand
         // each one to the server's upload endpoint. openAsBlob streams the
         // bytes (the local path streams via fs.copyFile too), so a large
@@ -5407,7 +5875,7 @@ function registerIpc(): void {
         // hits readFile's 2 GiB cap. Failures are collected per file: a
         // whole-batch rejection after some files already uploaded stranded
         // those uploads on the server with no markdown inserted for any.
-        const client = requireRemoteWorkspaceClient();
+        const client = requireAssetServerClient();
         const imported = [];
         const failures: string[] = [];
         for (const sourcePath of sourcePaths) {
@@ -5444,8 +5912,8 @@ function registerIpc(): void {
   );
 
   handle(IPC.VAULT_IMPORT_PASTED_IMAGE, async (_e, input: PastedImageInput) => {
-    if (isRemoteWorkspaceActive()) {
-      const client = requireRemoteWorkspaceClient();
+    if (isAssetServerWindow()) {
+      const client = requireAssetServerClient();
       const bytes =
         input.data instanceof ArrayBuffer
           ? new Uint8Array(input.data)
@@ -5481,8 +5949,8 @@ function registerIpc(): void {
   handle(
     IPC.VAULT_RENAME_ASSET,
     async (_e, relPath: string, nextName: string) => {
-      if (isRemoteWorkspaceActive()) {
-        return await requireRemoteWorkspaceClient().renameAsset(
+      if (isAssetServerWindow()) {
+        return await requireAssetServerClient().renameAsset(
           relPath,
           nextName,
         );
@@ -5495,8 +5963,8 @@ function registerIpc(): void {
   handle(
     IPC.VAULT_MOVE_ASSET,
     async (_e, relPath: string, targetDir: string) => {
-      if (isRemoteWorkspaceActive()) {
-        return await requireRemoteWorkspaceClient().moveAsset(
+      if (isAssetServerWindow()) {
+        return await requireAssetServerClient().moveAsset(
           relPath,
           targetDir,
         );
@@ -5507,7 +5975,7 @@ function registerIpc(): void {
   );
 
   handle(IPC.VAULT_DUPLICATE_ASSET, async (_e, relPath: string) => {
-    if (isRemoteWorkspaceActive()) {
+    if (isAssetServerWindow()) {
       return await requireRemoteAssetOps("Asset duplication").duplicateAsset(
         relPath,
       );
@@ -5517,7 +5985,7 @@ function registerIpc(): void {
   });
 
   handle(IPC.VAULT_DELETE_ASSET, async (_e, relPath: string) => {
-    if (isRemoteWorkspaceActive()) {
+    if (isAssetServerWindow()) {
       return await requireRemoteAssetOps("Asset deletion").deleteAsset(relPath);
     }
     const v = requireVault();
@@ -5525,7 +5993,7 @@ function registerIpc(): void {
   });
 
   handle(IPC.VAULT_RESTORE_DELETED_ASSET, async (_e, deleted: DeletedAsset) => {
-    if (isRemoteWorkspaceActive()) {
+    if (isAssetServerWindow()) {
       return await requireRemoteAssetOps("Asset restore").restoreDeletedAsset(
         deleted,
       );
@@ -5542,11 +6010,21 @@ function registerIpc(): void {
       return await requireRemoteWorkspaceClient().listDeletedAssets();
     }
     const v = requireVault();
+    if (v.mirrorOf) {
+      const profileId = v.mirrorOf.profileId;
+      return await mirrorListing(
+        (client) =>
+          mirrorCapabilities.get(profileId)?.supportsAssetOps
+            ? client.listDeletedAssets()
+            : Promise.resolve([]),
+        () => listDeletedAssets(v.root),
+      );
+    }
     return await listDeletedAssets(v.root);
   });
 
   handle(IPC.VAULT_PURGE_DELETED_ASSET, async (_e, undoToken: string) => {
-    if (isRemoteWorkspaceActive()) {
+    if (isAssetServerWindow()) {
       await requireRemoteAssetOps("Asset deletion").purgeDeletedAsset(
         undoToken,
       );
@@ -5557,7 +6035,7 @@ function registerIpc(): void {
   });
 
   handle(IPC.VAULT_EMPTY_DELETED_ASSETS, async () => {
-    if (isRemoteWorkspaceActive()) {
+    if (isAssetServerWindow()) {
       await requireRemoteAssetOps("Asset deletion").emptyDeletedAssets();
       return;
     }
@@ -6740,7 +7218,14 @@ app.whenReady().then(async () => {
     if (!abs || !windowVaults.isPathInsideOpenLocalVault(abs)) {
       throw new Error(`Invalid local asset URL: ${request.url}`);
     }
-    const data = await fsp.readFile(abs);
+    let data: Buffer;
+    try {
+      data = await fsp.readFile(abs);
+    } catch (error) {
+      const fromServer = await mirrorAssetResponse(abs);
+      if (fromServer) return fromServer;
+      throw error;
+    }
     return new Response(data, {
       headers: {
         "content-type": mimeTypeForPath(abs),
@@ -7143,6 +7628,7 @@ app.on("before-quit", (event) => {
   }
   appQuitting = true;
   cloudSyncService?.stop();
+  remoteMirrorService?.stop();
   void cloudAuthLoopbackServer?.stop();
   // Not awaited. Closing a watcher lets go of its native handles before
   // close() returns; the promise only waits out stats and scans already in

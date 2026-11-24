@@ -96,8 +96,10 @@ import { copyPdfLocationLink, pdfFrameForCommand } from './pdf-location-link'
 import {
   hasCloudVaultRemovalNotice,
   hasPendingCloudReview,
-  openPendingCloudReview
+  openPendingCloudReview,
+  useCloudSyncStatusStore
 } from './cloud-auto-sync'
+import { setRemoteMirrorPaused, syncRemoteMirrorNow } from './remote-mirror-sync'
 import { DEMO_TOUR_START_PATH, isDemoTourStartPath } from '@shared/demo-tour'
 
 const APP_WEBSITE_URL = 'https://zennotes.org'
@@ -2567,8 +2569,46 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       // Hidden while nothing waits: the same dialogs the status bar's Review
       // opens (the file queue first, then the vault settings question), and
       // there is nothing to review without one of them.
-      when: () => hasPendingCloudReview(),
+      when: () => !onRemoteMirror() && hasPendingCloudReview(),
       run: () => openPendingCloudReview(getState().activeNote?.path)
+    },
+    // A window on the offline copy of a server vault (#1108). Cloud's queue
+    // and engine run it, so the same review opens under the copy's name.
+    {
+      id: 'app.remote.reviewConflicts',
+      unavailableReason: () => 'No remote vault conflicts are waiting',
+      title: 'Review Remote Vault Conflicts',
+      category: 'Vault',
+      keywords: 'remote server offline copy sync conflict merge review resolve two devices',
+      shortcut: getState().vimMode ? leaderShortcut('vim.leaderCloudConflicts') : undefined,
+      when: () => onRemoteMirror() && hasPendingCloudReview(),
+      run: () => openPendingCloudReview(getState().activeNote?.path)
+    },
+    {
+      id: 'app.remote.syncNow',
+      unavailableReason: () => 'This window does not show an offline copy',
+      title: 'Sync Remote Vault Now',
+      category: 'Vault',
+      keywords: 'remote server offline copy sync now pull push refresh',
+      shortcut: getState().vimMode ? leaderShortcut('vim.leaderRemoteSync') : undefined,
+      when: () => onRemoteMirror() && !remoteMirrorPaused(),
+      run: () => syncRemoteMirrorNow()
+    },
+    {
+      id: 'app.remote.workOffline',
+      title: 'Work Offline',
+      category: 'Vault',
+      keywords: 'remote server offline copy pause stop sync metered network',
+      when: () => onRemoteMirror() && !remoteMirrorPaused(),
+      run: () => setRemoteMirrorPaused(true)
+    },
+    {
+      id: 'app.remote.workOnline',
+      title: 'Work Online',
+      category: 'Vault',
+      keywords: 'remote server offline copy resume start sync',
+      when: () => onRemoteMirror() && remoteMirrorPaused(),
+      run: () => setRemoteMirrorPaused(false)
     },
     // One entry per note an assistant edited through MCP that has not been
     // reviewed yet (docs/ideas/agent-edit-review.md), newest first. A record
@@ -2992,4 +3032,14 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
   // Filter out commands whose `when` guard rejects them.
   if (options?.includeUnavailable) return cmds
   return cmds.filter((c) => !c.when || c.when())
+}
+
+/** This window shows the offline copy of a server vault (#1108). */
+function onRemoteMirror(): boolean {
+  const state = useCloudSyncStatusStore.getState()
+  return state.source === 'remote' && state.mirror !== null
+}
+
+function remoteMirrorPaused(): boolean {
+  return useCloudSyncStatusStore.getState().mirror?.paused === true
 }

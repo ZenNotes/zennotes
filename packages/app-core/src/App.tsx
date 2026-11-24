@@ -68,6 +68,7 @@ import {
   useAppUpdateState
 } from './lib/app-update-state'
 import { ensureCloudAutoSyncStarted, stopCloudAutoSync } from './lib/cloud-auto-sync'
+import { ensureRemoteMirrorAutoSyncStarted } from './lib/remote-mirror-sync'
 import { loadKeepRunningInTray, startTraySyncStatusReporter } from './lib/tray-runtime'
 import { listenForTaskReminderOpen, startTaskReminderReporter } from './lib/task-reminders-runtime'
 import { installHarperRuntime } from './lib/harper-runtime'
@@ -426,9 +427,20 @@ function App(): JSX.Element {
 
   useEffect(() => {
     if (!vault) return undefined
-    ensureCloudAutoSyncStarted(vault.root)
+    // A window on an offline copy (#1108) syncs with its server, not Cloud.
+    const mirrorProfileId = vault.mirrorOf?.profileId
+    if (mirrorProfileId) {
+      ensureRemoteMirrorAutoSyncStarted({
+        // Turned off: reconnect the remote, which now opens it online.
+        onRemoved: () => void useStore.getState().connectRemoteWorkspaceProfile(mirrorProfileId),
+        // Attachments live on the server, so its return lists them again.
+        onReconnected: () => void useStore.getState().refreshAssets()
+      })
+    } else {
+      ensureCloudAutoSyncStarted(vault.root)
+    }
     return stopCloudAutoSync
-  }, [vault?.root])
+  }, [vault?.root, vault?.mirrorOf?.profileId])
   // Keep running in the tray (#947): the setting for the palette and leader,
   // and this window's sync state for the tray icon.
   useEffect(() => {

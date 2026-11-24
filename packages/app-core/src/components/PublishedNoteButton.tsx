@@ -23,7 +23,11 @@ export function PublishedNoteButton({
   // Publishing needs a signed-in Cloud account; without one the button opened
   // a dialog that could only fail, so it stays out of the header until the
   // account is connected (the status bar's Connect is the way in).
-  const connected = useCloudSyncStatusStore((state) => isCloudAccountConnectedPhase(state.phase))
+  // A window on an offline copy (#1108) shows its server's sync in this store,
+  // not the Cloud account's.
+  const connected = useCloudSyncStatusStore(
+    (state) => state.source === 'cloud' && isCloudAccountConnectedPhase(state.phase)
+  )
 
   useEffect(() => {
     if (!connected) {

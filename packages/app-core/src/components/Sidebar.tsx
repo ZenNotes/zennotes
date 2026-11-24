@@ -2384,7 +2384,8 @@ export function Sidebar(): JSX.Element {
       // Publishing talks to a signed-in Cloud account; without one the entry
       // could only open a dialog that fails, so it leaves the menu together
       // with the header button.
-      if (isCloudAccountConnectedPhase(useCloudSyncStatusStore.getState().phase)) {
+      const cloudSync = useCloudSyncStatusStore.getState();
+      if (cloudSync.source === "cloud" && isCloudAccountConnectedPhase(cloudSync.phase)) {
         const published = publishedNotePaths.has(n.path);
         items.push({ kind: "separator" });
         items.push(

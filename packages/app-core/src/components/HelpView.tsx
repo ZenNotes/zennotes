@@ -119,6 +119,7 @@ function resolveShortcutKeys(
     if (action === 'Switch vault') return leaderShortcut(overrides, 'vim.leaderSwitchVault')
     if (action === 'Open workflows') return leaderShortcut(overrides, 'vim.leaderWorkflows')
     if (action === 'Import notes') return leaderShortcut(overrides, 'vim.leaderImport')
+    if (action === 'Sync remote vault now') return leaderShortcut(overrides, 'vim.leaderRemoteSync')
     if (action === 'Review Cloud conflicts') {
       return leaderShortcut(overrides, 'vim.leaderCloudConflicts')
     }

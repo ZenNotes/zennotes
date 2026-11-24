@@ -520,7 +520,12 @@ export function buildMissingAssetNotice(
   const notice = document.createElement('div')
   notice.className = 'local-asset-missing-notice whitespace-normal break-words text-xs text-warning'
   notice.setAttribute('role', 'note')
-  notice.textContent = `${localAssetLabel(href, 'This file')} isn't on this device.`
+  // An offline copy of a server vault (#1108) holds notes only: the file is
+  // on the server, and the embed says when it will show.
+  const mirrorOf = useStore.getState().vault?.mirrorOf
+  notice.textContent = mirrorOf
+    ? `${localAssetLabel(href, 'This file')} is not in the offline copy. It shows when ${mirrorOf.profileName} can be reached.`
+    : `${localAssetLabel(href, 'This file')} isn't on this device.`
   figure.append(notice)
 
   if (options.onEdit) figure.append(buildEmbedEditButton(options.onEdit))

@@ -112,11 +112,15 @@ function hostSavesEncryptedArchives(bridge: ZenBridge): boolean {
 
 export function CloudSettings({
   localVaultAvailable,
+  offlineCopyOf = null,
   localVaultName,
   revealVault = false,
   onVaultRevealed,
 }: {
   localVaultAvailable: boolean;
+  /** The remote this window shows an offline copy of (#1108), which syncs
+   *  with its server and so never with Cloud. */
+  offlineCopyOf?: string | null;
   localVaultName: string;
   /**
    * Settings was opened for This vault: Review or Set up on the Cloud status,
@@ -911,6 +915,7 @@ export function CloudSettings({
                 link={link}
                 linkMismatch={linkMismatch}
                 localVaultAvailable={localVaultAvailable}
+                offlineCopyOf={offlineCopyOf}
                 newVaultName={newVaultName}
                 encryptionReady={encryptionReady}
                 encryptNewVault={encryptNewVault}
@@ -1357,6 +1362,7 @@ function CloudVaultPanel({
   link,
   linkMismatch,
   localVaultAvailable,
+  offlineCopyOf,
   newVaultName,
   encryptionReady,
   encryptNewVault,
@@ -1385,6 +1391,7 @@ function CloudVaultPanel({
   link: CloudVaultLink | null;
   linkMismatch: boolean;
   localVaultAvailable: boolean;
+  offlineCopyOf: string | null;
   newVaultName: string;
   encryptionReady: boolean;
   encryptNewVault: boolean;
@@ -1432,7 +1439,9 @@ function CloudVaultPanel({
   if (!localVaultAvailable) {
     return (
       <CloudNotice>
-        Save this folder as a local vault before linking it to ZenNotes Cloud.
+        {offlineCopyOf
+          ? `This window shows the offline copy of ${offlineCopyOf}, which syncs with that server. ZenNotes Cloud syncs local vaults.`
+          : "Save this folder as a local vault before linking it to ZenNotes Cloud."}
       </CloudNotice>
     );
   }

@@ -58,9 +58,10 @@ const CONFLICT_SETTLED =
 /** The other side moved on while the person was choosing. */
 const CONFLICT_CHANGED_AGAIN =
   'The file changed again on another device while you were reviewing it. Choose Sync now to load the newest version, then choose again.'
-const pathTakenInCloud = (path: string) =>
-  `Another file in Cloud already uses “${path}”, so this version cannot be saved there. Choose the other version, or save this one under a different name.`
-const CHOICE_UNCONFIRMED = "ZenNotes Cloud didn't confirm your choice, so nothing changed yet. Try again."
+const pathTakenOnRemote = (path: string, remoteName: string) =>
+  `Another file in ${remoteName} already uses “${path}”, so this version cannot be saved there. Choose the other version, or save this one under a different name.`
+const choiceUnconfirmed = (serviceName: string) =>
+  `${serviceName} didn't confirm your choice, so nothing changed yet. Try again.`
 const NEEDS_UPDATE = "This version of ZenNotes can't do that yet. Update ZenNotes, then try again."
 
 const MUTATION_BATCH_SIZE = 100
@@ -171,6 +172,20 @@ export interface CloudSyncStateStore {
   save(state: CloudSyncState): Promise<void>
 }
 
+/**
+ * What differs when the engine syncs with something other than ZenNotes Cloud:
+ * a self-hosted server keeping an offline copy (#1108) names itself in the
+ * sentences a person reads, and takes paths of any length its disk takes.
+ */
+export interface CloudSyncCoordinatorOptions {
+  /** Where the other side is, inside a sentence ("Cloud", "Home server"). */
+  remoteName?: string
+  /** The service as the subject of a sentence ("ZenNotes Cloud"). */
+  serviceName?: string
+  /** Whether the remote takes this path; Cloud stops at 1,024 characters. */
+  pathFits?: (path: string) => boolean
+}
+
 export interface CloudSyncRunResult {
   state: CloudSyncState
   pulled: number
@@ -198,8 +213,21 @@ export class CloudSyncCoordinator {
     private readonly remote: CloudSyncRemote,
     private readonly repository: CloudSyncRepository,
     private readonly states: CloudSyncStateStore,
-    private readonly ids: CloudSyncIdSource
+    private readonly ids: CloudSyncIdSource,
+    private readonly options: CloudSyncCoordinatorOptions = {}
   ) {}
+
+  private get remoteName(): string {
+    return this.options.remoteName ?? 'Cloud'
+  }
+
+  private get serviceName(): string {
+    return this.options.serviceName ?? 'ZenNotes Cloud'
+  }
+
+  private pathFits(path: string): boolean {
+    return (this.options.pathFits ?? cloudSyncPathFitsCloud)(path)
+  }
 
   sync(): Promise<CloudSyncRunResult> {
     if (this.running) return this.running
@@ -368,11 +396,11 @@ export class CloudSyncCoordinator {
       // A different Cloud file holding the destination is not a newer edit
       // of this one: "choose again" would only ever fail the same way.
       throw new Error(conflict.code === 'PATH_CONFLICT' && mutation.type !== 'delete'
-        ? pathTakenInCloud(mutation.path)
+        ? pathTakenOnRemote(mutation.path, this.remoteName)
         : CONFLICT_CHANGED_AGAIN)
     }
     if (!response.acknowledged.some((item) => item.operation_id === operationId)) {
-      throw new Error(CHOICE_UNCONFIRMED)
+      throw new Error(choiceUnconfirmed(this.serviceName))
     }
 
     // Save to Cloud first. If the request fails, the file the user is looking
@@ -471,7 +499,7 @@ export class CloudSyncCoordinator {
         throw new Error(CONFLICT_CHANGED_AGAIN)
       }
       if (!response.acknowledged.some((item) => item.operation_id === operationId)) {
-        throw new Error(CHOICE_UNCONFIRMED)
+        throw new Error(choiceUnconfirmed(this.serviceName))
       }
     }
     // A merged choice must reach Cloud before replacing the local version,
@@ -590,7 +618,7 @@ export class CloudSyncCoordinator {
       const entry = refusedPaths[key]
       if (entry) {
         refusedPaths[key] = heldPathRecord(mutation, entry, entry.refused_at, entry.detail, mutationState, runDeletes)
-      } else if (!cloudSyncPathFitsCloud(mutation.path)) {
+      } else if (!this.pathFits(mutation.path)) {
         // Cloud refuses a path this long; it is held here as if Cloud had.
         refusedPaths[key] = heldPathRecord(
           mutation, refusals.due[key], Date.now(), cloudSyncPathTooLongDetail(mutation.path), mutationState, runDeletes

@@ -110,6 +110,8 @@ import type {
   RaycastExtensionStatus,
   RemoteWorkspaceInfo,
   RemoteWorkspaceProfile,
+  RemoteMirrorStatus,
+  RemoteOfflineCopyState,
   RemoteHeaderInput,
   RemoteWorkspaceProfileInput,
   ServerCapabilities,
@@ -525,6 +527,23 @@ const api: ZenBridge = {
     const result = await ipcRenderer.invoke(IPC.WORKSPACE_CONNECT_REMOTE_PROFILE, id)
     await refreshRemoteWorkspaceInfo()
     return result
+  },
+  getRemoteMirrorStatus: (): Promise<RemoteMirrorStatus | null> =>
+    ipcRenderer.invoke(IPC.REMOTE_MIRROR_STATUS),
+  getRemoteOfflineCopy: (profileId: string): Promise<RemoteOfflineCopyState> =>
+    ipcRenderer.invoke(IPC.REMOTE_MIRROR_OFFLINE_COPY_GET, profileId),
+  setRemoteOfflineCopy: (
+    profileId: string,
+    enabled: boolean,
+    options?: { discardUnsynced?: boolean }
+  ): Promise<RemoteOfflineCopyState> =>
+    ipcRenderer.invoke(IPC.REMOTE_MIRROR_OFFLINE_COPY_SET, profileId, enabled, options ?? {}),
+  setRemoteMirrorPaused: (paused: boolean): Promise<RemoteMirrorStatus | null> =>
+    ipcRenderer.invoke(IPC.REMOTE_MIRROR_PAUSE, paused),
+  onRemoteMirrorChange: (cb: (event: { remote: boolean; removed?: boolean }) => void): (() => void) => {
+    const listener = (_: unknown, event: { remote: boolean; removed?: boolean }): void => cb(event)
+    ipcRenderer.on(IPC.REMOTE_MIRROR_ON_CHANGE, listener)
+    return () => ipcRenderer.removeListener(IPC.REMOTE_MIRROR_ON_CHANGE, listener)
   },
 
   getCurrentVault: async (): Promise<VaultInfo | null> => {

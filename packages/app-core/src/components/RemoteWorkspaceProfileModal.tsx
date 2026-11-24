@@ -8,6 +8,7 @@ import {
   readRemoteHeadersDraft,
   supportsRemoteHeaders
 } from './RemoteHeadersField'
+import { RemoteOfflineCopyRow, supportsRemoteOfflineCopy } from './RemoteOfflineCopyRow'
 
 export interface RemoteWorkspaceProfileModalOptions {
   title: string
@@ -37,6 +38,9 @@ export function RemoteWorkspaceProfileModal({
   const [clearHeaders, setClearHeaders] = useState(false)
   const [headersError, setHeadersError] = useState<string | null>(null)
   const showHeaders = useMemo(() => supportsRemoteHeaders(), [])
+  // A saved remote only: the copy is kept per remote, and a new one has none.
+  const savedProfileId = options.initialValue?.id ?? null
+  const showOfflineCopy = useMemo(() => savedProfileId !== null && supportsRemoteOfflineCopy(), [savedProfileId])
   const storedHeaderNames = options.storedHeaderNames ?? []
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -243,6 +247,12 @@ export function RemoteWorkspaceProfileModal({
             Leave this blank if you want to choose the vault folder when you connect.
           </div>
         </label>
+        {showOfflineCopy && savedProfileId && (
+          <RemoteOfflineCopyRow
+            profileId={savedProfileId}
+            serverName={options.initialValue?.name?.trim() || normalizedBaseUrl}
+          />
+        )}
         {error && <div className="text-xs text-danger">{error}</div>}
       </div>
       <Modal.Footer>

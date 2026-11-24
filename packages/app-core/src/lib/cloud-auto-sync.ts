@@ -8,7 +8,7 @@ import type {
   CloudSyncSettingsChoice,
   CloudSyncSettingsConflict,
 } from "@zennotes/bridge-contract/cloud-sync";
-import type { VaultChangeEvent } from "@shared/ipc";
+import type { RemoteMirrorStatus, VaultChangeEvent } from "@shared/ipc";
 import { create } from "zustand";
 import {
   CloudAutoSyncController,
@@ -135,6 +135,13 @@ interface CloudSyncStatusStore {
    *  up, so this stays until the person links or creates a vault, or
    *  dismisses it. */
   removedVault: CloudVaultRemoval | null;
+  /** What this window's vault syncs with: ZenNotes Cloud, or the server an
+   *  offline copy was made from (#1108). A window on a copy runs Cloud's
+   *  engine, review and status against that server, so the same store holds
+   *  its state; what only Cloud has (an account, publishing) reads this. */
+  source: "cloud" | "remote";
+  /** The offline copy's own state: offline or not, changes waiting, paused. */
+  mirror: RemoteMirrorStatus | null;
 }
 
 const emptyCloudSyncStatus: CloudSyncStatusStore = {
@@ -152,6 +159,8 @@ const emptyCloudSyncStatus: CloudSyncStatusStore = {
   settingsConflict: null,
   settingsConflictPromptOpen: false,
   removedVault: null,
+  source: "cloud",
+  mirror: null,
 };
 
 type CloudSyncStatusText = Pick<CloudSyncStatusStore, "error" | "errorDetail" | "errorKind">;
@@ -218,6 +227,35 @@ export function registerCloudConflictDraftFlusher(
  * that its Cloud vault went away survives a reload. Without one the notice
  * lasts the session.
  */
+export function cloudAutoSyncLogError(error: unknown, retryInMs: number): void {
+  logAutomaticSyncError(error, retryInMs);
+}
+
+/** Folded into this window's status the way Cloud's own window events are. */
+export function applyCloudSyncWindowFinished(
+  summary: CloudSyncRunSummary | null,
+  error: unknown,
+): void {
+  if (summary) applyCloudSyncSummary(summary);
+  else if (error) {
+    useCloudSyncStatusStore.setState({ phase: "error", ...syncFailure(error) });
+  }
+  useCloudSyncStatusStore.setState({ syncWindowLocked: false });
+}
+
+export async function flushCloudConflictDrafts(): Promise<void> {
+  useCloudSyncStatusStore.setState({ syncWindowLocked: true });
+  await Promise.all([...conflictDraftFlushers].map((flush) => flush()));
+}
+
+export function isCloudSyncableVaultChange(event: VaultChangeEvent): boolean {
+  return isSyncableVaultChange(event);
+}
+
+export function defaultCloudAutoSyncEnvironment(): CloudAutoSyncEnvironment {
+  return browserCloudAutoSyncEnvironment();
+}
+
 export function startCloudAutoSync(
   bridge: CloudAutoSyncBridge,
   environment: CloudAutoSyncEnvironment = browserCloudAutoSyncEnvironment(),
@@ -337,6 +375,12 @@ export function startCloudAutoSync(
 
 export function ensureCloudAutoSyncStarted(vaultKey?: string): void {
   installedRuntime ??= startCloudAutoSync(getZenBridge(), undefined, {}, vaultKey);
+}
+
+/** This window's one sync runtime, when it is not Cloud's own (an offline
+ *  copy's). requestCloudAutoSync and stopCloudAutoSync reach it the same way. */
+export function installCloudSyncRuntime(start: () => CloudAutoSyncRuntime): void {
+  installedRuntime ??= start();
 }
 
 export function requestCloudAutoSync(reason: CloudAutoSyncReason): void {
@@ -974,6 +1018,11 @@ export function stopCloudAutoSync(): void {
   installedRuntime?.stop();
   installedRuntime = null;
   clearCloudSyncStatus();
+}
+
+/** A window on an offline copy names its server where Cloud's name goes. */
+export function markRemoteMirrorReady(serverName: string): void {
+  markCloudSyncReady(serverName);
 }
 
 function markCloudSyncReady(vaultName: string): void {

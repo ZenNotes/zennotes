@@ -20,6 +20,11 @@ import {
   type CloudSyncPhase,
   useCloudSyncStatusStore,
 } from "../lib/cloud-auto-sync";
+import {
+  remoteMirrorStatusLine,
+  setRemoteMirrorPaused,
+  syncRemoteMirrorNow,
+} from "../lib/remote-mirror-sync";
 import { requestSettingsTarget } from "../lib/settings-navigation";
 import { cloudSyncRefusedPathsLabel } from "@zennotes/shared-domain/cloud-error-copy";
 
@@ -35,6 +40,7 @@ import { cloudSyncRefusedPathsLabel } from "@zennotes/shared-domain/cloud-error-
 export function StatusBar({ note }: { note: NoteContent | null }): JSX.Element {
   const notes = useStore((s) => s.notes);
   const cursorPosition = useStore((s) => s.editorCursorPosition);
+  const syncSource = useCloudSyncStatusStore((state) => state.source);
 
   const { words, characters, minutes } = useMemo(() => {
     const body = note?.body ?? "";
@@ -80,7 +86,11 @@ export function StatusBar({ note }: { note: NoteContent | null }): JSX.Element {
         {hoveredLink}
       </span>
       <div className="flex shrink-0 items-center gap-2 sm:gap-5">
-        <CloudSyncStatus separated={note !== null} />
+        {syncSource === "remote" ? (
+          <RemoteMirrorSyncStatus separated={note !== null} />
+        ) : (
+          <CloudSyncStatus separated={note !== null} />
+        )}
         {note && (
           <>
             <Stat className="hidden lg:inline">
@@ -105,6 +115,87 @@ export function StatusBar({ note }: { note: NoteContent | null }): JSX.Element {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * A window on an offline copy of a server vault (#1108). Offline is a calm
+ * state here, not an error: every save is on this computer, and the row
+ * counts what waits for the server.
+ */
+function RemoteMirrorSyncStatus({ separated }: { separated: boolean }): JSX.Element | null {
+  const phase = useCloudSyncStatusStore((state) => state.phase);
+  const error = useCloudSyncStatusStore((state) => state.error);
+  const mirror = useCloudSyncStatusStore((state) => state.mirror);
+  const lastSyncedAt = useCloudSyncStatusStore((state) => state.lastSyncedAt);
+  const lastSummary = useCloudSyncStatusStore((state) => state.lastSummary);
+  const line = remoteMirrorStatusLine({ phase, error, mirror, lastSyncedAt });
+  if (!line || !mirror) return null;
+  const conflicts = resolvableCloudConflictCount(lastSummary);
+  const hasConflict = conflicts > 0;
+  const label = hasConflict
+    ? `${conflicts} ${conflicts === 1 ? "note needs" : "notes need"} review`
+    : line.label;
+  const iconPhase: Exclude<CloudSyncPhase, "hidden"> = hasConflict || line.tone === "attention"
+    ? "attention"
+    : line.tone === "busy"
+      ? "syncing"
+      : line.tone === "offline"
+        ? "disconnected"
+        : "ready";
+  const tone =
+    iconPhase === "attention"
+      ? "text-warning"
+      : iconPhase === "ready"
+        ? "text-success"
+        : iconPhase === "disconnected"
+          ? "text-ink-500"
+          : "text-accent";
+  const actionLabel = hasConflict ? "Review now" : mirror.paused ? "Work Online" : "Sync now";
+  const showAction = hasConflict || phase !== "syncing";
+  const runAction = (): void => {
+    if (hasConflict) openCloudConflictReview();
+    else if (mirror.paused) void setRemoteMirrorPaused(false).catch(() => undefined);
+    else syncRemoteMirrorNow();
+  };
+  return (
+    <div
+      className={[
+        "inline-flex items-center gap-1.5 whitespace-nowrap",
+        hasConflict ? "rounded-lg border border-warning/30 bg-warning/10 px-2 py-0.5" : "",
+        separated ? "sm:border-r sm:border-paper-300/70 sm:pr-5" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      <span
+        data-remote-mirror-status
+        data-remote-mirror-tone={hasConflict ? "attention" : line.tone}
+        role="status"
+        title={line.title}
+        className={`inline-flex items-center gap-1.5 font-medium ${tone}`}
+      >
+        <CloudStatusIcon phase={iconPhase} />
+        <span className="tabular-nums">{label}</span>
+      </span>
+      {showAction && (
+        <>
+          <span aria-hidden="true" className="text-ink-300">
+            ·
+          </span>
+          <button
+            type="button"
+            data-remote-mirror-action
+            title={line.title}
+            aria-label={`${actionLabel}: ${line.title}`}
+            onClick={runAction}
+            className="-my-1 rounded-md px-2 py-1 font-normal text-ink-500 transition-colors hover:bg-paper-200/60 hover:text-ink-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+          >
+            {actionLabel}
+          </button>
+        </>
+      )}
     </div>
   );
 }

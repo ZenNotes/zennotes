@@ -90,6 +90,7 @@ import {
   resolvableCloudConflictCount,
   useCloudSyncStatusStore
 } from '../lib/cloud-auto-sync'
+import { syncRemoteMirrorNow } from '../lib/remote-mirror-sync'
 import { requestSettingsTarget } from '../lib/settings-navigation'
 import { hideWindowToTray, useTrayStore } from '../lib/tray-runtime'
 import { EXCALIDRAW_SURFACE, SELF_KEYED_SURFACES } from '../lib/self-keyed-surfaces'
@@ -265,6 +266,10 @@ export function VimNav(): JSX.Element | null {
     (s) => resolvableCloudConflictCount(s.lastSummary) > 0 || s.settingsConflict !== null
   )
   const cloudVaultRemoved = useCloudSyncStatusStore(hasCloudVaultRemovalNotice)
+  // A window on an offline copy of a server vault (#1108).
+  const remoteMirrorName = useCloudSyncStatusStore((s) =>
+    s.source === 'remote' ? (s.mirror?.origin.profileName ?? null) : null
+  )
   const whichKeyHintsPref = useStore((s) => s.whichKeyHints)
   const whichKeyHintMode = useStore((s) => s.whichKeyHintMode)
   const whichKeyHintTimeoutMs = useStore((s) => s.whichKeyHintTimeoutMs)
@@ -376,12 +381,23 @@ export function VimNav(): JSX.Element | null {
             }
           ]
         : []),
+      ...(remoteMirrorName
+        ? [
+            {
+              keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderRemoteSync'),
+              label: 'Sync remote vault now',
+              detail: `Sync this offline copy with ${remoteMirrorName} now.`
+            }
+          ]
+        : []),
       ...(cloudConflictsWaiting
         ? [
             {
               keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderCloudConflicts'),
-              label: 'Review Cloud conflicts',
-              detail: 'Open the files waiting on a sync decision, or the vault settings question.'
+              label: remoteMirrorName ? 'Review remote vault conflicts' : 'Review Cloud conflicts',
+              detail: remoteMirrorName
+                ? `Open the notes that changed here and on ${remoteMirrorName}.`
+                : 'Open the files waiting on a sync decision, or the vault settings question.'
             }
           ]
         : cloudVaultRemoved
@@ -1147,6 +1163,17 @@ export function VimNav(): JSX.Element | null {
           e.stopImmediatePropagation()
           resetLeader()
           void state.openWorkflowsView()
+          return
+        }
+        // Only in a window on an offline copy; elsewhere it falls through.
+        if (
+          useCloudSyncStatusStore.getState().source === 'remote' &&
+          matchesSequenceToken(e, overrides, 'vim.leaderRemoteSync')
+        ) {
+          e.preventDefault()
+          e.stopImmediatePropagation()
+          resetLeader()
+          syncRemoteMirrorNow()
           return
         }
         // Skipped while nothing waits so the key falls through as an unbound

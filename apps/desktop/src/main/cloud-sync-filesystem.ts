@@ -22,6 +22,7 @@ import {
 } from '@zennotes/shared-domain/cloud-sync'
 import {
   CloudSyncCoordinator,
+  type CloudSyncCoordinatorOptions,
   type CloudSyncRemote,
   type CloudSyncRepository,
   type CloudSyncRepositoryConflict,
@@ -690,13 +691,18 @@ export function createDesktopCloudSyncCoordinator(options: {
   stateDirectory: string
   vaultId: string
   remote: CloudSyncRemote
+  /** Wraps the folder's repository, for a remote that takes less than Cloud. */
+  repository?: (base: DesktopCloudSyncRepository) => CloudSyncRepository
+  coordinator?: CloudSyncCoordinatorOptions
 }): CloudSyncCoordinator {
+  const base = new DesktopCloudSyncRepository(options.root)
   return new CloudSyncCoordinator(
     options.vaultId,
     options.remote,
-    new DesktopCloudSyncRepository(options.root),
+    options.repository ? options.repository(base) : base,
     new DesktopCloudSyncStateStore(options.stateDirectory),
-    { itemId: randomUUID, operationId: randomUUID }
+    { itemId: randomUUID, operationId: randomUUID },
+    options.coordinator
   )
 }
 

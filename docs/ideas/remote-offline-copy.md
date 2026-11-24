@@ -14,7 +14,10 @@ back ([#1108](https://github.com/ZenNotes/zennotes/issues/1108), by @dwnsdp).
 > `/api/sync/manifest`, `changes` and `mutations`, revision bumps in every
 > mutator and `supportsSync: 1`, and Cloud's own `CloudSyncCoordinator` drives
 > it end to end in znserver CI (`integration/cloud-engine`). Phase 3's toggle
-> names server 2.91.1 as the version it needs. Phases 3 to 5 are not started.
+> names server 2.91.1 as the version it needs. Phase 3 (the desktop offline
+> copy) is built and not yet released, with `/api/sync/revision` pulled in from
+> phase 4 on the server side (`supportsSync: 2`, decision 10); phases 4 (the
+> rest: attachments) and 5 are not started.
 > Written from the code on `v2.91.0` at `3422803d` (the failed-save retry this
 > builds on), znserver `origin/main` at server 2.84.1, and ZenNotes/tui
 > `origin/main`; line numbers are from those trees. The eight questions the
@@ -512,8 +515,17 @@ Decided with Adib on November 23, 2026, on the first draft's recommendations.
    does not wait for every server channel.
 9. **Phase 2 ships in server 2.91.1** (Adib, November 24), a server-only
    release like 2.84.1, so the disabled toggle names 2.91.1.
+10. **`/api/sync/revision` moves into phase 3** (Adib, November 24). Without a
+    base every note edited on both sides went to review; with it the engine's
+    line merge settles edits to different parts on its own. The server
+    advertises it as `supportsSync: 2` and keeps the current bytes of every
+    item as well as the log's, so revision 1 of a note it started with is a
+    base too. The desktop reads revisions only from a server that says 2, so a
+    2.91.1 server still keeps copies, with review-only conflicts.
+11. **Work Offline gets its palette entry in phase 3** (Adib, November 24),
+    with Work Online beside it; a paused copy keeps every change and says
+    Working offline in the status bar.
 
 ## Open questions
 
-- Whether **Work Offline** is worth its palette entry in phase 3 or waits for a
-  request.
+None open. Work Offline was decided (decision 11).

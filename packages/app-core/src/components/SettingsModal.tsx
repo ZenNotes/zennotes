@@ -186,6 +186,7 @@ import {
   settingsSearchStep,
 } from "../lib/settings-search-keys";
 import { RemoteWorkspaceProfileModal } from "./RemoteWorkspaceProfileModal";
+import { confirmRemoveOfflineCopy } from "./RemoteOfflineCopyRow";
 import { Button } from "./ui/Button";
 import { trapDialogTab, useDialogFocus } from "./ui/Modal";
 import { isTouchPrimaryDevice } from "../lib/cm-vim-ime-guard";
@@ -1130,10 +1131,12 @@ export function SettingsModal(): JSX.Element {
     };
   }, [searchToolPaths]);
 
+  // A window on an offline copy (#1108) is a local window, and still on its
+  // remote: the row says Offline copy where an online one says Connected.
   const currentRemoteProfileId =
     workspaceMode === "remote"
       ? (remoteWorkspaceInfo?.profileId ?? null)
-      : null;
+      : (vault?.mirrorOf?.profileId ?? null);
 
   const openCreateRemoteProfile = useCallback(() => {
     setEditingRemoteProfile({
@@ -1183,6 +1186,16 @@ export function SettingsModal(): JSX.Element {
         danger: true,
       });
       if (!confirmed) return;
+      // Its offline copy goes with it (#1108), and changes that have not
+      // reached the server are asked about first.
+      const bridge = getZenBridge();
+      if (bridge.getRemoteOfflineCopy && bridge.setRemoteOfflineCopy) {
+        const copy = await bridge.getRemoteOfflineCopy(profile.id).catch(() => null);
+        if (copy?.enabled) {
+          if (!(await confirmRemoveOfflineCopy(copy, profile.name))) return;
+          await bridge.setRemoteOfflineCopy(profile.id, false, { discardUnsynced: true });
+        }
+      }
       await deleteRemoteWorkspaceProfile(profile.id);
     },
     [deleteRemoteWorkspaceProfile],
@@ -4334,8 +4347,10 @@ export function SettingsModal(): JSX.Element {
                   localVaultAvailable={
                     workspaceMode === "local" &&
                     !!vault &&
-                    vault.temporary !== true
+                    vault.temporary !== true &&
+                    !vault.mirrorOf
                   }
+                  offlineCopyOf={vault?.mirrorOf?.profileName ?? null}
                   localVaultName={vault?.name ?? "My notes"}
                   revealVault={cloudVaultReveal}
                   onVaultRevealed={settleCloudVaultReveal}
@@ -4973,7 +4988,9 @@ export function SettingsModal(): JSX.Element {
                                   </div>
                                   {isCurrent && (
                                     <span className="rounded-full border border-emerald-400/25 bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-700">
-                                      Connected
+                                      {vault?.mirrorOf?.profileId === profile.id
+                                        ? "Offline copy"
+                                        : "Connected"}
                                     </span>
                                   )}
                                 </div>

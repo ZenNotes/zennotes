@@ -45,6 +45,8 @@ import type {
   PastedImageInput,
   RaycastExtensionStatus,
   DirectoryBrowseResult,
+  RemoteMirrorStatus,
+  RemoteOfflineCopyState,
   RemoteWorkspaceInfo,
   RemoteWorkspaceProfile,
   RemoteHeaderInput,
@@ -358,6 +360,26 @@ export interface ZenBridge {
   connectRemoteWorkspaceProfile(
     id: string
   ): Promise<{ vault: VaultInfo | null; capabilities: ServerCapabilities }>
+  /** The offline copy of a server vault (#1108); desktop only. Where the
+   *  copy this window shows stands, or null for a window that shows none. */
+  getRemoteMirrorStatus?(): Promise<RemoteMirrorStatus | null>
+  /** The offline copy row of a saved remote: whether its server can keep
+   *  one, and whether this computer does. */
+  getRemoteOfflineCopy?(profileId: string): Promise<RemoteOfflineCopyState>
+  /** Turn a remote's offline copy on (it downloads, then the windows on that
+   *  remote switch to it) or off. Off refuses while changes have not reached
+   *  the server, unless `discardUnsynced` says the person chose to lose them. */
+  setRemoteOfflineCopy?(
+    profileId: string,
+    enabled: boolean,
+    options?: { discardUnsynced?: boolean }
+  ): Promise<RemoteOfflineCopyState>
+  /** Work Offline (true) and Work Online (false) for this window's copy. */
+  setRemoteMirrorPaused?(paused: boolean): Promise<RemoteMirrorStatus | null>
+  /** The server reported a change, or the copy's status moved; `remote`
+   *  says the server changed, so a sync should pull, and `removed` that the
+   *  copy this window shows was turned off. */
+  onRemoteMirrorChange?(cb: (event: { remote: boolean; removed?: boolean }) => void): () => void
 
   getCurrentVault(): Promise<VaultInfo | null>
   listLocalVaults(): Promise<LocalVaultEntry[]>

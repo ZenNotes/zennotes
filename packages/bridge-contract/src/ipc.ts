@@ -12,6 +12,11 @@ export const IPC = {
   WORKSPACE_SAVE_REMOTE_PROFILE: 'workspace:save-remote-profile',
   WORKSPACE_DELETE_REMOTE_PROFILE: 'workspace:delete-remote-profile',
   WORKSPACE_CONNECT_REMOTE_PROFILE: 'workspace:connect-remote-profile',
+  REMOTE_MIRROR_STATUS: 'remote-mirror:status',
+  REMOTE_MIRROR_OFFLINE_COPY_GET: 'remote-mirror:offline-copy-get',
+  REMOTE_MIRROR_OFFLINE_COPY_SET: 'remote-mirror:offline-copy-set',
+  REMOTE_MIRROR_PAUSE: 'remote-mirror:pause',
+  REMOTE_MIRROR_ON_CHANGE: 'remote-mirror:on-change',
   VAULT_LIST_LOCAL: 'vault:list-local',
   VAULT_OPEN_LOCAL: 'vault:open-local',
   VAULT_CLOSE: 'vault:close',
@@ -977,6 +982,49 @@ export interface VaultInfo {
    *  ZenNotes state is written into the folder and it isn't remembered. The
    *  renderer shows a banner and the next launch reopens the saved vault. */
   temporary?: boolean
+  /** Set when this folder is the offline copy of a server's vault (#1108):
+   *  the app keeps it in step with the server, so the window reads and saves
+   *  it like a local vault while it names the server it belongs to. */
+  mirrorOf?: RemoteMirrorOrigin
+}
+
+/** The server vault an offline copy was made from. */
+export interface RemoteMirrorOrigin {
+  profileId: string
+  /** The saved remote's name ("Home server"), which the copy shows. */
+  profileName: string
+  baseUrl: string
+  /** The server's sync id for the vault, from `/api/sync/manifest`. */
+  vaultId: string
+}
+
+/** Where an offline copy stands, for the status bar and the profile dialog. */
+export interface RemoteMirrorStatus {
+  origin: RemoteMirrorOrigin
+  /** Files changed in the copy that the server has not taken yet. */
+  pendingChanges: number
+  /** When the server last answered a sync request, or null if never. */
+  lastReachedAt: number | null
+  /** The last request reached the server. False means the copy is offline. */
+  reachable: boolean
+  /** When a sync last finished, or null before the first one. */
+  lastSyncedAt: number | null
+  /** Work Offline: sync is stopped on purpose until Work Online. */
+  paused: boolean
+  /** The server now serves a different vault than this copy was made from. */
+  vaultMismatch: boolean
+  /** Bytes the copy takes on this computer. */
+  sizeBytes: number
+}
+
+/** The offline copy row of a saved remote. */
+export interface RemoteOfflineCopyState {
+  /** The server speaks the sync protocol; null when it could not be asked. */
+  supported: boolean | null
+  /** The version the server reported, when it answered. */
+  serverVersion: string | null
+  enabled: boolean
+  status: RemoteMirrorStatus | null
 }
 
 /** Open-graph-ish metadata for a URL, used to render a bookmark card. All
@@ -1065,6 +1113,11 @@ export interface ServerCapabilities {
    *  (#1108). Absent before the server release that added it, which ignores
    *  the field and writes unconditionally. */
   supportsConditionalNoteWrites?: boolean
+  /** The sync protocol version (#1108): 1 serves `/api/sync/manifest`,
+   *  `changes` and `mutations`, which an offline copy needs; 2 adds
+   *  `/api/sync/revision`, the base a three-way merge needs. Absent before
+   *  server 2.91.1. */
+  supportsSync?: number
 }
 
 export interface ServerSessionStatus {

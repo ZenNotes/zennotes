@@ -58,6 +58,7 @@ export type KeymapId =
   | "vim.leaderWorkflows"
   | "vim.leaderImport"
   | "vim.leaderCloudConflicts"
+  | "vim.leaderRemoteSync"
   | "vim.leaderAtlas"
   | "vim.leaderSearchNotes"
   | "vim.leaderSearchGroup"
@@ -634,6 +635,18 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description:
       "Open the Cloud sync conflict queue, or the vault settings question. Available while files or settings are waiting on a decision, and while this vault's Cloud vault is gone, when it opens Settings → Cloud.",
     defaultBinding: "r",
+    vimOnly: true,
+    maxTokens: 1,
+  },
+  {
+    id: "vim.leaderRemoteSync",
+    kind: "sequence",
+    scope: "leader",
+    group: "vim",
+    title: "Leader: sync remote vault now",
+    description:
+      "Sync this window's offline copy with its server now. Available in a window on the offline copy of a remote vault.",
+    defaultBinding: "R",
     vimOnly: true,
     maxTokens: 1,
   },
