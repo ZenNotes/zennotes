@@ -2,7 +2,8 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { EditorSelection, EditorState } from '@codemirror/state'
 import { EditorView, keymap, type KeyBinding } from '@codemirror/view'
-import { vim } from '@replit/codemirror-vim'
+import { getCM, vim } from '@replit/codemirror-vim'
+import { indentLess, indentMore } from '@codemirror/commands'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import {
   SearchQuery,
@@ -286,6 +287,84 @@ describe('Ctrl+A reaches Vim where Mod is Ctrl (#993)', () => {
     const view = mount('hello world')
     expect(mac?.run?.(view)).toBe(true) // normal mode, and still selects
     expect(vimAwareDefaultKeymap(false, false)).toBe(vimAwareDefaultKeymap(false, true))
+  })
+})
+
+// #1059: on Linux/Windows defaultKeymap's Mod-[ (indentLess) is Ctrl+[, Vim's
+// <C-[> Escape. indentLess reports the key handled even on a no-op dedent, so
+// the keymap ate Ctrl+[ before the Vim plugin saw it and insert mode stayed on.
+describe('Ctrl+[ reaches Vim where Mod is Ctrl (#1059)', () => {
+  const views: EditorView[] = []
+  afterEach(() => {
+    views.splice(0).forEach((v) => v.destroy())
+  })
+
+  const mount = (doc: string): EditorView => {
+    const view = new EditorView({
+      state: EditorState.create({
+        doc,
+        // Keymap first: the real editors run CodeMirror's keymap before Vim's,
+        // which is what let indentLess win.
+        extensions: [keymap.of([...vimAwareDefaultKeymap(true, false)]), vim()]
+      }),
+      parent: document.body
+    })
+    views.push(view)
+    view.focus()
+    return view
+  }
+
+  const press = (view: EditorView, key: string, keyCode: number, ctrlKey = false): void => {
+    view.contentDOM.dispatchEvent(
+      new KeyboardEvent('keydown', { key, keyCode, ctrlKey, bubbles: true, cancelable: true })
+    )
+  }
+
+  const insertMode = (view: EditorView): boolean =>
+    (getCM(view) as { state?: { vim?: { insertMode?: boolean } } } | null)?.state?.vim
+      ?.insertMode === true
+
+  const runFor = (key: string, vimMode = true, mac = false): NonNullable<KeyBinding['run']> => {
+    const binding = vimAwareDefaultKeymap(vimMode, mac).find((b) => b.key === key)
+    if (!binding?.run) throw new Error(`no run for ${key}`)
+    return binding.run
+  }
+
+  it('ends insert mode on the dispatched Ctrl+[ chord', () => {
+    const view = mount('hello')
+    press(view, 'i', 73)
+    expect(insertMode(view)).toBe(true)
+    press(view, '[', 91, true)
+    expect(insertMode(view)).toBe(false)
+  })
+
+  it('defers Mod-[ in every Vim mode and leaves Cmd-[ on macOS', () => {
+    const view = mount('hello')
+    press(view, 'i', 73)
+    expect(runFor('Mod-[')(view)).toBe(false)
+    press(view, 'v', 86)
+    expect(runFor('Mod-[')(view)).toBe(false)
+
+    const mac = new EditorView({
+      state: EditorState.create({
+        doc: '  hello',
+        extensions: [keymap.of([...vimAwareDefaultKeymap(true, true)]), vim()]
+      }),
+      parent: document.body
+    })
+    views.push(mac)
+    const macIndent = vimAwareDefaultKeymap(true, true).find((b) => b.key === 'Mod-[')
+    expect(macIndent?.run).toBe(indentLess)
+    expect(macIndent?.run?.(mac)).toBe(true)
+    expect(mac.state.doc.toString()).toBe('hello')
+  })
+
+  it('keeps Ctrl+[ dedenting with Vim off and leaves Mod-] indentMore alone', () => {
+    const off = vimAwareDefaultKeymap(false, false).find((b) => b.key === 'Mod-[')
+    expect(off?.run).toBe(indentLess)
+    const on = vimAwareDefaultKeymap(true, false).find((b) => b.key === 'Mod-]')
+    expect(on?.run).toBe(indentMore)
+    expect(on?.preventDefault).not.toBe(false)
   })
 })
 
