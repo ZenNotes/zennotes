@@ -40,6 +40,19 @@ export const CLOUD_ANNOUNCEMENT = {
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    version: '2.92.0',
+    highlights: [
+      {
+        title: 'Keep an offline copy of a remote vault',
+        body: 'Turn on Keep an offline copy for a saved remote (Settings, Vault, Saved Remote Workspaces, Edit) and its notes open and save on this computer while the server is away. The status bar counts the changes waiting, and they reach the server when it answers. Needs ZenNotes server 2.91.1 or later.'
+      },
+      {
+        title: 'Edits made on both sides merge',
+        body: 'When a note changed here and on the server, edits to different lines combine on their own (server 2.92.0 or later); the same lines wait for you in the review Cloud uses, with Space r. Sync Remote Vault Now, Work Offline and Work Online are in the command palette, and Space R syncs with Vim mode on.'
+      }
+    ]
+  },
+  {
     version: '2.91.0',
     highlights: [
       {
