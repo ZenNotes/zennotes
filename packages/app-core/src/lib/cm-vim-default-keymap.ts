@@ -77,7 +77,8 @@ const ARROW_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'])
 /**
  * Keys that Vim maps to motions in normal/visual mode but which `defaultKeymap`
  * (and `markdownKeymap`) bind to *editing* commands: the arrows (issue #287),
- * plus Enter (`<CR>` → `j^`: first non-blank of the next line) and Backspace
+ * plus Enter (`<CR>`: first non-blank of the next line, see
+ * `zenMoveDownFirstNonBlank`) and Backspace
  * (`<BS>` → `h`). Without deferral, Enter in normal mode inserts a newline
  * (via `insertNewlineContinueMarkup` / `insertNewlineAndIndent`) and Backspace
  * deletes a character, instead of moving the cursor like real Vim.
@@ -98,7 +99,7 @@ const VIM_MOTION_KEYS = new Set([...ARROW_KEYS, 'Enter', 'Backspace'])
  * affected — hence the asymmetry users hit.
  *
  * Unlike the emacs chords we can't simply drop these keys: Vim only maps them
- * in normal/visual mode (`<Left>`→`h`, `<CR>`→`j^`, …), not in *insert* mode,
+ * in normal/visual mode (`<Left>`→`h`, `<CR>`→ next line, …), not in *insert* mode,
  * so insert-mode caret movement, newline insertion and deletion still rely on
  * these bindings. Instead, in Vim mode each binding defers to the Vim plugin
  * while Vim is in a non-insert mode — returning `false` with no
@@ -194,7 +195,7 @@ const vimModeKeymapModIsCtrl: readonly KeyBinding[] = deferKeysToVim(
  * Ctrl+[ belongs to Vim: `<C-[>` is Escape.
  *
  * `defaultKeymap` binds `Mod-[` to `indentLess`, which on Linux and Windows
- * is Ctrl+[ — the key Vim users press to leave insert mode. `indentLess`
+ * is Ctrl+[, the key Vim users press to leave insert mode. `indentLess`
  * reports the key handled even when nothing was dedented, and (like every
  * binding here) it runs ahead of the Vim plugin, so Ctrl+[ never reached
  * Vim's `<C-[>` → `<Esc>` mapping and insert mode never ended.
@@ -324,6 +325,21 @@ const tightListEnter: KeyBinding = {
   run: insertNewlineContinueMarkupTight
 }
 
+/**
+ * Enter (`<CR>`) as Vim has it: down to the first non-blank of the next line,
+ * linewise, with a count, in normal and visual mode and after an operator
+ * (`V<CR>`, `2<CR>`, `d<CR>`). The Vim plugin maps `<CR>` only in normal mode,
+ * as the keys `j^`, so Enter did nothing in visual mode; and ZenNotes' `j`
+ * moves by screen line, so on a wrapped line `j^` stayed on the same line. The
+ * motion counts real lines instead. On the last line it stays put, as `j`
+ * does here.
+ *
+ * It registers when this module loads rather than from each window's setup
+ * the way the other motions do: every editor with the Vim-aware keymap imports
+ * this module, so the key and the keymap that defers Enter to Vim cannot be
+ * apart. Each renderer has its own Vim, and the flag keeps HMR from mapping
+ * twice.
+ */
 type VimEnterCm = {
   lastLine: () => number
   getLine: (line: number) => string
