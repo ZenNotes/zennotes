@@ -14,10 +14,11 @@ back ([#1108](https://github.com/ZenNotes/zennotes/issues/1108), by @dwnsdp).
 > `/api/sync/manifest`, `changes` and `mutations`, revision bumps in every
 > mutator and `supportsSync: 1`, and Cloud's own `CloudSyncCoordinator` drives
 > it end to end in znserver CI (`integration/cloud-engine`). Phase 3's toggle
-> names server 2.91.1 as the version it needs. Phase 3 (the desktop offline
-> copy) is built and not yet released, with `/api/sync/revision` pulled in from
-> phase 4 on the server side (`supportsSync: 2`, decision 10); phases 4 (the
-> rest: attachments) and 5 are not started.
+> names server 2.91.1 as the version it needs. Phase 3, the desktop offline
+> copy, shipped on November 24 in ZenNotes 2.92.0, with `/api/sync/revision`
+> pulled in from phase 4 in server 2.92.0 (`supportsSync: 2`, decision 10,
+> ZenNotes/znserver#91). What remains of phase 4 (attachments in the copy) and
+> phase 5 (the phones, then perhaps the web client) are not started.
 > Written from the code on `v2.91.0` at `3422803d` (the failed-save retry this
 > builds on), znserver `origin/main` at server 2.84.1, and ZenNotes/tui
 > `origin/main`; line numbers are from those trees. The eight questions the
