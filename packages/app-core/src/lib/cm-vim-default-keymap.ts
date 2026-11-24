@@ -9,7 +9,7 @@ import {
   searchKeymap,
   searchPanelOpen
 } from '@codemirror/search'
-import { getCM } from '@replit/codemirror-vim'
+import { CodeMirror, Vim, getCM } from '@replit/codemirror-vim'
 import { insertNewlineContinueFencedCodeIndent } from './cm-code-fence-indent'
 import { insertNewlineContinueFrontmatterList } from './cm-frontmatter'
 import { insertNewlineContinueMarkupTight } from './cm-tight-list-enter'
@@ -323,6 +323,50 @@ const tightListEnter: KeyBinding = {
   key: 'Enter',
   run: insertNewlineContinueMarkupTight
 }
+
+type VimEnterCm = {
+  lastLine: () => number
+  getLine: (line: number) => string
+}
+
+export function zenMoveDownFirstNonBlank(
+  cm: VimEnterCm,
+  head: { line: number; ch: number },
+  motionArgs: { repeat?: number },
+  vim: { lastHPos?: number }
+): { line: number; ch: number } {
+  const repeat = Math.max(1, motionArgs.repeat || 1)
+  const last = cm.lastLine()
+  if (head.line >= last) return new CodeMirror.Pos(head.line, head.ch)
+  const line = Math.min(last, head.line + repeat)
+  const text = cm.getLine(line)
+  const firstNonBlank = text.search(/\S/)
+  const ch = firstNonBlank < 0 ? text.length : firstNonBlank
+  vim.lastHPos = ch
+  return new CodeMirror.Pos(line, ch)
+}
+
+let vimEnterMotionRegistered = false
+
+export function registerVimEnterMotion(): void {
+  if (vimEnterMotionRegistered) return
+  vimEnterMotionRegistered = true
+  Vim.defineMotion(
+    'zenMoveDownFirstNonBlank',
+    zenMoveDownFirstNonBlank as unknown as Parameters<typeof Vim.defineMotion>[1]
+  )
+  for (const context of ['normal', 'visual', 'operatorPending'] as const) {
+    Vim.mapCommand(
+      '<CR>',
+      'motion',
+      'zenMoveDownFirstNonBlank',
+      { linewise: true },
+      { context }
+    )
+  }
+}
+
+registerVimEnterMotion()
 
 export const vimAwareMarkdownKeymap: Extension = Prec.high(
   keymap.of(
