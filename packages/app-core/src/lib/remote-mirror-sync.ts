@@ -184,6 +184,16 @@ export function syncRemoteMirrorNow(): void {
   requestCloudAutoSync("vault-link");
 }
 
+/**
+ * The server now serves another vault than the copy was made from: open the
+ * vault it serves online, and keep the copy as it is. `connect` is the store's
+ * connect, which reloads the window onto the server.
+ */
+export async function openRemoteMirrorOnline(connect: (profileId: string) => Promise<void>): Promise<void> {
+  const profileId = await getZenBridge().openRemoteMirrorOnline?.();
+  if (profileId) await connect(profileId);
+}
+
 /** Work Offline and Work Online. */
 export async function setRemoteMirrorPaused(paused: boolean): Promise<void> {
   const bridge = getZenBridge();
@@ -231,7 +241,7 @@ export function remoteMirrorStatusLine(
   if (mirror.vaultMismatch) {
     return {
       label: "Sync stopped",
-      title: `${name} now serves a different vault than this offline copy was made from. The copy is kept as it is.`,
+      title: `${name} now serves a different vault than this offline copy was made from. The copy is kept as it is; choose Open Online to use the vault ${name} serves now.`,
       tone: "attention",
     };
   }

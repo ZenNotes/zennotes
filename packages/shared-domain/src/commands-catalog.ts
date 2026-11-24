@@ -229,6 +229,7 @@ export const COMMAND_CATALOG: CommandCatalogEntry[] = [
   { id: "app.cloud.reviewConflicts", title: "Review Cloud Sync Conflicts", category: "Vault", keywords: "cloud sync conflict merge review resolve queue two devices differ settings" },
   { id: "app.remote.reviewConflicts", title: "Review Remote Vault Conflicts", category: "Vault", keywords: "remote server offline copy sync conflict merge review resolve two devices" },
   { id: "app.remote.syncNow", title: "Sync Remote Vault Now", category: "Vault", keywords: "remote server offline copy sync now pull push refresh" },
+  { id: "app.remote.openOnline", title: "Open Remote Vault Online", category: "Vault", keywords: "remote server offline copy different vault switched online" },
   { id: "app.remote.workOffline", title: "Work Offline", category: "Vault", keywords: "remote server offline copy pause stop sync metered network" },
   { id: "app.remote.workOnline", title: "Work Online", category: "Vault", keywords: "remote server offline copy resume start sync" },
   { id: "app.cloud.reviewVaultRemoval", title: "Review Cloud Vault", category: "Vault", keywords: "cloud sync vault deleted unavailable gone stopped syncing link choose new" },

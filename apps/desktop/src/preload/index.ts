@@ -538,6 +538,8 @@ const api: ZenBridge = {
     options?: { discardUnsynced?: boolean }
   ): Promise<RemoteOfflineCopyState> =>
     ipcRenderer.invoke(IPC.REMOTE_MIRROR_OFFLINE_COPY_SET, profileId, enabled, options ?? {}),
+  openRemoteMirrorOnline: (): Promise<string | null> =>
+    ipcRenderer.invoke(IPC.REMOTE_MIRROR_OPEN_ONLINE),
   setRemoteMirrorPaused: (paused: boolean): Promise<RemoteMirrorStatus | null> =>
     ipcRenderer.invoke(IPC.REMOTE_MIRROR_PAUSE, paused),
   onRemoteMirrorChange: (cb: (event: { remote: boolean; removed?: boolean }) => void): (() => void) => {

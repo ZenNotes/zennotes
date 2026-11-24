@@ -374,6 +374,10 @@ export interface ZenBridge {
     enabled: boolean,
     options?: { discardUnsynced?: boolean }
   ): Promise<RemoteOfflineCopyState>
+  /** After the server switched to another vault, the next connect of this
+   *  window's remote opens the server online and leaves the copy as it is.
+   *  Resolves with that remote's id, for the window to reconnect. */
+  openRemoteMirrorOnline?(): Promise<string | null>
   /** Work Offline (true) and Work Online (false) for this window's copy. */
   setRemoteMirrorPaused?(paused: boolean): Promise<RemoteMirrorStatus | null>
   /** The server reported a change, or the copy's status moved; `remote`

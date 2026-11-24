@@ -4866,7 +4866,9 @@ export function SettingsModal(): JSX.Element {
                     <div className="text-sm font-medium text-ink-900">
                       {workspaceMode === "remote"
                         ? "Remote workspace"
-                        : "Vault location"}
+                        : vault?.mirrorOf
+                          ? `Offline copy of ${vault.mirrorOf.profileName}`
+                          : "Vault location"}
                     </div>
                     <div className="mt-1 truncate text-xs text-ink-500">
                       {vault?.root ?? "No vault selected"}
@@ -4877,6 +4879,12 @@ export function SettingsModal(): JSX.Element {
                           Connected to {remoteWorkspaceInfo.baseUrl}
                         </div>
                       )}
+                    {vault?.mirrorOf && (
+                      <div className="mt-1 truncate text-xs text-ink-400">
+                        Syncs with {vault.mirrorOf.baseUrl}. Turn it off under
+                        Saved Remote Workspaces → Edit.
+                      </div>
+                    )}
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     {vault && canOpenCurrentVaultFolder({ vault, workspaceMode }) && (
@@ -4887,19 +4895,24 @@ export function SettingsModal(): JSX.Element {
                         Open in {fileManagerName()}
                       </button>
                     )}
-                    <button
-                      onClick={() =>
-                        void (workspaceMode === "remote"
-                          ? changeRemoteWorkspaceVaultPath()
-                          : openVaultPicker())
-                      }
-                      className="shrink-0 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
-                    >
-                      {workspaceMode === "remote"
-                        ? "Change Remote Vault…"
-                        : "Change…"}
-                    </button>
-                    {workspaceMode === "remote" && (
+                    {/* A window on an offline copy (#1108) belongs to its
+                        remote: it leaves the way a remote window does, and
+                        picking another server folder needs the server. */}
+                    {!vault?.mirrorOf && (
+                      <button
+                        onClick={() =>
+                          void (workspaceMode === "remote"
+                            ? changeRemoteWorkspaceVaultPath()
+                            : openVaultPicker())
+                        }
+                        className="shrink-0 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
+                      >
+                        {workspaceMode === "remote"
+                          ? "Change Remote Vault…"
+                          : "Change…"}
+                      </button>
+                    )}
+                    {(workspaceMode === "remote" || !!vault?.mirrorOf) && (
                       <button
                         onClick={() => void disconnectRemoteWorkspace()}
                         className="shrink-0 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
@@ -4907,7 +4920,7 @@ export function SettingsModal(): JSX.Element {
                         Return to Local Vault
                       </button>
                     )}
-                    {workspaceMode === "remote" && (
+                    {(workspaceMode === "remote" || !!vault?.mirrorOf) && (
                       <button
                         onClick={() => void openVaultPicker()}
                         className="shrink-0 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
@@ -4928,7 +4941,7 @@ export function SettingsModal(): JSX.Element {
                 {/* Local vaults only (#692): a temporary folder session writes
                     nothing into its folder, and a remote workspace's settings
                     belong to the server. */}
-                {workspaceMode !== "remote" && vault && !vault.temporary && (
+                {workspaceMode !== "remote" && vault && !vault.temporary && !vault.mirrorOf && (
                   <TextInputRow
                     label="Vault name"
                     description={`What the sidebar, the vault switcher and the title bar call this vault. The folder stays ${vaultFolderName(vault)} on disk; leave the field empty to use that name.`}

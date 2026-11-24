@@ -21,6 +21,7 @@ import {
   useCloudSyncStatusStore,
 } from "../lib/cloud-auto-sync";
 import {
+  openRemoteMirrorOnline,
   remoteMirrorStatusLine,
   setRemoteMirrorPaused,
   syncRemoteMirrorNow,
@@ -152,10 +153,19 @@ function RemoteMirrorSyncStatus({ separated }: { separated: boolean }): JSX.Elem
         : iconPhase === "disconnected"
           ? "text-ink-500"
           : "text-accent";
-  const actionLabel = hasConflict ? "Review now" : mirror.paused ? "Work Online" : "Sync now";
+  const actionLabel = hasConflict
+    ? "Review now"
+    : mirror.vaultMismatch
+      ? "Open Online"
+      : mirror.paused
+        ? "Work Online"
+        : "Sync now";
   const showAction = hasConflict || phase !== "syncing";
   const runAction = (): void => {
     if (hasConflict) openCloudConflictReview();
+    else if (mirror.vaultMismatch) {
+      void openRemoteMirrorOnline((id) => useStore.getState().connectRemoteWorkspaceProfile(id)).catch(() => undefined);
+    }
     else if (mirror.paused) void setRemoteMirrorPaused(false).catch(() => undefined);
     else syncRemoteMirrorNow();
   };

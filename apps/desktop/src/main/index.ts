@@ -2913,8 +2913,11 @@ async function setRemoteWorkspace(
   }
 
   const win = currentIpcWindow() ?? mainWindow;
+  const passCopy = options.profileId
+    ? openOnlineOnce.delete(options.profileId)
+    : false;
   const mirrorOrigin =
-    options.profileId && (capabilities.supportsSync ?? 0) >= 1
+    options.profileId && !passCopy && (capabilities.supportsSync ?? 0) >= 1
       ? await getRemoteMirrorService()
           .openableOrigin(options.profileId)
           .catch(() => null)
@@ -3853,6 +3856,9 @@ const mirrorClients = new Map<string, RemoteServerClient>();
 const mirrorCapabilities = new Map<string, ServerCapabilities>();
 const mirrorWatchStops = new Map<string, () => void>();
 const mirrorConnecting = new Map<string, Promise<RemoteServerClient | null>>();
+/** Remotes whose next connect opens the server online, past their copy: the
+ *  server switched to a vault the copy was not made from (Open Online). */
+const openOnlineOnce = new Set<string>();
 
 function getRemoteMirrorService(): RemoteMirrorSyncService {
   remoteMirrorService ??= new RemoteMirrorSyncService({
@@ -4831,6 +4837,12 @@ function registerIpc(): void {
       return await remoteOfflineCopyState(profileId);
     },
   );
+  handle(IPC.REMOTE_MIRROR_OPEN_ONLINE, async () => {
+    const profileId = currentMirrorProfileId();
+    if (!profileId) return null;
+    openOnlineOnce.add(profileId);
+    return profileId;
+  });
   handle(IPC.REMOTE_MIRROR_PAUSE, async (_e, paused: unknown) => {
     const profileId = currentMirrorProfileId();
     if (!profileId) return null;

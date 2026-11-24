@@ -99,7 +99,7 @@ import {
   openPendingCloudReview,
   useCloudSyncStatusStore
 } from './cloud-auto-sync'
-import { setRemoteMirrorPaused, syncRemoteMirrorNow } from './remote-mirror-sync'
+import { openRemoteMirrorOnline, setRemoteMirrorPaused, syncRemoteMirrorNow } from './remote-mirror-sync'
 import { DEMO_TOUR_START_PATH, isDemoTourStartPath } from '@shared/demo-tour'
 
 const APP_WEBSITE_URL = 'https://zennotes.org'
@@ -2593,6 +2593,14 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       shortcut: getState().vimMode ? leaderShortcut('vim.leaderRemoteSync') : undefined,
       when: () => onRemoteMirror() && !remoteMirrorPaused(),
       run: () => syncRemoteMirrorNow()
+    },
+    {
+      id: 'app.remote.openOnline',
+      title: 'Open Remote Vault Online',
+      category: 'Vault',
+      keywords: 'remote server offline copy different vault switched online',
+      when: () => onRemoteMirror() && useCloudSyncStatusStore.getState().mirror?.vaultMismatch === true,
+      run: () => openRemoteMirrorOnline((id) => getState().connectRemoteWorkspaceProfile(id))
     },
     {
       id: 'app.remote.workOffline',

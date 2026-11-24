@@ -16,6 +16,7 @@ export const IPC = {
   REMOTE_MIRROR_OFFLINE_COPY_GET: 'remote-mirror:offline-copy-get',
   REMOTE_MIRROR_OFFLINE_COPY_SET: 'remote-mirror:offline-copy-set',
   REMOTE_MIRROR_PAUSE: 'remote-mirror:pause',
+  REMOTE_MIRROR_OPEN_ONLINE: 'remote-mirror:open-online',
   REMOTE_MIRROR_ON_CHANGE: 'remote-mirror:on-change',
   VAULT_LIST_LOCAL: 'vault:list-local',
   VAULT_OPEN_LOCAL: 'vault:open-local',
