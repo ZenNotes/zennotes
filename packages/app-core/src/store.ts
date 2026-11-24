@@ -674,6 +674,8 @@ interface Prefs {
   showHeadingLevelLabels: boolean
   /** Give each heading level its own theme color, in the editor and Preview. */
   colorHeadings: boolean
+  /** Indent every heading and what is under it by its level, like the outline. */
+  indentSections: boolean
   /** A color and font per heading level from Settings → Typography → Headings,
    *  keyed `h1.color` … `h6.font` (lib/heading-styles.ts). */
   headingStyles: Record<string, string>
@@ -1382,6 +1384,7 @@ export const DEFAULT_PREFS: Prefs = {
   livePreview: true,
   showHeadingLevelLabels: false,
   colorHeadings: false,
+  indentSections: false,
   headingStyles: {},
   listIndentGuides: true,
   linkPopoverOnHover: true,
@@ -1581,6 +1584,8 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
     colorHeadings:
       typeof p.colorHeadings === 'boolean' ? p.colorHeadings : DEFAULT_PREFS.colorHeadings,
     headingStyles: normalizeHeadingStyles(p.headingStyles),
+    indentSections:
+      typeof p.indentSections === 'boolean' ? p.indentSections : DEFAULT_PREFS.indentSections,
     listIndentGuides:
       typeof p.listIndentGuides === 'boolean'
         ? p.listIndentGuides
@@ -2893,6 +2898,7 @@ function collectPrefs(s: {
   livePreview: boolean
   showHeadingLevelLabels: boolean
   colorHeadings: boolean
+  indentSections: boolean
   headingStyles: Record<string, string>
   listIndentGuides: boolean
   linkPopoverOnHover: boolean
@@ -3027,6 +3033,7 @@ function collectPrefs(s: {
     livePreview: s.livePreview,
     showHeadingLevelLabels: s.showHeadingLevelLabels,
     colorHeadings: s.colorHeadings,
+    indentSections: s.indentSections,
     headingStyles: s.headingStyles,
     listIndentGuides: s.listIndentGuides,
     linkPopoverOnHover: s.linkPopoverOnHover,
@@ -3646,6 +3653,7 @@ interface Store {
   livePreview: boolean
   showHeadingLevelLabels: boolean
   colorHeadings: boolean
+  indentSections: boolean
   headingStyles: Record<string, string>
   listIndentGuides: boolean
   linkPopoverOnHover: boolean
@@ -4367,6 +4375,7 @@ interface Store {
   setLivePreview: (on: boolean) => void
   setShowHeadingLevelLabels: (on: boolean) => void
   setColorHeadings: (on: boolean) => void
+  setIndentSections: (on: boolean) => void
   setHeadingStyle: (level: HeadingLevel, prop: HeadingStyleProp, value: string | null) => void
   resetHeadingStyles: () => void
   setListIndentGuides: (on: boolean) => void
@@ -6807,6 +6816,7 @@ export const useStore = create<Store>((set, get) => {
   livePreview: loadPrefs().livePreview,
   showHeadingLevelLabels: loadPrefs().showHeadingLevelLabels,
   colorHeadings: loadPrefs().colorHeadings,
+  indentSections: loadPrefs().indentSections,
   headingStyles: loadPrefs().headingStyles,
   listIndentGuides: loadPrefs().listIndentGuides,
   linkPopoverOnHover: loadPrefs().linkPopoverOnHover,
@@ -10474,6 +10484,10 @@ export const useStore = create<Store>((set, get) => {
   },
   setColorHeadings: (on) => {
     set({ colorHeadings: on })
+    savePrefs(collectPrefs(get()))
+  },
+  setIndentSections: (on) => {
+    set({ indentSections: on })
     savePrefs(collectPrefs(get()))
   },
   setHeadingStyle: (level, prop, value) => {

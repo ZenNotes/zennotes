@@ -360,6 +360,11 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
     tomlKey: 'color_headings',
     comment: 'give each heading level its own theme color, in the editor and Preview'
   },
+  indentSections: {
+    section: 'typography',
+    tomlKey: 'indent_sections',
+    comment: 'indent each heading and everything under it by its level, like the outline'
+  },
   // view
   atlasEnabled: {
     section: 'view',

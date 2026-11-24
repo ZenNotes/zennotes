@@ -114,6 +114,7 @@ interface QuickCapturePrefs {
   editorTabSize: number
   showHeadingLevelLabels: boolean
   colorHeadings: boolean
+  indentSections: boolean
   headingStyles: Record<string, string>
   cursorBlink: boolean
   interfaceFont: string | null
@@ -136,6 +137,7 @@ function loadPrefs(): QuickCapturePrefs {
     editorTabSize: 4,
     showHeadingLevelLabels: false,
     colorHeadings: false,
+    indentSections: false,
     headingStyles: {},
     cursorBlink: true,
     interfaceFont: null,
@@ -210,6 +212,7 @@ function applyTheme(prefs: QuickCapturePrefs): void {
   )
   html.toggleAttribute('data-color-headings', prefs.colorHeadings === true)
   applyHeadingStyles(html, prefs.headingStyles)
+  html.toggleAttribute('data-indent-sections', prefs.indentSections === true)
   html.setAttribute('data-opaque', '')
 }
 

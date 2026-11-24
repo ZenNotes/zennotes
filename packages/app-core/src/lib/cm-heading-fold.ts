@@ -58,6 +58,7 @@ import {
 import { calloutAtLine, enclosingFoldableCallout, foldableCalloutRanges } from './cm-callout-fold'
 import { foldLineBelow } from './cm-fold-line-below'
 import { foldTapCaret } from './cm-fold-tap'
+import { sectionIndent } from './cm-section-indent'
 
 const HEADING_RE = /^(#{1,6})\s+/
 
@@ -520,6 +521,9 @@ export function headingFolding(options: HeadingFoldingOptions = {}): Extension {
     service,
     headingArrowPlugin(showLevelLabels),
     listItemFoldArrows(),
+    // Every surface that folds headings also indents sections under them
+    // when Settings → Typography → Headings asks (CSS-gated, see the file).
+    sectionIndent(),
     // The level chips sit LEFT of the arrow slot, wider than .cm-content's
     // default 32px padding. The centered column's auto margin cannot host
     // them: it is zero whenever the pane is narrower than the column cap,

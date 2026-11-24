@@ -407,6 +407,7 @@ function App(): JSX.Element {
   const darkSidebar = useStore((s) => s.darkSidebar)
   const colorHeadings = useStore((s) => s.colorHeadings)
   const headingStyles = useStore((s) => s.headingStyles)
+  const indentSections = useStore((s) => s.indentSections)
   const hasCompletedOnboarding = useStore((s) => s.hasCompletedOnboarding)
   const persistWorkspace = useStore((s) => s.persistWorkspace)
   const flushDirtyNotes = useStore((s) => s.flushDirtyNotes)
@@ -811,6 +812,12 @@ function App(): JSX.Element {
   useEffect(() => {
     applyHeadingStyles(document.documentElement, headingStyles)
   }, [headingStyles])
+
+  // Indent sections under headings: the editor and Preview always mark each
+  // line's and block's depth; this attribute is what turns the indent on.
+  useEffect(() => {
+    document.documentElement.toggleAttribute('data-indent-sections', indentSections)
+  }, [indentSections])
 
   useEffect(() => {
     const handler = (e: KeyboardEvent): void => {

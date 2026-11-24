@@ -856,6 +856,13 @@ function registerVimCommands(): void {
     st.setColorHeadings(!st.colorHeadings);
   });
 
+  // `:indentsections` flips Indent sections, like the palette's Toggle
+  // Section Indent.
+  Vim.defineEx("indentsections", "indents", () => {
+    const st = useStore.getState();
+    st.setIndentSections(!st.indentSections);
+  });
+
   Vim.defineEx("daily", "daily", () => {
     void useStore.getState().openTodayDailyNote();
   });

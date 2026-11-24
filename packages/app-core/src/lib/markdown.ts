@@ -1,5 +1,7 @@
 import { unified } from 'unified'
 import DOMPurify from 'dompurify'
+import { sectionDepthsFromHeadings, type SectionHeading } from './section-depth'
+import { MAX_SECTION_DEPTH } from './cm-section-indent'
 import { classifyApplicationLink } from '@shared/application-links'
 import { remarkSingleDashParagraph } from '@shared/single-dash-underline'
 import remarkParse from 'remark-parse'
@@ -705,6 +707,32 @@ function remarkCallouts() {
  * pick up after mount. Runs *before* rehype-highlight so the diagram body
  * isn't mangled by syntax coloring.
  */
+/**
+ * Marks each top-level block with how far in it sits under its heading
+ * (`data-zn-depth`, lib/section-depth.ts), the same rule the editor uses. The
+ * stylesheet only indents while Indent sections under headings is on, so the
+ * mark costs nothing otherwise, and the PDF export keeps the same layout.
+ */
+function rehypeSectionDepth() {
+  return (tree: HastRoot): void => {
+    const blocks = (tree.children as unknown[]).filter(
+      (node): node is { type: 'element'; tagName: string; properties?: Record<string, unknown> } =>
+        !!node && (node as { type?: string }).type === 'element'
+    )
+    const headings: SectionHeading[] = []
+    blocks.forEach((block, index) => {
+      const match = /^h([1-6])$/.exec(block.tagName)
+      if (match) headings.push({ line: index, level: Number(match[1]) })
+    })
+    if (headings.length === 0) return
+    const depthOf = sectionDepthsFromHeadings(headings)
+    blocks.forEach((block, index) => {
+      const depth = Math.min(MAX_SECTION_DEPTH, depthOf(index))
+      if (depth > 0) block.properties = { ...(block.properties ?? {}), dataZnDepth: String(depth) }
+    })
+  }
+}
+
 function rehypeMermaid() {
   return (tree: HastRoot): void => {
     visit(tree, 'element', (node, index, parent) => {
@@ -1104,6 +1132,7 @@ function createProcessor(mathRenderer: 'katex' | 'typst') {
     .use(remarkSourceLines)
     .use(remarkRehype, { allowDangerousHtml: true })
     .use(rehypeRaw)
+    .use(rehypeSectionDepth)
     .use(rehypeTableColWidths)
     .use(rehypeMermaid)
     .use(rehypeMathDiagrams)

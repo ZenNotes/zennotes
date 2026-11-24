@@ -2392,6 +2392,77 @@ html[data-completed-task-style="gray-strikethrough"] .cm-editor .cm-task-done * 
  * (lib/heading-styles.ts sets the variable and the attribute together). It
  * comes after Color headings by level, so a pick for one level wins over the
  * preset, and an override at `:root[data-theme]` still wins over both. */
+/* Indent sections under headings (Settings, Typography, Headings): each
+ * heading and everything under it sits one step in per level below the note's
+ * shallowest heading (lib/cm-section-indent.ts marks editor lines and block
+ * widgets, rehypeSectionDepth marks Preview blocks). Margin, not padding:
+ * list lines already own their padding and text-indent. The step follows the
+ * text size, not the heading's own size, so a heading lines up with the text
+ * under it. A full-width block (a Preview table, a wide editor widget) gives
+ * back the same width, so it stops at the column's right edge. */
+:root {
+  --z-section-indent-step: calc(var(--z-editor-font-size, 16px) * 1.5);
+}
+:root[data-indent-sections] .cm-editor .cm-line.cm-section-depth-1,
+:root[data-indent-sections] .cm-editor .cm-content > [data-zn-depth="1"],
+:root[data-indent-sections] .prose-zen [data-zn-depth="1"] {
+  margin-left: calc(var(--z-section-indent-step) * 1);
+}
+:root[data-indent-sections] .cm-editor .cm-content > [data-zn-depth="1"],
+:root[data-indent-sections] .prose-zen [data-zn-depth="1"] {
+  max-width: calc(100% - var(--z-section-indent-step) * 1);
+}
+:root[data-indent-sections] .prose-zen table[data-zn-depth="1"]:not(.zen-has-col-widths) {
+  width: calc(100% - var(--z-section-indent-step) * 1);
+}
+:root[data-indent-sections] .cm-editor .cm-line.cm-section-depth-2,
+:root[data-indent-sections] .cm-editor .cm-content > [data-zn-depth="2"],
+:root[data-indent-sections] .prose-zen [data-zn-depth="2"] {
+  margin-left: calc(var(--z-section-indent-step) * 2);
+}
+:root[data-indent-sections] .cm-editor .cm-content > [data-zn-depth="2"],
+:root[data-indent-sections] .prose-zen [data-zn-depth="2"] {
+  max-width: calc(100% - var(--z-section-indent-step) * 2);
+}
+:root[data-indent-sections] .prose-zen table[data-zn-depth="2"]:not(.zen-has-col-widths) {
+  width: calc(100% - var(--z-section-indent-step) * 2);
+}
+:root[data-indent-sections] .cm-editor .cm-line.cm-section-depth-3,
+:root[data-indent-sections] .cm-editor .cm-content > [data-zn-depth="3"],
+:root[data-indent-sections] .prose-zen [data-zn-depth="3"] {
+  margin-left: calc(var(--z-section-indent-step) * 3);
+}
+:root[data-indent-sections] .cm-editor .cm-content > [data-zn-depth="3"],
+:root[data-indent-sections] .prose-zen [data-zn-depth="3"] {
+  max-width: calc(100% - var(--z-section-indent-step) * 3);
+}
+:root[data-indent-sections] .prose-zen table[data-zn-depth="3"]:not(.zen-has-col-widths) {
+  width: calc(100% - var(--z-section-indent-step) * 3);
+}
+:root[data-indent-sections] .cm-editor .cm-line.cm-section-depth-4,
+:root[data-indent-sections] .cm-editor .cm-content > [data-zn-depth="4"],
+:root[data-indent-sections] .prose-zen [data-zn-depth="4"] {
+  margin-left: calc(var(--z-section-indent-step) * 4);
+}
+:root[data-indent-sections] .cm-editor .cm-content > [data-zn-depth="4"],
+:root[data-indent-sections] .prose-zen [data-zn-depth="4"] {
+  max-width: calc(100% - var(--z-section-indent-step) * 4);
+}
+:root[data-indent-sections] .prose-zen table[data-zn-depth="4"]:not(.zen-has-col-widths) {
+  width: calc(100% - var(--z-section-indent-step) * 4);
+}
+:root[data-indent-sections] .cm-editor .cm-line.cm-section-depth-5,
+:root[data-indent-sections] .cm-editor .cm-content > [data-zn-depth="5"],
+:root[data-indent-sections] .prose-zen [data-zn-depth="5"] {
+  margin-left: calc(var(--z-section-indent-step) * 5);
+}
+:root[data-indent-sections] .cm-editor .cm-content > [data-zn-depth="5"],
+:root[data-indent-sections] .prose-zen [data-zn-depth="5"] {
+  max-width: calc(100% - var(--z-section-indent-step) * 5);
+}
+:root[data-indent-sections] .prose-zen table[data-zn-depth="5"]:not(.zen-has-col-widths) {
+  width: calc(100% - var(--z-section-indent-step) * 5);
+}
 :root[data-heading-1-color] .cm-editor .tok-heading1,
 :root[data-heading-1-color] .prose-zen h1 {
   color: var(--z-heading-1-color);

@@ -839,6 +839,8 @@ export function SettingsModal(): JSX.Element {
   const colorHeadings = useStore((s) => s.colorHeadings);
   const setColorHeadings = useStore((s) => s.setColorHeadings);
   const headingStyles = useStore((s) => s.headingStyles);
+  const indentSections = useStore((s) => s.indentSections);
+  const setIndentSections = useStore((s) => s.setIndentSections);
   const setHeadingStyle = useStore((s) => s.setHeadingStyle);
   const resetHeadingStyles = useStore((s) => s.resetHeadingStyles);
   const editorTabSize = useStore((s) => s.editorTabSize);
@@ -4098,6 +4100,13 @@ export function SettingsModal(): JSX.Element {
           keywords: ["heading", "header", "color", "colour", "h1", "h2", "hierarchy", "rainbow"],
         },
         {
+          id: "indent-sections",
+          title: "Indent sections",
+          description:
+            "Indent each heading and everything under it by its level, like the outline.",
+          keywords: ["indent", "indentation", "outline", "outliner", "heading", "section", "hierarchy", "nest"],
+        },
+        {
           id: "heading-styles",
           title: "Heading colors and fonts",
           description:
@@ -4214,6 +4223,13 @@ export function SettingsModal(): JSX.Element {
               value={colorHeadings}
               settingId="heading-colors"
               onChange={setColorHeadings}
+            />
+            <ToggleRow
+              label="Indent sections"
+              description="Indent each heading and everything under it by its level, like the outline."
+              value={indentSections}
+              settingId="indent-sections"
+              onChange={setIndentSections}
             />
             {HEADING_LEVELS.map((level) => (
               <HeadingStyleRow

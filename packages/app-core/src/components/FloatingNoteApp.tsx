@@ -117,6 +117,7 @@ export interface FloatingPrefs {
   editorTabSize: number
   showHeadingLevelLabels: boolean
   colorHeadings: boolean
+  indentSections: boolean
   headingStyles: Record<string, string>
   lineNumberMode: LineNumberMode
   wordWrap: boolean
@@ -141,6 +142,7 @@ export function loadFloatingPrefs(): FloatingPrefs {
     editorTabSize: 4,
     showHeadingLevelLabels: false,
     colorHeadings: false,
+    indentSections: false,
     headingStyles: {},
     lineNumberMode: 'off',
     wordWrap: true,
@@ -228,6 +230,7 @@ export function applyTheme(prefs: FloatingPrefs): void {
   )
   html.toggleAttribute('data-color-headings', prefs.colorHeadings === true)
   applyHeadingStyles(html, prefs.headingStyles)
+  html.toggleAttribute('data-indent-sections', prefs.indentSections === true)
   html.setAttribute('data-opaque', '')
 }
 

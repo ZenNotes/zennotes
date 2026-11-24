@@ -49,6 +49,7 @@ type ExportPrefs = {
   themeTweaks: Record<string, string>
   /** Settings → Typography → Headings: the preset and the per-level picks. */
   colorHeadings: boolean
+  indentSections: boolean
   headingStyles: Record<string, string>
 }
 
@@ -69,6 +70,7 @@ const DEFAULT_EXPORT_PREFS: ExportPrefs = {
   enabledOverrides: {},
   themeTweaks: {},
   colorHeadings: false,
+  indentSections: false,
   headingStyles: {}
 }
 
@@ -128,6 +130,7 @@ function loadExportPrefs(): ExportPrefs {
       enabledOverrides: safeStringRecord(parsed.enabledOverrides),
       themeTweaks: safeStringRecord(parsed.themeTweaks),
       colorHeadings: parsed.colorHeadings === true,
+      indentSections: parsed.indentSections === true,
       headingStyles: normalizeHeadingStyles(parsed.headingStyles)
     }
   } catch {
@@ -232,6 +235,7 @@ function applyExportPrefs(prefs: ExportPrefs): void {
   // hue then takes the print theme's shade), the way the text fonts do.
   html.toggleAttribute('data-color-headings', prefs.colorHeadings)
   applyHeadingStyles(html, prefs.headingStyles)
+  html.toggleAttribute('data-indent-sections', prefs.indentSections)
   html.style.setProperty(
     '--z-preview-max-width',
     `min(${prefs.previewMaxWidth}px, ${PDF_PRINTABLE_WIDTH})`

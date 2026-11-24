@@ -112,6 +112,7 @@ export const PORTABLE_DEFAULTS: Record<PortablePrefKey, unknown> = {
   livePreview: true,
   showHeadingLevelLabels: false,
   colorHeadings: false,
+  indentSections: false,
   headingStyles: {},
   listIndentGuides: true,
   linkPopoverOnHover: true,

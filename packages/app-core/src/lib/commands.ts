@@ -1965,6 +1965,14 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       run: () => getState().setColorHeadings(!getState().colorHeadings)
     },
     {
+      id: 'view.indent-sections',
+      bindTitle: 'Toggle Section Indent',
+      title: getState().indentSections ? 'Stop Indenting Sections' : 'Indent Sections Under Headings',
+      category: 'View',
+      keywords: 'indent indentation outline outliner headings sections hierarchy nest',
+      run: () => getState().setIndentSections(!getState().indentSections)
+    },
+    {
       // Settings, Appearance, Chrome, Status bar. Hidden, the bar still shows
       // while Cloud needs the user (lib/status-bar-visibility.ts).
       id: 'view.status-bar',

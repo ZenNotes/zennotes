@@ -425,12 +425,13 @@ export const HELP_HOW_TO_GUIDES: HelpCard<HelpText>[] = [
       'An override is a `.css` file in `~/.config/zennotes/overrides/`, toggled under Settings → Appearance → Overrides. Enabled overrides inject on top of the active theme in filename order, so they win the cascade. Target `:root[data-theme] { … }` so the rule beats both built-in and custom themes. Because they sit on top, one override re-themes everything: `:root[data-theme] { --z-accent: 255 59 48; }` turns the accent hot pink on every theme. Overrides stack, so keep several small ones and flip each independently. The seeded `example.css` is a commented cookbook with the full token list and ready-to-uncomment recipes. To find what controls an element, use the **Developer tools** button in that same Overrides section and inspect it.'
   },
   {
-    title: 'Color your headings and pick their fonts',
+    title: 'Color, font and indent your headings',
     body: [
       'Settings → Typography → **Headings** styles each heading level, in the editor and in Preview, with no CSS. It has two parts:\n\n'
         + '**Color headings by level** starts every level on one of the theme’s own colors: H1 red, H2 yellow, H3 green, H4 teal, H5 blue, H6 purple. The shades follow the theme, so they suit light and dark and change when you switch themes.\n\n'
         + 'Below it, a row per level, **Heading 1** to **Heading 6**, each drawn the way the editor will draw it. Its color menu offers Default (the theme’s color, or the preset’s while Color headings by level is on), the theme’s red, yellow, green, teal, blue, purple, accent and gray, or **Custom…** for any fixed color from the system color picker. Its font menu lists the fonts on this computer, with a search field; Default keeps your Text font. A choice applies at once, and a color picked for one level wins over the preset for that level only. **Reset heading styles** clears every pick.\n\n'
-        + 'The styles travel with the note when you export it: a PDF keeps them (a theme color prints in the print theme’s shade unless you export in your own theme), and a Word document carries them in Word’s own Heading 1 to Heading 6 styles. They work the same on iPhone, iPad and Android, where the font menu lists the fonts the phone has.\n\n'
+        + '**Indent sections** sets each heading and everything under it, text, lists, tasks, tables, links and embeds, one step further in per level, the way the outline draws it, in the editor and in Preview. The note’s shallowest heading stays at the left edge, so a note that starts at H2 is not pushed in. Toggle Section Indent in the command palette, or `:indentsections` in Vim mode, flips it from anywhere. The indent is visual only and leaves the Markdown alone; indenting the text itself by four spaces or a tab makes a code block, as in any Markdown app.\n\n'
+        + 'The styles travel with the note when you export it: a PDF keeps them and the section indents (a theme color prints in the print theme’s shade unless you export in your own theme), and a Word document carries the colors and fonts in Word’s own Heading 1 to Heading 6 styles, without the indents. They work the same on iPhone, iPad and Android, where the font menu lists the fonts the phone has.\n\n'
         + 'Both menus work from the keyboard: Enter or Space opens one, the arrows, Home and End move, Enter picks, and Escape closes it, with Vim mode on or off. To flip the preset from anywhere, run **Toggle Heading Colors** from the command palette (it can take a key of its own), or type `:headingcolors` in Vim mode.\n\n'
         + 'In `config.toml` the preset is `color_headings` under `[typography]`, and the per-level picks are a `[heading_styles]` table: `"h1.color" = "red"`, `"h2.color" = "#e06c75"`, `"h1.font" = "Georgia"`. A color is a theme name or a hex color.',
       {
@@ -670,7 +671,7 @@ export const HELP_CORE_CONCEPTS: HelpCard<HelpText>[] = [
   {
     title: 'Label and fold headings and lists',
     body:
-      'Settings → Editor → Writing can show H1 through H6 labels before Markdown headings, and Settings → Typography → **Headings** gives each level its own color and font (see Color your headings and pick their fonts). Every heading also has a disclosure arrow that folds its section, and so does every list item with indented lines under it (a bullet, a numbered item or a task): the arrow beside its marker folds those lines, in Edit and in Preview, and the item line stays in view. Click the arrow, use Ctrl+Alt+F and Ctrl+Alt+U (Cmd+Option+F and Cmd+Option+U on macOS), or use zc and zo in Vim mode; on one of the lines under a list item, they fold the item itself. Fold All (zM) folds every heading and every list item, nested, so opening a heading shows its tasks one line each. Folding only hides lines: the note, and the Tasks view, are unchanged.'
+      'Settings → Editor → Writing can show H1 through H6 labels before Markdown headings, and Settings → Typography → **Headings** gives each level its own color and font (see Color, font and indent your headings). Every heading also has a disclosure arrow that folds its section, and so does every list item with indented lines under it (a bullet, a numbered item or a task): the arrow beside its marker folds those lines, in Edit and in Preview, and the item line stays in view. Click the arrow, use Ctrl+Alt+F and Ctrl+Alt+U (Cmd+Option+F and Cmd+Option+U on macOS), or use zc and zo in Vim mode; on one of the lines under a list item, they fold the item itself. Fold All (zM) folds every heading and every list item, nested, so opening a heading shows its tasks one line each. Folding only hides lines: the note, and the Tasks view, are unchanged.'
   },
   {
     title: 'Create text replacements',
@@ -1274,6 +1275,11 @@ export const HELP_VIM_COMMANDS: HelpExCommand<HelpText>[] = [
     detail: 'Flip Settings → Typography → Headings → Color headings by level, which starts H1 through H6 on the theme’s own colors in the editor and Preview. Same as Toggle Heading Colors in the command palette.'
   },
   {
+    command: ':indentsections / :indents',
+    summary: 'Turn section indenting on or off',
+    detail: 'Flip Settings → Typography → Headings → Indent sections, which indents each heading and everything under it by its level, like the outline. Same as Toggle Section Indent in the command palette.'
+  },
+  {
     command: ':daily',
     summary: "Open today's daily note",
     detail: 'Open or create today’s daily note (requires daily notes enabled in Settings → Vault → Periodic notes). Uses the assigned daily template if one is set.'
@@ -1628,7 +1634,8 @@ export const HELP_SETTINGS: HelpSettingsSection<HelpText>[] = [
     items: [
       { label: 'Interface, text, and monospace fonts', detail: 'Choose different fonts for chrome, reading text, and code blocks.' },
       { label: 'Headings: color headings by level', detail: 'Off by default. Start every heading level on one of the theme’s own colors in the editor and Preview (H1 red, H2 yellow, H3 green, H4 teal, H5 blue, H6 purple), so the hierarchy reads at a glance in light and dark. Also Toggle Heading Colors in the command palette, or `:headingcolors` in Vim mode.' },
-      { label: 'Headings: color and font per level', detail: 'A row per level, Heading 1 to Heading 6, with a color menu (Default, the theme’s hues, or a custom color) and a font menu (Default keeps the Text font). A pick for one level wins over the preset; Reset heading styles clears them. See the guide Color your headings and pick their fonts.' },
+      { label: 'Headings: indent sections', detail: 'Off by default. Indent each heading and everything under it (text, lists, tasks, tables, embeds) one step per level below the note’s shallowest heading, like the outline, in the editor, Preview and PDF export. Also Toggle Section Indent in the command palette, or `:indentsections` in Vim mode.' },
+      { label: 'Headings: color and font per level', detail: 'A row per level, Heading 1 to Heading 6, with a color menu (Default, the theme’s hues, or a custom color) and a font menu (Default keeps the Text font). A pick for one level wins over the preset; Reset heading styles clears them. See the guide Color, font and indent your headings.' },
       { label: 'Font size and line height', detail: 'Tune reading density in the editor and preview.' },
       { label: 'Reading width and editor width', detail: 'Cap long lines so wide windows stay readable.' },
       { label: 'Content alignment', detail: 'Center note content in its column or left-align it to the pane edge.' },

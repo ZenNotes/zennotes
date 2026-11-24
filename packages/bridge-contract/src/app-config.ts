@@ -28,6 +28,7 @@ export const PORTABLE_PREF_KEYS = [
   'livePreview',
   'showHeadingLevelLabels',
   'colorHeadings',
+  'indentSections',
   'headingStyles',
   'listIndentGuides',
   'linkPopoverOnHover',
