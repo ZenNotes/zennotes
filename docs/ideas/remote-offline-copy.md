@@ -4,17 +4,23 @@ Keep a copy of a self-hosted server's vault on this computer, so its notes open
 and save while the server cannot be reached, and reach the server when it comes
 back ([#1108](https://github.com/ZenNotes/zennotes/issues/1108), by @dwnsdp).
 
-> **Status (November 23, 2026).** Design only; nothing here is built. Written
-> from the code on `v2.91.0` at `3422803d` (the failed-save retry this builds
-> on), znserver `origin/main` at server 2.84.1, and ZenNotes/tui `origin/main`.
-> Line numbers are from those trees. The eight questions the first draft left
-> open were decided with Adib the same day (see Decisions made at the end).
-> Phase 1 (conditional writes) is built, not released: znserver branch
-> `feat/conditional-note-writes`, and in this repo the 2.91.0 retry, the
-> desktop and web remote clients and the bundled `zn` send the base; the Go
-> `zn` TUI is still to do. Until
-> this ships, a local vault with ZenNotes Cloud is the way to work offline, which
-> is what #1108 was told.
+> **Status (November 24, 2026).** Phase 1 (conditional writes) shipped on
+> November 23 in ZenNotes 2.91.0, znserver 2.91.0 and `zn` 0.18.2: note reads
+> and writes return `sha256`, a write with a stale `baseSha256` gets 409
+> (`supportsConditionalNoteWrites`), and the 2.91.0 retry, the desktop and web
+> remote clients, the bundled `zn` and the Go `zn` (CLI, MCP and TUI autosave)
+> send the base. Phase 2 (the server sync protocol) shipped on November 24 in
+> znserver 2.91.1 ([ZenNotes/znserver#88](https://github.com/ZenNotes/znserver/pull/88)): `.zennotes/sync/`, the reconcile,
+> `/api/sync/manifest`, `changes` and `mutations`, revision bumps in every
+> mutator and `supportsSync: 1`, and Cloud's own `CloudSyncCoordinator` drives
+> it end to end in znserver CI (`integration/cloud-engine`). Phase 3's toggle
+> names server 2.91.1 as the version it needs. Phases 3 to 5 are not started.
+> Written from the code on `v2.91.0` at `3422803d` (the failed-save retry this
+> builds on), znserver `origin/main` at server 2.84.1, and ZenNotes/tui
+> `origin/main`; line numbers are from those trees. The eight questions the
+> first draft left open were decided with Adib on November 23 (see Decisions
+> made at the end). Until phase 3 ships, a local vault with ZenNotes Cloud is
+> the way to work offline, which is what #1108 was told.
 
 ## What exists today
 
@@ -504,10 +510,10 @@ Decided with Adib on November 23, 2026, on the first draft's recommendations.
 8. **Phase 1 goes in the next znserver release; desktop phase 3 is gated only on
    `supportsSync`.** Feature detection covers a server that lags, so the desktop
    does not wait for every server channel.
+9. **Phase 2 ships in server 2.91.1** (Adib, November 24), a server-only
+   release like 2.84.1, so the disabled toggle names 2.91.1.
 
 ## Open questions
 
-- The version numbers: which znserver release carries phase 2, which the
-  disabled toggle then names.
 - Whether **Work Offline** is worth its palette entry in phase 3 or waits for a
   request.
