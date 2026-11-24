@@ -40,6 +40,23 @@ export const CLOUD_ANNOUNCEMENT = {
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    version: '2.93.0',
+    highlights: [
+      {
+        title: 'Color and font for each heading level',
+        body: 'Settings, Typography, Headings gives each level from H1 to H6 its own color (from your theme, or any color you pick) and font, no CSS needed. Color headings by level turns on a preset in one go. They show in the editor, Preview and PDF and Word exports.'
+      },
+      {
+        title: 'Indent sections under their headings',
+        body: 'Turn on Indent sections and everything under a heading, lists, tables and embeds included, moves one step in per level, the way the outline draws it. It shows in the editor, Preview and PDF exports, and the note itself stays plain Markdown.'
+      },
+      {
+        title: 'Vim: Enter in visual mode, Ctrl+[ on Linux and Windows',
+        body: 'Enter now moves down a line in visual mode and after an operator, as in Vim, and steps over a long wrapped line in one press. On Linux and Windows, Ctrl+[ leaves insert mode instead of dedenting.'
+      }
+    ]
+  },
+  {
     version: '2.92.0',
     highlights: [
       {
