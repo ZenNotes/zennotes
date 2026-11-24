@@ -1,5 +1,6 @@
 import type { LocalVaultRelocation } from './lib/workspace-relocation'
 import { captureNavigationContext } from './lib/navigation-context'
+import { normalizeHeadingStyles, withHeadingStyle, type HeadingLevel, type HeadingStyleProp } from './lib/heading-styles'
 import { runWorkspaceTransition, workspaceGeneration, workspaceWritesBlocked, isWorkspaceTransitionPending } from './lib/workspace-transition'
 import { isNoteEditingLocked, lockNoteEditing } from './lib/note-lifecycle-lock'
 import { create } from 'zustand'
@@ -671,6 +672,11 @@ interface Prefs {
   livePreview: boolean      // hide markdown syntax on inactive lines
   /** Show an H1 through H6 badge before Markdown headings in the editor. */
   showHeadingLevelLabels: boolean
+  /** Give each heading level its own theme color, in the editor and Preview. */
+  colorHeadings: boolean
+  /** A color and font per heading level from Settings → Typography → Headings,
+   *  keyed `h1.color` … `h6.font` (lib/heading-styles.ts). */
+  headingStyles: Record<string, string>
   /** Vertical guide lines at each nested-list level in the editor (#491). */
   listIndentGuides: boolean
   /** Resting the pointer on a `[[wikilink]]` in the editor opens the link
@@ -1375,6 +1381,8 @@ export const DEFAULT_PREFS: Prefs = {
   searchTaggedBlocks: true,
   livePreview: true,
   showHeadingLevelLabels: false,
+  colorHeadings: false,
+  headingStyles: {},
   listIndentGuides: true,
   linkPopoverOnHover: true,
   renderTablesInLivePreview: true,
@@ -1570,6 +1578,9 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       typeof p.showHeadingLevelLabels === 'boolean'
         ? p.showHeadingLevelLabels
         : DEFAULT_PREFS.showHeadingLevelLabels,
+    colorHeadings:
+      typeof p.colorHeadings === 'boolean' ? p.colorHeadings : DEFAULT_PREFS.colorHeadings,
+    headingStyles: normalizeHeadingStyles(p.headingStyles),
     listIndentGuides:
       typeof p.listIndentGuides === 'boolean'
         ? p.listIndentGuides
@@ -2881,6 +2892,8 @@ function collectPrefs(s: {
   searchTaggedBlocks: boolean
   livePreview: boolean
   showHeadingLevelLabels: boolean
+  colorHeadings: boolean
+  headingStyles: Record<string, string>
   listIndentGuides: boolean
   linkPopoverOnHover: boolean
   renderTablesInLivePreview: boolean
@@ -3013,6 +3026,8 @@ function collectPrefs(s: {
     searchTaggedBlocks: s.searchTaggedBlocks,
     livePreview: s.livePreview,
     showHeadingLevelLabels: s.showHeadingLevelLabels,
+    colorHeadings: s.colorHeadings,
+    headingStyles: s.headingStyles,
     listIndentGuides: s.listIndentGuides,
     linkPopoverOnHover: s.linkPopoverOnHover,
     renderTablesInLivePreview: s.renderTablesInLivePreview,
@@ -3630,6 +3645,8 @@ interface Store {
   searchTaggedBlocks: boolean
   livePreview: boolean
   showHeadingLevelLabels: boolean
+  colorHeadings: boolean
+  headingStyles: Record<string, string>
   listIndentGuides: boolean
   linkPopoverOnHover: boolean
   renderTablesInLivePreview: boolean
@@ -4349,6 +4366,9 @@ interface Store {
   setSearchTaggedBlocks: (enabled: boolean) => void
   setLivePreview: (on: boolean) => void
   setShowHeadingLevelLabels: (on: boolean) => void
+  setColorHeadings: (on: boolean) => void
+  setHeadingStyle: (level: HeadingLevel, prop: HeadingStyleProp, value: string | null) => void
+  resetHeadingStyles: () => void
   setListIndentGuides: (on: boolean) => void
   setLinkPopoverOnHover: (on: boolean) => void
   setRenderTablesInLivePreview: (on: boolean) => void
@@ -6786,6 +6806,8 @@ export const useStore = create<Store>((set, get) => {
   searchTaggedBlocks: loadPrefs().searchTaggedBlocks,
   livePreview: loadPrefs().livePreview,
   showHeadingLevelLabels: loadPrefs().showHeadingLevelLabels,
+  colorHeadings: loadPrefs().colorHeadings,
+  headingStyles: loadPrefs().headingStyles,
   listIndentGuides: loadPrefs().listIndentGuides,
   linkPopoverOnHover: loadPrefs().linkPopoverOnHover,
   renderTablesInLivePreview: loadPrefs().renderTablesInLivePreview,
@@ -10448,6 +10470,19 @@ export const useStore = create<Store>((set, get) => {
   },
   setShowHeadingLevelLabels: (on) => {
     set({ showHeadingLevelLabels: on })
+    savePrefs(collectPrefs(get()))
+  },
+  setColorHeadings: (on) => {
+    set({ colorHeadings: on })
+    savePrefs(collectPrefs(get()))
+  },
+  setHeadingStyle: (level, prop, value) => {
+    set((s) => ({ headingStyles: withHeadingStyle(s.headingStyles, level, prop, value) }))
+    // A color input fires on every drag step; the write waits for it to settle.
+    scheduleThemeTweaksSave()
+  },
+  resetHeadingStyles: () => {
+    set({ headingStyles: {} })
     savePrefs(collectPrefs(get()))
   },
   setListIndentGuides: (on) => {

@@ -204,6 +204,16 @@ import { laneFieldLabel } from "../lib/kanban-lanes";
 import type { KanbanLaneBy } from "../store";
 import { UnsplashKeySetting } from "./UnsplashKeySetting";
 import { normalizeApplicationSchemes } from "@shared/application-links";
+import {
+  HEADING_COLOR_SWATCHES,
+  HEADING_LEVELS,
+  LEVEL_PRESET_SWATCH,
+  headingColorCss,
+  headingColorLabel,
+  headingFontCss,
+  headingStyleKey,
+  type HeadingLevel,
+} from "../lib/heading-styles";
 
 type SettingsCategoryId =
   | "appearance"
@@ -826,6 +836,11 @@ export function SettingsModal(): JSX.Element {
   const setShowHeadingLevelLabels = useStore(
     (s) => s.setShowHeadingLevelLabels,
   );
+  const colorHeadings = useStore((s) => s.colorHeadings);
+  const setColorHeadings = useStore((s) => s.setColorHeadings);
+  const headingStyles = useStore((s) => s.headingStyles);
+  const setHeadingStyle = useStore((s) => s.setHeadingStyle);
+  const resetHeadingStyles = useStore((s) => s.resetHeadingStyles);
   const editorTabSize = useStore((s) => s.editorTabSize);
   const setEditorTabSize = useStore((s) => s.setEditorTabSize);
   const setListIndentGuides = useStore((s) => s.setListIndentGuides);
@@ -4045,9 +4060,10 @@ export function SettingsModal(): JSX.Element {
       id: "typography",
       title: "Typography",
       description:
-        "Fonts, line height, reading width, alignment, line numbers, and note covers.",
+        "Fonts, heading colors and fonts, line height, reading width, alignment, line numbers, and note covers.",
       keywords: [
         "font",
+        "heading",
         "size",
         "line height",
         "width",
@@ -4073,6 +4089,20 @@ export function SettingsModal(): JSX.Element {
           title: "Monospace font",
           description: "Used for code blocks, inline code, and frontmatter.",
           keywords: ["font", "mono", "code"],
+        },
+        {
+          id: "heading-colors",
+          title: "Color headings by level",
+          description:
+            "Give H1 through H6 the theme's own colors in the editor and Preview.",
+          keywords: ["heading", "header", "color", "colour", "h1", "h2", "hierarchy", "rainbow"],
+        },
+        {
+          id: "heading-styles",
+          title: "Heading colors and fonts",
+          description:
+            "Pick a color and a font for each heading level, H1 through H6.",
+          keywords: ["heading", "header", "color", "colour", "font", "typeface", "h1", "h2", "h3", "style"],
         },
         {
           id: "font-size",
@@ -4172,6 +4202,35 @@ export function SettingsModal(): JSX.Element {
               settingId="monospace-font"
               onChange={setMonoFont}
             />
+          </Section>
+
+          <Section
+            title="Headings"
+            description="A color and a font for each heading level, in the editor and Preview."
+          >
+            <ToggleRow
+              label="Color headings by level"
+              description="Start each level on one of the theme's own colors. A color picked for a level below wins over it."
+              value={colorHeadings}
+              settingId="heading-colors"
+              onChange={setColorHeadings}
+            />
+            {HEADING_LEVELS.map((level) => (
+              <HeadingStyleRow
+                key={level}
+                level={level}
+                styles={headingStyles}
+                presetOn={colorHeadings}
+                fonts={systemFonts}
+                settingId={level === 1 ? "heading-styles" : undefined}
+                onChange={(prop, value) => setHeadingStyle(level, prop, value)}
+              />
+            ))}
+            {Object.keys(headingStyles).length > 0 && (
+              <div className="flex justify-end px-5 py-3">
+                <Button onClick={resetHeadingStyles}>Reset heading styles</Button>
+              </div>
+            )}
           </Section>
 
           <Section
@@ -8328,6 +8387,318 @@ function TemplateFolderRow({ settingId }: { settingId?: string }): JSX.Element {
   );
 }
 
+/** Relative size of each level's sample in the Headings rows, close to the
+ *  editor's own heading scale without taking the whole row. */
+const HEADING_SAMPLE_SCALE: Record<HeadingLevel, number> = {
+  1: 1.5,
+  2: 1.35,
+  3: 1.2,
+  4: 1.08,
+  5: 1,
+  6: 0.92,
+};
+
+/** One level's row in Typography → Headings: a sample drawn the way the editor
+ *  will draw it, then its color and font pickers. */
+function HeadingStyleRow({
+  level,
+  styles,
+  presetOn,
+  fonts,
+  settingId,
+  onChange,
+}: {
+  level: HeadingLevel;
+  styles: Record<string, string>;
+  presetOn: boolean;
+  fonts: string[];
+  settingId?: string;
+  onChange: (prop: "color" | "font", value: string | null) => void;
+}): JSX.Element {
+  const color = styles[headingStyleKey(level, "color")] ?? null;
+  const font = styles[headingStyleKey(level, "font")] ?? null;
+  const defaultCss = presetOn
+    ? headingColorCss(LEVEL_PRESET_SWATCH[level])
+    : level === 6
+      ? "rgb(var(--z-fg-2))"
+      : "rgb(var(--z-fg))";
+  return (
+    <div
+      className="flex flex-wrap items-center justify-between gap-x-5 gap-y-3 px-5 py-3"
+      {...settingsSearchTargetProps(settingId)}
+    >
+      <div
+        className="min-w-0 flex-1 basis-40 truncate font-bold leading-tight"
+        style={{
+          color: color ? headingColorCss(color) : defaultCss,
+          fontFamily: font ? headingFontCss(font) : undefined,
+          fontSize: `${HEADING_SAMPLE_SCALE[level]}em`,
+        }}
+      >
+        Heading {level}
+      </div>
+      <div className="flex max-w-full shrink-0 flex-wrap items-center gap-2">
+        <HeadingColorPicker
+          level={level}
+          value={color}
+          defaultCss={defaultCss}
+          presetOn={presetOn}
+          onChange={(next) => onChange("color", next)}
+        />
+        <FontPicker
+          compact
+          value={font}
+          options={fonts}
+          ariaLabel={`Heading ${level} font`}
+          onChange={(next) => onChange("font", next)}
+        />
+      </div>
+    </div>
+  );
+}
+
+/** A heading level's color: Default (the theme's, or the preset's under Color
+ *  headings by level), one of the theme's own hues, or a fixed custom color.
+ *  The list takes the keyboard when it opens: arrows, Home, End, Enter and
+ *  Escape, with Vim mode on or off. */
+function HeadingColorPicker({
+  level,
+  value,
+  defaultCss,
+  presetOn,
+  onChange,
+}: {
+  level: HeadingLevel;
+  value: string | null;
+  defaultCss: string;
+  presetOn: boolean;
+  onChange: (next: string | null) => void;
+}): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const [activeIdx, setActiveIdx] = useState(0);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const customRef = useRef<HTMLInputElement | null>(null);
+  const [rect, setRect] = useState<DropdownRect | null>(null);
+  const portalId = `zen-heading-color-portal-${level}`;
+  const isCustom = !!value && value.startsWith("#");
+  // Row 0 is Default, then each swatch, then Custom.
+  const items = useMemo<Array<string | null>>(
+    () => [null, ...HEADING_COLOR_SWATCHES.map((swatch) => swatch.id), "custom"],
+    [],
+  );
+  const presetLabel = headingColorLabel(LEVEL_PRESET_SWATCH[level]);
+  const defaultLabel = presetOn ? `Default (${presetLabel})` : "Default";
+
+  useEffect(() => {
+    if (!open) return;
+    const current = items.findIndex((item) =>
+      isCustom ? item === "custom" : item === value,
+    );
+    setActiveIdx(current >= 0 ? current : 0);
+    setTimeout(() => listRef.current?.focus(), 0);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent): void => {
+      const target = e.target as Node;
+      if (buttonRef.current?.contains(target)) return;
+      if (document.getElementById(portalId)?.contains(target)) return;
+      setOpen(false);
+    };
+    window.addEventListener("mousedown", onDown);
+    return () => window.removeEventListener("mousedown", onDown);
+  }, [open, portalId]);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    const update = (): void => {
+      const el = buttonRef.current;
+      if (el) setRect(dropdownRectForElement(el, { minWidth: 200 }));
+    };
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || !listRef.current) return;
+    listRef.current
+      .querySelector<HTMLElement>(`[data-idx="${activeIdx}"]`)
+      ?.scrollIntoView({ block: "nearest" });
+  }, [activeIdx, open]);
+
+  const close = (): void => {
+    setOpen(false);
+    buttonRef.current?.focus();
+  };
+
+  const commit = (item: string | null): void => {
+    if (item === "custom") {
+      // The system color panel; each pick applies live through onInput.
+      customRef.current?.click();
+      return;
+    }
+    onChange(item);
+    close();
+  };
+
+  const handleKey = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActiveIdx((i) => Math.min(items.length - 1, i + 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveIdx((i) => Math.max(0, i - 1));
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      setActiveIdx(0);
+    } else if (e.key === "End") {
+      e.preventDefault();
+      setActiveIdx(items.length - 1);
+    } else if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      commit(items[activeIdx] ?? null);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      close();
+    }
+  };
+
+  const dot = (css: string): JSX.Element => (
+    <span
+      aria-hidden="true"
+      className="h-3.5 w-3.5 shrink-0 rounded-full border border-paper-300/70"
+      style={{ background: css }}
+    />
+  );
+
+  const rowClass = (idx: number, selected: boolean): string =>
+    [
+      "flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-sm",
+      activeIdx === idx
+        ? "bg-paper-200 text-ink-900"
+        : selected
+          ? "text-ink-900"
+          : "text-ink-700",
+    ].join(" ");
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        aria-label={`Heading ${level} color`}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-48 max-w-full shrink-0 items-center justify-between gap-2 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3 py-2 text-left text-sm text-ink-900 transition-colors hover:bg-paper-200"
+      >
+        <span className="flex min-w-0 items-center gap-2">
+          {dot(value ? headingColorCss(value) : defaultCss)}
+          <span className="truncate">
+            {value ? headingColorLabel(value) : defaultLabel}
+          </span>
+        </span>
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="shrink-0 text-ink-500"
+          aria-hidden="true"
+        >
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </button>
+      {open &&
+        rect &&
+        createPortal(
+          <div
+            id={portalId}
+            className="fixed z-popover flex flex-col overflow-hidden rounded-xl border border-paper-300 bg-paper-100 shadow-float"
+            style={{
+              left: rect.left,
+              top: rect.top,
+              bottom: rect.bottom,
+              width: rect.width,
+              maxHeight: rect.maxHeight,
+            }}
+          >
+            <div
+              ref={listRef}
+              role="listbox"
+              tabIndex={-1}
+              aria-label={`Heading ${level} color`}
+              onKeyDown={handleKey}
+              className="min-h-0 flex-1 overflow-y-auto py-1 outline-none"
+            >
+              <button
+                type="button"
+                role="option"
+                aria-selected={value === null}
+                data-idx={0}
+                onClick={() => commit(null)}
+                onMouseMove={() => setActiveIdx(0)}
+                className={rowClass(0, value === null)}
+              >
+                {dot(defaultCss)}
+                {defaultLabel}
+              </button>
+              {HEADING_COLOR_SWATCHES.map((swatch, i) => {
+                const idx = i + 1;
+                return (
+                  <button
+                    key={swatch.id}
+                    type="button"
+                    role="option"
+                    aria-selected={value === swatch.id}
+                    data-idx={idx}
+                    onClick={() => commit(swatch.id)}
+                    onMouseMove={() => setActiveIdx(idx)}
+                    className={rowClass(idx, value === swatch.id)}
+                  >
+                    {dot(headingColorCss(swatch.id))}
+                    {swatch.label}
+                  </button>
+                );
+              })}
+              <label
+                role="option"
+                aria-selected={isCustom}
+                data-idx={items.length - 1}
+                onMouseMove={() => setActiveIdx(items.length - 1)}
+                className={[rowClass(items.length - 1, isCustom), "cursor-pointer"].join(" ")}
+              >
+                <input
+                  ref={customRef}
+                  type="color"
+                  tabIndex={-1}
+                  value={isCustom && value ? value : "#888888"}
+                  onInput={(e) => onChange((e.target as HTMLInputElement).value)}
+                  aria-label={`Heading ${level} custom color`}
+                  className="h-4 w-5 shrink-0 cursor-pointer rounded border border-paper-300/70 bg-transparent p-0"
+                />
+                {isCustom && value ? `Custom ${value}` : "Custom…"}
+              </label>
+            </div>
+          </div>,
+          document.body,
+        )}
+    </>
+  );
+}
+
 function FontRow({
   label,
   description,
@@ -8342,6 +8713,41 @@ function FontRow({
   options: string[];
   settingId?: string;
   onChange: (next: string | null) => void;
+}): JSX.Element {
+  // Wraps the picker under the label on a narrow row, like SegmentedRow.
+  return (
+    <div
+      className="flex flex-wrap items-center justify-between gap-x-5 gap-y-3 px-5 py-4"
+      {...settingsSearchTargetProps(settingId)}
+    >
+      <div className="min-w-0 flex-1 basis-56">
+        <div className="text-sm font-medium text-ink-900">{label}</div>
+        {description && (
+          <div className="mt-1 text-xs leading-5 text-ink-500">
+            {description}
+          </div>
+        )}
+      </div>
+      <FontPicker value={value} options={options} onChange={onChange} />
+    </div>
+  );
+}
+
+/** The searchable font dropdown (button plus portal list) behind FontRow, also
+ *  used bare by the per-level heading rows. Arrows, Home, End, Enter and Escape
+ *  work in its search field with Vim mode on or off. */
+function FontPicker({
+  value,
+  options,
+  onChange,
+  ariaLabel,
+  compact = false,
+}: {
+  value: string | null;
+  options: string[];
+  onChange: (next: string | null) => void;
+  ariaLabel?: string;
+  compact?: boolean;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -8458,25 +8864,17 @@ function FontRow({
     }
   };
 
-  // Wraps the picker under the label on a narrow row, like SegmentedRow.
   return (
-    <div
-      className="flex flex-wrap items-center justify-between gap-x-5 gap-y-3 px-5 py-4"
-      {...settingsSearchTargetProps(settingId)}
-    >
-      <div className="min-w-0 flex-1 basis-56">
-        <div className="text-sm font-medium text-ink-900">{label}</div>
-        {description && (
-          <div className="mt-1 text-xs leading-5 text-ink-500">
-            {description}
-          </div>
-        )}
-      </div>
+    <>
       <button
         ref={buttonRef}
         type="button"
+        aria-label={ariaLabel}
         onClick={() => setOpen((o) => !o)}
-        className="flex w-[236px] max-w-full shrink-0 items-center justify-between gap-2 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2 text-left text-sm text-ink-900 transition-colors hover:bg-paper-200"
+        className={[
+          "flex max-w-full shrink-0 items-center justify-between gap-2 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2 text-left text-sm text-ink-900 transition-colors hover:bg-paper-200",
+          compact ? "w-48" : "w-[236px]",
+        ].join(" ")}
       >
         <span
           className="truncate"
@@ -8581,7 +8979,7 @@ function FontRow({
           </div>,
           document.body,
         )}
-    </div>
+    </>
   );
 }
 

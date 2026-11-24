@@ -174,6 +174,7 @@ export const COMMAND_CATALOG: CommandCatalogEntry[] = [
   { id: "view.group-by-kind", title: "Toggle Grouping Notes by Kind", category: "View", keywords: "folders notes split section" },
   { id: "view.focus-mode", title: "Toggle Zen Mode", category: "View", keywords: "zn distraction-free focus" },
   { id: "view.dark-sidebar", title: "Toggle Dark Sidebar", category: "View" },
+  { id: "view.heading-colors", title: "Toggle Heading Colors", category: "View", keywords: "headings color colour h1 h2 h3 levels hierarchy rainbow" },
   { id: "view.status-bar", title: "Toggle Status Bar", category: "View", keywords: "status bar footer bottom bar hide show cloud sync word count backlinks chrome" },
   { id: "view.line-numbers.off", title: "Line Numbers: Off", category: "View" },
   { id: "view.line-numbers.absolute", title: "Line Numbers: Absolute", category: "View" },

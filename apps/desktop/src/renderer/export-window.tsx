@@ -15,6 +15,7 @@ import {
 } from '@renderer/lib/custom-themes'
 import { withExportTitle } from '@shared/export-title'
 import { pdfExportFontSizePx } from '@shared/app-config'
+import { applyHeadingStyles, normalizeHeadingStyles } from '@renderer/lib/heading-styles'
 import { fitExportImageBoxes, settleExportImages } from '@renderer/lib/export-images'
 import { fitExportImagesToPages } from '@renderer/lib/export-pagination'
 import '@renderer/styles/index.css'
@@ -46,6 +47,9 @@ type ExportPrefs = {
   enabledOverrides: Record<string, string>
   /** Visual color tweaks from the theme picker. */
   themeTweaks: Record<string, string>
+  /** Settings → Typography → Headings: the preset and the per-level picks. */
+  colorHeadings: boolean
+  headingStyles: Record<string, string>
 }
 
 const DEFAULT_EXPORT_PREFS: ExportPrefs = {
@@ -63,7 +67,9 @@ const DEFAULT_EXPORT_PREFS: ExportPrefs = {
   themeFamily: 'github',
   themeMode: 'light',
   enabledOverrides: {},
-  themeTweaks: {}
+  themeTweaks: {},
+  colorHeadings: false,
+  headingStyles: {}
 }
 
 /** Read a persisted `Record<string, string>` pref defensively (the prefs blob
@@ -120,7 +126,9 @@ function loadExportPrefs(): ExportPrefs {
       themeFamily: (safeString(parsed.themeFamily) ?? DEFAULT_EXPORT_PREFS.themeFamily) as ThemeFamily,
       themeMode,
       enabledOverrides: safeStringRecord(parsed.enabledOverrides),
-      themeTweaks: safeStringRecord(parsed.themeTweaks)
+      themeTweaks: safeStringRecord(parsed.themeTweaks),
+      colorHeadings: parsed.colorHeadings === true,
+      headingStyles: normalizeHeadingStyles(parsed.headingStyles)
     }
   } catch {
     return DEFAULT_EXPORT_PREFS
@@ -219,6 +227,11 @@ function applyExportPrefs(prefs: ExportPrefs): void {
     `${pdfExportFontSizePx(prefs.pdfExportFontSize, prefs.editorFontSize)}px`
   )
   html.style.setProperty('--z-editor-line-height', String(prefs.editorLineHeight))
+  // Heading colors and fonts are the writer's choice for the note, not part of
+  // the theme, so they print in both the themed and the clean export (a theme
+  // hue then takes the print theme's shade), the way the text fonts do.
+  html.toggleAttribute('data-color-headings', prefs.colorHeadings)
+  applyHeadingStyles(html, prefs.headingStyles)
   html.style.setProperty(
     '--z-preview-max-width',
     `min(${prefs.previewMaxWidth}px, ${PDF_PRINTABLE_WIDTH})`

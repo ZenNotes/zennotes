@@ -1957,6 +1957,14 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       run: () => getState().setDarkSidebar(!getState().darkSidebar)
     },
     {
+      id: 'view.heading-colors',
+      bindTitle: 'Toggle Heading Colors',
+      title: getState().colorHeadings ? 'Plain Heading Colors' : 'Color Headings by Level',
+      category: 'View',
+      keywords: 'headings color colour h1 h2 h3 levels hierarchy rainbow',
+      run: () => getState().setColorHeadings(!getState().colorHeadings)
+    },
+    {
       // Settings, Appearance, Chrome, Status bar. Hidden, the bar still shows
       // while Cloud needs the user (lib/status-bar-visibility.ts).
       id: 'view.status-bar',

@@ -12,7 +12,10 @@
 // reasons: the mdast walk is where every mapping decision lives (and is unit
 // tested as plain data), and the docx layer stays a dumb translation that is
 // hard to get wrong. Deliberately NO visual styling beyond structure: the
-// recipient's Word template owns the look, which is maximal editability.
+// recipient's Word template owns the look, which is maximal editability. The
+// one exception is what the user set in Settings → Typography → Headings: a
+// color or font per level goes into Word's own Heading 1..6 styles, not onto
+// the runs, so editing "Heading 2" in Word still restyles every one.
 //
 // v1 scope: headings, paragraphs, bold/italic/strikethrough/inline code,
 // ==highlights==, links, ordered/unordered/task lists (nested), GFM tables,
@@ -50,8 +53,11 @@ import {
   TableRow,
   TextRun,
   WidthType,
-  convertInchesToTwip
+  convertInchesToTwip,
+  type IRunStylePropertiesOptions,
+  type IStylesOptions
 } from 'docx'
+import type { HeadingLevel as HeadingLevelNumber, PrintHeadingLook } from '@shared/heading-styles'
 import { withExportTitle } from '@shared/export-title'
 import { stripBlockAnchorMarkers } from '@shared/block-anchors'
 import { rewriteWikilinkImageEmbeds, splitEmbedLabel, type EmbedSize } from '@shared/embed-size'
@@ -305,6 +311,39 @@ const HEADINGS = [
 ] as const
 
 const MONO_FONT = 'Consolas'
+
+type DocxDefaultStyles = NonNullable<IStylesOptions['default']>
+
+// docx's own Heading 1..6 run defaults. It spreads a heading's options over
+// these shallowly, so a `run` that only names a color would drop the sizes;
+// a styled level starts from these instead.
+const DOCX_HEADING_RUN_DEFAULTS: Record<HeadingLevelNumber, IRunStylePropertiesOptions> = {
+  1: { color: '2E74B5', size: 32 },
+  2: { color: '2E74B5', size: 26 },
+  3: { color: '1F4D78', size: 24 },
+  4: { color: '2E74B5', italics: true },
+  5: { color: '2E74B5' },
+  6: { color: '1F4D78' }
+}
+
+/** Word's default-style options for the levels the user styled, or undefined
+ *  when none is, so an unstyled export is byte-for-byte what it was. */
+export function docxHeadingStyles(
+  look: readonly PrintHeadingLook[]
+): DocxDefaultStyles | undefined {
+  if (look.length === 0) return undefined
+  const out: Record<string, { run: IRunStylePropertiesOptions }> = {}
+  for (const { level, color, font } of look) {
+    out[`heading${level}`] = {
+      run: {
+        ...DOCX_HEADING_RUN_DEFAULTS[level],
+        ...(color ? { color } : {}),
+        ...(font ? { font } : {})
+      }
+    }
+  }
+  return out as DocxDefaultStyles
+}
 const CODE_SHADE = 'F2F2F2'
 const NUMBERING_BULLETS = 'zn-bullets'
 const NUMBERING_ORDERED = 'zn-ordered'
@@ -512,7 +551,8 @@ async function blockToDocx(
 export async function renderNoteDocx(
   markdown: string,
   noteTitle: string,
-  resolveImage: ImageResolver
+  resolveImage: ImageResolver,
+  headingLook: readonly PrintHeadingLook[] = []
 ): Promise<Buffer> {
   const titled = withExportTitle(markdown, noteTitle)
   const blocks = noteMarkdownToIR(titled.markdown)
@@ -520,9 +560,11 @@ export async function renderNoteDocx(
   for (const block of blocks) {
     children.push(...(await blockToDocx(block, { quoteDepth: 0 }, resolveImage)))
   }
+  const headingStyles = docxHeadingStyles(headingLook)
   const doc = new Document({
     title: titled.title,
     creator: 'ZenNotes',
+    ...(headingStyles ? { styles: { default: headingStyles } } : {}),
     numbering: {
       config: [
         {

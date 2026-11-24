@@ -355,6 +355,11 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
     tomlKey: 'mono_font',
     comment: 'code / monospace font; empty = system default'
   },
+  colorHeadings: {
+    section: 'typography',
+    tomlKey: 'color_headings',
+    comment: 'give each heading level its own theme color, in the editor and Preview'
+  },
   // view
   atlasEnabled: {
     section: 'view',
@@ -576,6 +581,15 @@ const MAP_TABLE_FIELDS: Partial<Record<PortablePrefKey, MapTableField>> = {
     table: 'overrides',
     comment: ['Enabled CSS overrides. List the filenames you want active.'],
     example: '"focus.css" = "on"'
+  },
+  headingStyles: {
+    table: 'heading_styles',
+    comment: [
+      'A color and font per heading level, from Settings → Typography → Headings.',
+      'Keys h1.color … h6.color take red, yellow, green, teal, blue, purple, accent or gray',
+      '(the theme\'s own shades) or a hex color; h1.font … h6.font take a font family.'
+    ],
+    example: '"h1.color" = "red"'
   },
   themeTweaks: {
     table: 'tweaks',

@@ -97,6 +97,7 @@ import { headingFolding } from '../lib/cm-heading-fold'
 import { editorTabSize, normalizeEditorTabSize } from '../lib/editor-tab-size'
 import { storedCursorDrawSelection } from '../lib/cm-cursor-blink'
 import { useCloseShortcutDisplay, useCloseWindowShortcut } from '../lib/close-shortcut'
+import { applyHeadingStyles } from '../lib/heading-styles'
 
 const PREFS_KEY = 'zen:prefs:v2'
 
@@ -112,6 +113,8 @@ interface QuickCapturePrefs {
   editorLineHeight: number
   editorTabSize: number
   showHeadingLevelLabels: boolean
+  colorHeadings: boolean
+  headingStyles: Record<string, string>
   cursorBlink: boolean
   interfaceFont: string | null
   textFont: string | null
@@ -132,6 +135,8 @@ function loadPrefs(): QuickCapturePrefs {
     editorLineHeight: 1.6,
     editorTabSize: 4,
     showHeadingLevelLabels: false,
+    colorHeadings: false,
+    headingStyles: {},
     cursorBlink: true,
     interfaceFont: null,
     textFont: null,
@@ -203,6 +208,8 @@ function applyTheme(prefs: QuickCapturePrefs): void {
     prefs.monoFont,
     '"SF Mono", "SFMono-Regular", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace'
   )
+  html.toggleAttribute('data-color-headings', prefs.colorHeadings === true)
+  applyHeadingStyles(html, prefs.headingStyles)
   html.setAttribute('data-opaque', '')
 }
 

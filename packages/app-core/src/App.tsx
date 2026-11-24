@@ -75,6 +75,7 @@ import { installHarperRuntime } from './lib/harper-runtime'
 import { installIgnoredKeysGuard } from './lib/ignored-keys'
 import { installCommandKeymapDispatcher, isMainAppWindow } from './lib/command-keymap-dispatch'
 import { installSidebarTrashKeys } from './lib/sidebar-note-actions'
+import { applyHeadingStyles } from './lib/heading-styles'
 
 // The ignored-keys guard (#732) has to be on `window` before any component
 // registers a capture listener there, so it is installed at import time,
@@ -404,6 +405,8 @@ function App(): JSX.Element {
   const textFont = useStore((s) => s.textFont)
   const monoFont = useStore((s) => s.monoFont)
   const darkSidebar = useStore((s) => s.darkSidebar)
+  const colorHeadings = useStore((s) => s.colorHeadings)
+  const headingStyles = useStore((s) => s.headingStyles)
   const hasCompletedOnboarding = useStore((s) => s.hasCompletedOnboarding)
   const persistWorkspace = useStore((s) => s.persistWorkspace)
   const flushDirtyNotes = useStore((s) => s.flushDirtyNotes)
@@ -797,6 +800,17 @@ function App(): JSX.Element {
     if (darkSidebar) html.setAttribute('data-dark-sidebar', '')
     else html.removeAttribute('data-dark-sidebar')
   }, [darkSidebar])
+
+  // Color headings by level: the stylesheet keys the six heading colors off
+  // this attribute, so the editor, Preview and hover previews all follow it.
+  useEffect(() => {
+    document.documentElement.toggleAttribute('data-color-headings', colorHeadings)
+  }, [colorHeadings])
+
+  // Per-level heading colors and fonts from Settings → Typography → Headings.
+  useEffect(() => {
+    applyHeadingStyles(document.documentElement, headingStyles)
+  }, [headingStyles])
 
   useEffect(() => {
     const handler = (e: KeyboardEvent): void => {

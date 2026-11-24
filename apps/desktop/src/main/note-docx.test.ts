@@ -169,6 +169,57 @@ describe('renderNoteDocx', () => {
   })
 })
 
+describe('renderNoteDocx heading styles', () => {
+  // Settings → Typography → Headings travels as Word's own Heading styles, so
+  // a recipient still restyles a level by editing the style, and a level with
+  // nothing set keeps Word's default size and color.
+  it.skipIf(process.platform === 'win32')(
+    'writes a picked color and font into the Heading style, keeping its size',
+    async () => {
+      const buffer = await renderNoteDocx('# One\n\n## Two\n\n### Three\n', 'n', async () => null, [
+        { level: 1, color: 'E06C75', font: 'Georgia' },
+        { level: 2, color: '9A6700' }
+      ])
+      const dir = await mkdtemp(path.join(os.tmpdir(), 'zennotes-docx-'))
+      try {
+        const file = path.join(dir, 'out.docx')
+        await writeFile(file, buffer)
+        const styles = execFileSync('unzip', ['-p', file, 'word/styles.xml'], { encoding: 'utf8' })
+        const style = (id: string): string => {
+          const start = styles.indexOf(`w:styleId="${id}"`)
+          return styles.slice(start, styles.indexOf('</w:style>', start))
+        }
+        expect(style('Heading1')).toContain('w:val="E06C75"')
+        expect(style('Heading1')).toContain('w:ascii="Georgia"')
+        expect(style('Heading1')).toContain('w:val="32"') // docx's own H1 size survives
+        expect(style('Heading2')).toContain('w:val="9A6700"')
+        expect(style('Heading3')).toContain('w:val="1F4D78"') // untouched level keeps its default
+      } finally {
+        await rm(dir, { recursive: true, force: true })
+      }
+    }
+  )
+
+  it.skipIf(process.platform === 'win32')(
+    'leaves Word\'s own heading look alone when no level is styled',
+    async () => {
+      const buffer = await renderNoteDocx('# One\n', 'n', async () => null, [])
+      const dir = await mkdtemp(path.join(os.tmpdir(), 'zennotes-docx-'))
+      try {
+        const file = path.join(dir, 'out.docx')
+        await writeFile(file, buffer)
+        const styles = execFileSync('unzip', ['-p', file, 'word/styles.xml'], { encoding: 'utf8' })
+        const start = styles.indexOf('w:styleId="Heading1"')
+        const heading1 = styles.slice(start, styles.indexOf('</w:style>', start))
+        expect(heading1).toContain('w:val="2E74B5"')
+        expect(heading1).not.toContain('w:ascii=')
+      } finally {
+        await rm(dir, { recursive: true, force: true })
+      }
+    }
+  )
+})
+
 describe('renderNoteDocx wikilink embeds', () => {
   it('hands the wikilink target and its size hint to the image resolver', async () => {
     const seen: Array<[string, unknown]> = []

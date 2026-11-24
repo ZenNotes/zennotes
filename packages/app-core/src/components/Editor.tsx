@@ -849,6 +849,13 @@ function registerVimCommands(): void {
     void useStore.getState().openWhatsNew();
   });
 
+  // `:headingcolors` flips Color headings by level, like the palette's
+  // Toggle Heading Colors.
+  Vim.defineEx("headingcolors", "headingc", () => {
+    const st = useStore.getState();
+    st.setColorHeadings(!st.colorHeadings);
+  });
+
   Vim.defineEx("daily", "daily", () => {
     void useStore.getState().openTodayDailyNote();
   });

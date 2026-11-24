@@ -27,6 +27,8 @@ export const PORTABLE_PREF_KEYS = [
   // editor
   'livePreview',
   'showHeadingLevelLabels',
+  'colorHeadings',
+  'headingStyles',
   'listIndentGuides',
   'linkPopoverOnHover',
   'renderTablesInLivePreview',

@@ -111,6 +111,8 @@ export const PORTABLE_DEFAULTS: Record<PortablePrefKey, unknown> = {
   searchTaggedBlocks: true,
   livePreview: true,
   showHeadingLevelLabels: false,
+  colorHeadings: false,
+  headingStyles: {},
   listIndentGuides: true,
   linkPopoverOnHover: true,
   renderTablesInLivePreview: true,

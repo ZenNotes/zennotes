@@ -207,6 +207,7 @@ import {
   undoWorkflowRun,
 } from "./workflow-apply";
 import { renderNoteDocx, type ResolvedImage } from "./note-docx";
+import { printHeadingLook } from "@shared/heading-styles";
 import { isDrawingEmbedTarget } from "@shared/embed-size";
 import type {
   ApplyWorkflowInput,
@@ -3227,7 +3228,11 @@ async function exportNoteDocx(
     return null;
   };
 
-  const buffer = await renderNoteDocx(note.body, note.title, resolveImage);
+  // Settings → Typography → Headings, in print shades (the main process has
+  // no theme to read); levels with nothing set keep Word's own heading look.
+  const portable = getPortableConfigSnapshot();
+  const headingLook = printHeadingLook(portable.headingStyles, portable.colorHeadings === true);
+  const buffer = await renderNoteDocx(note.body, note.title, resolveImage, headingLook);
   await fsp.mkdir(path.dirname(targetPath), { recursive: true });
   await fsp.writeFile(targetPath, buffer);
   return targetPath;
