@@ -10,6 +10,16 @@ updates:
         dependency-type: production
       development-dependencies:
         dependency-type: development
+    ignore:
+      # Majors are taken by hand, one at a time: React, Electron, Vite,
+      # TypeScript and Tailwind each need a migration and a run of the packaged
+      # app, and a grouped pull request that carries one of them fails every
+      # build and blocks the minor updates beside it. KaTeX is 0.x, so its
+      # minors are majors.
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "katex"
+        update-types: ["version-update:semver-minor"]
 
   - package-ecosystem: github-actions
     directory: /
