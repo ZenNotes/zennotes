@@ -31,8 +31,9 @@
  *
  * Two cases read again text that a plain markdown parser would reuse, and
  * both are kept on purpose. When the body start moves (the closing fence
- * typed for the first time, or broken), parseMixed cannot find the old mount
- * and the body is parsed in full, the same as opening the note. And the outer
+ * typed for the first time, or broken), the mount is given no older trees
+ * (`bodyKeptItsStart` below) and the body is parsed in full, the same as
+ * opening the note. And the outer
  * tree always spans the whole note, so when a parse runs out of its 20 ms
  * slice, CodeMirror drops the older tree past that point and the parse that
  * resumes reads the rest again. Reusing the older blocks in those two cases
@@ -214,8 +215,65 @@ class NoteParser extends Parser {
     fragments: readonly TreeFragment[],
     ranges: readonly ParseRange[]
   ): PartialParse {
-    return this.wrap(new NoteParse(input, ranges), input, fragments, ranges)
+    const from = ranges[0].from
+    const to = ranges[ranges.length - 1].to
+    const reusable = bodyKeptItsStart(input, from, to, fragments) ? fragments : []
+    return this.wrap(new NoteParse(input, ranges), input, reusable, ranges)
   }
+}
+
+/** Where the Body node starts in a tree this parser built, or -1 for any
+ *  other tree. */
+function bodyStartOf(tree: Tree): number {
+  const last = tree.children.length - 1
+  const body = tree.children[last]
+  if (tree.type !== documentType || !(body instanceof Tree) || body.type !== bodyType) return -1
+  return tree.positions[last]
+}
+
+/**
+ * Whether the older trees may be reused for this parse: only while the body
+ * is the same stretch of text it was in each of them. That holds for an edit
+ * in the body (the start stays where it was) and for an edit inside the
+ * frontmatter (the body moves as a whole, its length unchanged). It does not
+ * hold when the closing fence is typed for the first time, broken, or joined
+ * by another fence above it, nor when the first characters of a note without
+ * frontmatter are deleted (an indented code block there can lose its indent
+ * and stay a code block): then the body is parsed in full, as the header says
+ * and why. Every fragment is checked against its own tree, because the list
+ * can still carry pieces of a tree from before such a change.
+ *
+ * This used to follow from parseMixed losing the old mount when the body
+ * moved. @lezer/common 1.5.5 finds the mount again, so the rule is spelled
+ * out here and holds on every version.
+ */
+function bodyKeptItsStart(
+  input: Input,
+  from: number,
+  to: number,
+  fragments: readonly TreeFragment[]
+): boolean {
+  if (!fragments.length) return true
+  const span = scanFrontmatter(input, from, to)
+  const bodyFrom = span ? span.closeTo : from
+  for (const fragment of fragments) {
+    const oldBodyFrom = bodyStartOf(fragment.tree)
+    if (oldBodyFrom < 0) return false
+    const sameStart = oldBodyFrom === bodyFrom - from
+    const sameBody = fragment.tree.length - oldBodyFrom === to - bodyFrom
+    if (!sameStart && !sameBody) return false
+    // A fragment lying over the body's start has to begin with the old body's
+    // start. One that does not is what a deletion at the note's very first
+    // character leaves: the old text minus its first characters.
+    if (
+      fragment.from <= bodyFrom &&
+      bodyFrom < fragment.to &&
+      oldBodyFrom !== bodyFrom + fragment.offset
+    ) {
+      return false
+    }
+  }
+  return true
 }
 
 type MarkdownExtension = NonNullable<NonNullable<Parameters<typeof markdown>[0]>['extensions']>
