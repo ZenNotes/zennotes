@@ -24,7 +24,6 @@
     "vite": "$vite"
   },
   "scripts": {
-    "postinstall": "cd apps/desktop && patch-package --error-on-fail",
     "dev": "npm run dev:desktop",
     "dev:desktop": "npm run dev --workspace @zennotes/desktop",
     "dev:web": "npm run dev --workspace @zennotes/web",
@@ -65,8 +64,7 @@
     "test:terminal": "node --test tooling/scripts/terminal-artifact.test.mjs tooling/scripts/terminal-launcher.test.mjs"
   },
   "devDependencies": {
-    "patch-package": "8.0.1",
-    "turbo": "^2.5.8",
+    "turbo": "^2.11.13",
     "vite": "^6.4.3"
   }
 }

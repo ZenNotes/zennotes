@@ -67,7 +67,13 @@ async function makeTempDir(prefix: string): Promise<string> {
 }
 
 afterEach(async () => {
-  await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
+  const dirs = tempDirs.splice(0)
+  // listNotes writes its metadata snapshot into `.zennotes` a second later.
+  // On a slow Windows runner that write landed while the folder was being
+  // removed, and rmdir failed with ENOTEMPTY. Invalidating a root also cancels
+  // its pending write.
+  for (const dir of dirs) invalidateNoteMetaCache(dir)
+  await Promise.all(dirs.map((dir) => rm(dir, { recursive: true, force: true })))
 })
 
 describe('rootContentHiddenByInboxMode (#195)', () => {

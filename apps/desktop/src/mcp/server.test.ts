@@ -187,6 +187,34 @@ describe('list_tasks', () => {
       'Cancelled plan'
     )
   })
+
+  // #1119: the planned day. A local vault's scanner reports it; a remote
+  // vault's server may not, so the tool reads it from the line it was given.
+  it('reports the planned day of a checkbox task, and leaves due as the deadline', async () => {
+    const planned = backend({
+      scanAllTasks: async () =>
+        [
+          task('From a server', {
+            due: '2026-12-04',
+            rawText: '- [ ] From a server due:2026-12-04 @scheduled:2026-12-02'
+          }),
+          task('Not a date', { rawText: '- [ ] Not a date @scheduled:friday' }),
+          task('A task note', { kind: 'file', rawText: '', scheduled: '2026-12-03' }),
+          task('Plain', { rawText: '- [ ] Plain' })
+        ] as never
+    })
+    const rows = (await callTool('list_tasks', {}, planned)) as Array<{
+      content: string
+      due?: string
+      scheduled?: string
+    }>
+    expect(rows.map((t) => [t.content, t.due, t.scheduled])).toEqual([
+      ['From a server', '2026-12-04', '2026-12-02'],
+      ['Not a date', undefined, undefined],
+      ['A task note', undefined, '2026-12-03'],
+      ['Plain', undefined, undefined]
+    ])
+  })
 })
 
 // #1024: a template folder's notes are placeholders. The tag tools and text

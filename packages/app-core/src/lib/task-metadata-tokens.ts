@@ -10,6 +10,7 @@
 
 import { describeRepeatRule, parseRepeatRule } from '@shared/task-recurrence'
 import { describeRemindSpec, parseRemindSpec } from '@shared/task-reminders'
+import { PLANNED_DAY_FIELD, parsePlannedDay } from '@shared/task-planning'
 
 export type TaskMetaKind = 'priority' | 'due' | 'field'
 
@@ -84,16 +85,18 @@ export function todayIso(): string {
 }
 
 export interface FieldChip {
-  /** The chip's own class suffix: `repeat`, `remind`, or null for a plain field. */
-  variant: 'repeat' | 'remind' | null
+  /** The chip's own class suffix: `repeat`, `remind`, `scheduled`, or null for
+   *  a plain field. */
+  variant: 'repeat' | 'remind' | 'scheduled' | null
   /** A value the field cannot mean anything with draws dimmed. */
   invalid: boolean
   /** What the chip means, for its tooltip. */
   title?: string
 }
 
-/** How a field token draws. The recurring-task fields (#1036) get their own
- *  colors and say what they mean on hover; every other field is plain. */
+/** How a field token draws. The recurring-task fields (#1036) and the planned
+ *  day (#1119) get their own colors and say what they mean on hover; every
+ *  other field is plain. */
 export function fieldChip(token: TaskMetaToken): FieldChip {
   if (token.kind !== 'field') return { variant: null, invalid: false }
   const value = token.text.slice(token.text.indexOf(':') + 1)
@@ -108,6 +111,17 @@ export function fieldChip(token: TaskMetaToken): FieldChip {
     return spec
       ? { variant: 'remind', invalid: false, title: `Reminder: ${describeRemindSpec(spec)}` }
       : { variant: 'remind', invalid: true, title: 'Unknown reminder time' }
+  }
+  if (token.field === PLANNED_DAY_FIELD) {
+    const day = parsePlannedDay(value)
+    if (!day) return { variant: 'scheduled', invalid: true, title: 'A planned day is a date: YYYY-MM-DD' }
+    const [y, m, d] = day.split('-').map(Number)
+    const label = new Date(y, m - 1, d).toLocaleDateString(undefined, {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric'
+    })
+    return { variant: 'scheduled', invalid: false, title: `Planned for ${label}` }
   }
   return { variant: null, invalid: false }
 }

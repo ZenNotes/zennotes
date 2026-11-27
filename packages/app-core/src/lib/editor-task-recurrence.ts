@@ -3,17 +3,29 @@
  * `:repeat` / `:remind` ex commands and the command palette's "Repeat Task…" /
  * "Remind Task…". With an argument (`:repeat weekly`, `:remind off`) the field
  * is written at once; without one the same picker the Tasks views use opens.
+ *
+ * Plan (#1119) is the third: `:plan` and "Plan Task…" set the day the task
+ * under the cursor is planned for (`:plan today`, `:plan 2026-12-02`,
+ * `:plan off`), or open the calendar the Tasks views' Plan for… opens.
  */
 import type { EditorView } from '@codemirror/view'
 import { TASK_LINE_RE } from '@shared/tasklists'
 import { parseRepeatRule, setRemindField, setRepeatField } from '@shared/task-recurrence'
 import { parseRemindSpec } from '@shared/task-reminders'
-import { noteFrontmatterDue } from '@shared/tasks'
+import { noteFrontmatterDue, toIsoDateLocal } from '@shared/tasks'
+import { parsePlannedDay, setPlannedDayField } from '@shared/task-planning'
+import { DATE_PROMPT_CLEAR, promptDate } from './date-prompt-requests'
 import { editorRecurrenceContext } from './cm-task-recurrence'
 import { useToastStore } from './toast'
 import { noDueNotice, promptRemindWhen, promptRepeatRule } from './task-recurrence-pickers'
 
-type TaskFieldKey = 'repeat' | 'remind'
+type TaskFieldKey = 'repeat' | 'remind' | 'scheduled'
+
+const SET_FIELD: Record<TaskFieldKey, (text: string, value: string | null) => string> = {
+  repeat: setRepeatField,
+  remind: setRemindField,
+  scheduled: setPlannedDayField
+}
 
 function toast(message: string): void {
   useToastStore.getState().addToast(message, 'info')
@@ -39,7 +51,7 @@ function writeField(view: EditorView, number: number, key: TaskFieldKey, value: 
   if (!match || !match[3].startsWith(']')) return false
   const tailFrom = line.from + match[1].length + match[2].length + 1
   const tail = line.text.slice(tailFrom - line.from)
-  const next = key === 'repeat' ? setRepeatField(tail, value) : setRemindField(tail, value)
+  const next = SET_FIELD[key](tail, value)
   if (next === tail) return true
   const head = view.state.selection.main.head
   const onLine = head >= line.from && head <= line.to
@@ -97,4 +109,48 @@ export function repeatTaskAtCursor(view: EditorView, arg = ''): Promise<void> {
 /** `:remind [when|off]`: set when the task under the cursor reminds. */
 export function remindTaskAtCursor(view: EditorView, arg = ''): Promise<void> {
   return setCursorTaskField(view, 'remind', arg)
+}
+
+/** The day `:plan <arg>` names: a date, `today` or `tomorrow`. */
+function planDayFromArg(arg: string): string | undefined {
+  const now = new Date()
+  if (arg === 'today') return toIsoDateLocal(now)
+  if (arg === 'tomorrow') {
+    return toIsoDateLocal(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1))
+  }
+  return parsePlannedDay(arg)
+}
+
+/** `:plan [date|today|tomorrow|off]`: set the day the task under the cursor is
+ *  planned for. Its due date is left alone. */
+export async function planTaskAtCursor(view: EditorView, arg = ''): Promise<void> {
+  const task = cursorTask(view)
+  if (!task) {
+    toast('Put the cursor on a task first.')
+    return
+  }
+  const tail = task.match[3].slice(1)
+  const current = parsePlannedDay(fieldOf(tail, 'scheduled'))
+  const typed = arg.trim().toLowerCase()
+  let day: string | null
+  if (typed) {
+    const named = typed === 'off' ? null : planDayFromArg(typed)
+    if (named === undefined) {
+      toast('Try today, tomorrow, a date as YYYY-MM-DD, or off')
+      return
+    }
+    day = named
+  } else {
+    const picked = await promptDate({
+      title: 'Plan for',
+      description: tail.trim(),
+      initialDate: current ?? toIsoDateLocal(new Date()),
+      okLabel: 'Plan',
+      clearLabel: current ? 'Clear' : undefined
+    })
+    if (!picked) return
+    day = picked === DATE_PROMPT_CLEAR ? null : picked
+    view.focus()
+  }
+  writeField(view, task.number, 'scheduled', day)
 }

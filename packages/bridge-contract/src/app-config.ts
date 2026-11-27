@@ -29,6 +29,7 @@ export const PORTABLE_PREF_KEYS = [
   'showHeadingLevelLabels',
   'colorHeadings',
   'indentSections',
+  'sectionIndentWidth',
   'headingStyles',
   'listIndentGuides',
   'linkPopoverOnHover',

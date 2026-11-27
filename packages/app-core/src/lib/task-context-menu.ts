@@ -2,8 +2,10 @@ import type { VaultTask } from '@shared/tasks'
 import { toIsoDateLocal } from '@shared/tasks'
 import type { ContextMenuItem } from '../components/ContextMenu'
 import { useStore } from '../store'
-import { promptDate } from './date-prompt-requests'
+import { PLANNED_DAY_FIELD, plannedDay, taskDay } from '@shared/task-planning'
+import { DATE_PROMPT_CLEAR, promptDate } from './date-prompt-requests'
 import { forwardTaskWithPicker } from './forward-task'
+import { useToastStore } from './toast'
 import { parseRepeatRule } from '@shared/task-recurrence'
 import { chooseTaskRemind, chooseTaskRepeat } from './task-recurrence-pickers'
 
@@ -59,6 +61,51 @@ export async function chooseTaskDueDate(task: VaultTask, today: Date = new Date(
   })
   if (!iso || (iso === task.due && !task.dueInferred)) return
   await useStore.getState().applyTaskMutation(task, { kind: 'set-due', due: iso })
+}
+
+/** A task that is done, cancelled or forwarded has no day left to plan. */
+export function canPlanTask(task: VaultTask): boolean {
+  return !task.checked && !task.cancelled && !task.forwarded
+}
+
+/**
+ * Plan `task` for a day (#1119), or with null take its plan off. The planned
+ * day is `@scheduled:` on a checkbox task and frontmatter `scheduled:` on a
+ * task note, and `set-field` writes either. The deadline is not touched.
+ */
+export async function planTask(task: VaultTask, day: string | null): Promise<void> {
+  if (!canPlanTask(task) || (plannedDay(task) ?? null) === day) return
+  await useStore
+    .getState()
+    .applyTaskMutation(task, { kind: 'set-field', key: PLANNED_DAY_FIELD, value: day })
+}
+
+/** `p` on the Tasks surfaces: this task is today's work. It says so, since a
+ *  task planned out of Upcoming leaves the cursor for Today. */
+export async function planTaskForToday(task: VaultTask, today: Date = new Date()): Promise<void> {
+  const day = toIsoDateLocal(today)
+  if (!canPlanTask(task) || plannedDay(task) === day) return
+  await planTask(task, day)
+  useToastStore.getState().addToast('Planned for today', 'info')
+}
+
+/**
+ * Plan for… (#1119): the day to work on a task, from the calendar the due
+ * date uses. It opens on the planned day (today without one), so Enter alone
+ * plans a task for today, and its Clear button takes the plan off.
+ */
+export async function chooseTaskPlannedDay(task: VaultTask, today: Date = new Date()): Promise<void> {
+  if (!canPlanTask(task)) return
+  const current = plannedDay(task)
+  const iso = await promptDate({
+    title: 'Plan for',
+    description: task.content,
+    initialDate: current ?? toIsoDateLocal(today),
+    okLabel: 'Plan',
+    clearLabel: current ? 'Clear' : undefined
+  })
+  if (!iso) return
+  await planTask(task, iso === DATE_PROMPT_CLEAR ? null : iso)
 }
 
 export function buildTaskMenuItems(
@@ -125,6 +172,15 @@ export function buildTaskMenuItems(
   if (task.due && !task.dueInferred) {
     items.push({ label: 'Clear due date', onSelect: () => mutate({ kind: 'set-due', due: null }) })
   }
+  // The planned day (#1119), under the due date it stands beside. The picker
+  // clears it too, so the menu needs one entry for both. No key beside it:
+  // `p` plans for today outright, which is not what this entry does.
+  items.push({
+    label: 'Plan for…',
+    mark: plannedDay(task),
+    disabled: !canPlanTask(task),
+    onSelect: () => void chooseTaskPlannedDay(task, today)
+  })
 
   // Recurrence (#1036). Whole-note tasks keep their state in frontmatter, which
   // repeats on TaskNotes' terms, not yet built.
@@ -173,13 +229,15 @@ export function buildTaskMenuItems(
   )
 
   if (onMoveToDayNote) {
+    const day = taskDay(task, toIsoDateLocal(today))
     items.push(
       { kind: 'separator' },
       {
+        // The day the task sits on: its planned day when it has one.
         label: 'Move to its day’s note',
-        disabled: !task.due,
+        disabled: !day,
         onSelect: () => {
-          if (task.due) onMoveToDayNote(task, task.due)
+          if (day) onMoveToDayNote(task, day)
         }
       }
     )

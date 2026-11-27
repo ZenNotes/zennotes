@@ -1,5 +1,6 @@
 import type { VaultTask } from '@shared/tasks'
 import { groupTasks, isOverdue, toIsoDateLocal } from '@shared/tasks'
+import { taskDay, taskDeadline } from '@shared/task-planning'
 import type { NoteTagsByPath } from './tasks-filter'
 
 /**
@@ -11,8 +12,9 @@ import type { NoteTagsByPath } from './tasks-filter'
  * from the Tasks view, never from a rule of the rail's own: the input is the
  * list the Tasks surfaces see (display filter, the daily-note date inference,
  * the user's filter query), `groupTasks` decides which of them are live
- * Today / Upcoming work, and `isOverdue` decides lateness. So a waiting or
- * forwarded task stays where the Tasks list keeps it, in its own group, and
+ * Today / Upcoming work, `taskDay` gives each the day it sits on (its planned
+ * day when it has one, #1119) and `isOverdue` decides lateness. So a waiting
+ * or forwarded task stays where the Tasks list keeps it, in its own group, and
  * the undated count is the list's No due date group.
  */
 
@@ -43,10 +45,13 @@ export function isMilestoneTask(task: VaultTask, noteTags?: NoteTagsByPath | nul
 
 export interface TimelineRow {
   task: VaultTask
+  /** The day the row is drawn on: the task's planned day when it has one,
+   *  its deadline otherwise (for an overdue row, the deadline it missed). */
+  day: string
   milestone: boolean
   /** Whole days past the due date; 0 unless the task is overdue. */
   lateDays: number
-  /** For a milestone, the open tasks due before it since the previous
+  /** For a milestone, the open tasks before it since the previous
    *  milestone (or from the top of the rail for the first); null otherwise. */
   before: number | null
 }
@@ -120,12 +125,16 @@ export function buildTimelineRail(
   const rangeEnd = timelineRangeEnd(today, options.range)
   const groups = groupTasks(tasks, today)
 
-  const row = (task: VaultTask): TimelineRow => ({
-    task,
-    milestone: isMilestoneTask(task, options.noteTags),
-    lateDays: isOverdue(task, today) && task.due ? daysBetween(task.due, todayIso) : 0,
-    before: null
-  })
+  const row = (task: VaultTask, day: string): TimelineRow => {
+    const deadline = taskDeadline(task)
+    return {
+      task,
+      day,
+      milestone: isMilestoneTask(task, options.noteTags),
+      lateDays: isOverdue(task, today) && deadline ? daysBetween(deadline, todayIso) : 0,
+      before: null
+    }
+  }
   // Milestones lead their day; the rest keep the order the Tasks list gives
   // them (priority first in Today, note order in Upcoming).
   const milestonesFirst = (rows: TimelineRow[]): TimelineRow[] => [
@@ -137,19 +146,22 @@ export function buildTimelineRail(
   const overdue = groups.today
     .filter((task) => isOverdue(task, today))
     .sort(byDueThenNote)
-    .map(row)
+    .map((task) => row(task, taskDay(task, todayIso) ?? todayIso))
 
+  // Every other live task goes on the day it sits on, which is what put it
+  // in Today or Upcoming in the first place.
   const byDay = new Map<string, TimelineRow[]>()
   let laterCount = 0
   for (const task of [...groups.today, ...groups.upcoming]) {
-    if (!task.due || isOverdue(task, today)) continue
-    if (rangeEnd && task.due > rangeEnd) {
+    const day = taskDay(task, todayIso)
+    if (!day || isOverdue(task, today)) continue
+    if (rangeEnd && day > rangeEnd) {
       laterCount += 1
       continue
     }
-    const list = byDay.get(task.due)
-    if (list) list.push(row(task))
-    else byDay.set(task.due, [row(task)])
+    const list = byDay.get(day)
+    if (list) list.push(row(task, day))
+    else byDay.set(day, [row(task, day)])
   }
 
   const entries: TimelineEntry[] = []
@@ -173,24 +185,21 @@ export function buildTimelineRail(
 
   const rows = entries.flatMap((entry) => (entry.kind === 'quiet' ? [] : entry.rows))
 
-  // "N tasks before it": the open tasks due on or after the previous
+  // "N tasks before it": the open tasks on or after the previous
   // milestone's day and before this one's, so each task is counted toward
   // exactly one milestone and the numbers add up to the work on the rail.
   // The first milestone counts from the top of the rail, overdue included:
-  // late work still stands between today and the milestone.
-  let previousMilestoneDue: string | null = null
+  // late work still stands between today and the milestone. Days are the
+  // ones the rows are drawn on, so the count matches what stands above it.
+  let previousMilestoneDay: string | null = null
   for (const r of rows) {
-    if (!r.milestone || !r.task.due) continue
-    const due = r.task.due
-    const since = previousMilestoneDue
+    if (!r.milestone) continue
+    const day = r.day
+    const since = previousMilestoneDay
     r.before = rows.filter(
-      (other) =>
-        !other.milestone &&
-        !!other.task.due &&
-        other.task.due < due &&
-        (since === null || other.task.due >= since)
+      (other) => !other.milestone && other.day < day && (since === null || other.day >= since)
     ).length
-    previousMilestoneDue = due
+    previousMilestoneDay = day
   }
 
   return {

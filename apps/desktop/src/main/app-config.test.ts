@@ -122,6 +122,8 @@ describe('TOML serialization', () => {
       autoPairQuotesInProse: true,
       showHeadingLevelLabels: true,
       editorTabSize: 2,
+      indentSections: true,
+      sectionIndentWidth: 5,
       textReplacementsEnabled: true,
       textReplacements: { '->': '→', '(c)': '©' },
       vaultTextSearchBackend: 'ripgrep',
@@ -167,6 +169,10 @@ describe('TOML serialization', () => {
     expect(round.autoPairQuotesInProse).toBe(true)
     expect(round.showHeadingLevelLabels).toBe(true)
     expect(round.editorTabSize).toBe(2)
+    // Dave's Indent width travels beside indent_sections under [typography].
+    expect(text).toMatch(/\[typography\][^[]*section_indent_width = 5/)
+    expect(round.indentSections).toBe(true)
+    expect(round.sectionIndentWidth).toBe(5)
     expect(round.textReplacementsEnabled).toBe(true)
     expect(round.textReplacements).toEqual({ '->': '→', '(c)': '©' })
     expect(round.vaultTextSearchBackend).toBe('ripgrep')

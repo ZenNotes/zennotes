@@ -69,6 +69,7 @@ import {
 } from '@shared/excalidraw'
 import { TASKS_TAB_PATH, isTasksTabPath, parseTasksFromBody, toIsoDateLocal } from '@shared/tasks'
 import { completeRecurringTaskAtIndex, type RecurringCompletion } from '@shared/task-recurrence'
+import { PLANNED_DAY_FIELD, plannedDay } from '@shared/task-planning'
 import {
   TYPST_PREAMBLE_FOLDER,
   isTypstPreamblePath,
@@ -304,6 +305,10 @@ import {
 } from './lib/folder-gallery'
 import { normalizeApplicationSchemes } from '@shared/application-links'
 import { normalizeEditorTabSize } from './lib/editor-tab-size'
+import {
+  DEFAULT_SECTION_INDENT_WIDTH,
+  normalizeSectionIndentWidth
+} from './lib/section-indent-width'
 import { recentNoteToggleTarget } from './lib/recent-note-toggle'
 import { whatsNewAtLaunch, whatsNewOnDemand, type WhatsNewView } from './lib/whats-new'
 
@@ -676,6 +681,8 @@ interface Prefs {
   colorHeadings: boolean
   /** Indent every heading and what is under it by its level, like the outline. */
   indentSections: boolean
+  /** Spaces each Indent sections level moves in (lib/section-indent-width.ts). */
+  sectionIndentWidth: number
   /** A color and font per heading level from Settings → Typography → Headings,
    *  keyed `h1.color` … `h6.font` (lib/heading-styles.ts). */
   headingStyles: Record<string, string>
@@ -1385,6 +1392,7 @@ export const DEFAULT_PREFS: Prefs = {
   showHeadingLevelLabels: false,
   colorHeadings: false,
   indentSections: false,
+  sectionIndentWidth: DEFAULT_SECTION_INDENT_WIDTH,
   headingStyles: {},
   listIndentGuides: true,
   linkPopoverOnHover: true,
@@ -1586,6 +1594,7 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
     headingStyles: normalizeHeadingStyles(p.headingStyles),
     indentSections:
       typeof p.indentSections === 'boolean' ? p.indentSections : DEFAULT_PREFS.indentSections,
+    sectionIndentWidth: normalizeSectionIndentWidth(p.sectionIndentWidth),
     listIndentGuides:
       typeof p.listIndentGuides === 'boolean'
         ? p.listIndentGuides
@@ -2602,11 +2611,18 @@ function applyTaskMutationsToTask(task: VaultTask, mutations: TaskMutation[]): V
       }
       case 'set-due': {
         const due = m.due ?? undefined
-        if (next.due !== due) next = { ...next, due }
+        // A date written on the line is no longer the daily note's.
+        if (next.due !== due) next = { ...next, due, ...(due ? { dueInferred: false } : {}) }
         break
       }
       case 'set-field': {
         const value = m.value ?? undefined
+        // A task note keeps its planned day in frontmatter `scheduled:`, read
+        // into `scheduled`, not into the fields a checkbox line carries.
+        if (m.key === PLANNED_DAY_FIELD && next.kind === 'file') {
+          next = { ...next, scheduled: value }
+          break
+        }
         const fields = { ...next.fields }
         if (value == null) delete fields[m.key]
         else fields[m.key] = value
@@ -2899,6 +2915,7 @@ function collectPrefs(s: {
   showHeadingLevelLabels: boolean
   colorHeadings: boolean
   indentSections: boolean
+  sectionIndentWidth: number
   headingStyles: Record<string, string>
   listIndentGuides: boolean
   linkPopoverOnHover: boolean
@@ -3034,6 +3051,7 @@ function collectPrefs(s: {
     showHeadingLevelLabels: s.showHeadingLevelLabels,
     colorHeadings: s.colorHeadings,
     indentSections: s.indentSections,
+    sectionIndentWidth: s.sectionIndentWidth,
     headingStyles: s.headingStyles,
     listIndentGuides: s.listIndentGuides,
     linkPopoverOnHover: s.linkPopoverOnHover,
@@ -3654,6 +3672,7 @@ interface Store {
   showHeadingLevelLabels: boolean
   colorHeadings: boolean
   indentSections: boolean
+  sectionIndentWidth: number
   headingStyles: Record<string, string>
   listIndentGuides: boolean
   linkPopoverOnHover: boolean
@@ -4376,6 +4395,7 @@ interface Store {
   setShowHeadingLevelLabels: (on: boolean) => void
   setColorHeadings: (on: boolean) => void
   setIndentSections: (on: boolean) => void
+  setSectionIndentWidth: (width: number) => void
   setHeadingStyle: (level: HeadingLevel, prop: HeadingStyleProp, value: string | null) => void
   resetHeadingStyles: () => void
   setListIndentGuides: (on: boolean) => void
@@ -6817,6 +6837,7 @@ export const useStore = create<Store>((set, get) => {
   showHeadingLevelLabels: loadPrefs().showHeadingLevelLabels,
   colorHeadings: loadPrefs().colorHeadings,
   indentSections: loadPrefs().indentSections,
+  sectionIndentWidth: loadPrefs().sectionIndentWidth,
   headingStyles: loadPrefs().headingStyles,
   listIndentGuides: loadPrefs().listIndentGuides,
   linkPopoverOnHover: loadPrefs().linkPopoverOnHover,
@@ -8327,16 +8348,22 @@ export const useStore = create<Store>((set, get) => {
   moveTaskToDate: trackTaskWrite(async (task, dateIso) => {
     const parsed = parseIsoDateLocal(dateIso)
     if (!parsed) return
+    // Moving a task to a day puts it on that day, so a planned day it had
+    // for another one goes: left on the line it would keep the task where it
+    // was planned, not where it was just moved (#1119).
+    const unplan: TaskMutation[] = plannedDay(task)
+      ? [{ kind: 'set-field', key: PLANNED_DAY_FIELD, value: null }]
+      : []
     // A file-task isn't a line that can move into a daily note; rescheduling it
     // just rewrites its frontmatter `due`.
     if (task.kind === 'file') {
-      await get().applyTaskMutation(task, { kind: 'set-due', due: dateIso })
+      await get().applyTaskMutation(task, [{ kind: 'set-due', due: dateIso }, ...unplan])
       return
     }
     const settings = normalizeVaultSettings(get().vaultSettings)
     // No daily notes to move into — just set the due date instead.
     if (!settings.dailyNotes.enabled) {
-      await get().applyTaskMutation(task, { kind: 'set-due', due: dateIso })
+      await get().applyTaskMutation(task, [{ kind: 'set-due', due: dateIso }, ...unplan])
       return
     }
     const target = await get().ensureDailyNoteForDate(parsed)
@@ -8344,7 +8371,10 @@ export const useStore = create<Store>((set, get) => {
     const inferDue = settings.dailyNotes.tasksDueOnNoteDate
     // Already in that day's note — nothing to relocate; just align its due.
     if (target.path === task.sourcePath) {
-      await get().applyTaskMutation(task, { kind: 'set-due', due: inferDue ? null : dateIso })
+      await get().applyTaskMutation(task, [
+        { kind: 'set-due', due: inferDue ? null : dateIso },
+        ...unplan
+      ])
       return
     }
 
@@ -8364,7 +8394,12 @@ export const useStore = create<Store>((set, get) => {
     // Moving INTO the target day's note: with implicit due on, a bare line
     // already reads as that day, so strip any `due:` token; otherwise write the
     // explicit date.
-    const movedLine = setTaskDueAtIndex(line, 0, inferDue ? null : dateIso)
+    const movedLine = setTaskFieldAtIndex(
+      setTaskDueAtIndex(line, 0, inferDue ? null : dateIso),
+      0,
+      PLANNED_DAY_FIELD,
+      null
+    )
 
     // Insert into the destination note's Tasks section when one exists;
     // otherwise append to the end of the note.
@@ -10488,6 +10523,10 @@ export const useStore = create<Store>((set, get) => {
   },
   setIndentSections: (on) => {
     set({ indentSections: on })
+    savePrefs(collectPrefs(get()))
+  },
+  setSectionIndentWidth: (width) => {
+    set({ sectionIndentWidth: normalizeSectionIndentWidth(width) })
     savePrefs(collectPrefs(get()))
   },
   setHeadingStyle: (level, prop, value) => {

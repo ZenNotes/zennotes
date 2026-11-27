@@ -3,7 +3,9 @@ import type { VaultTask } from '@shared/tasks'
 import { ArrowUpRightIcon } from './icons'
 import { InlineMarkdown } from '../lib/inline-markdown'
 import { TaskStateBox } from './TaskStateBox'
-import { TaskRecurrenceBadges } from './TaskRecurrenceBadges'
+import { TaskPlanBadge, TaskRecurrenceBadges, shortTaskDay } from './TaskRecurrenceBadges'
+import { deadlineApartFromDay, taskDeadline } from '@shared/task-planning'
+import { FlagIcon } from './icons'
 import { priorityClass, priorityLabel } from '../lib/task-priority'
 import { CloudTaskConflictIndicator } from './CloudTaskConflictIndicator'
 import { getCurrentDragPayload, readDragPayload, setDragPayload } from '../lib/dnd'
@@ -11,6 +13,9 @@ import { getCurrentDragPayload, readDragPayload, setDragPayload } from '../lib/d
 interface Props {
   task: VaultTask
   isOverdue: boolean
+  /** The view's local day, which decides whether the deadline is where the
+   *  task sits or apart from it (a planned day). */
+  todayIso: string
   isCursor: boolean
   onToggle: () => void
   onOpen: () => void
@@ -27,16 +32,10 @@ interface Props {
   vimMode?: boolean
 }
 
-function formatDue(iso: string | undefined): string {
-  if (!iso) return ''
-  const d = new Date(`${iso}T00:00:00`)
-  if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-}
-
 export function TasksRow({
   task,
   isOverdue,
+  todayIso,
   isCursor,
   onToggle,
   onOpen,
@@ -48,6 +47,9 @@ export function TasksRow({
 }: Props): JSX.Element {
   const [dropPos, setDropPos] = useState<'before' | 'after' | null>(null)
   const draggable = !!onReorder
+  // The date a planned day gave way to does not count as this task's own.
+  const deadline = taskDeadline(task)
+  const deadlineApart = deadlineApartFromDay(task, todayIso) != null
   return (
     <div
       data-task-row={task.id}
@@ -153,16 +155,22 @@ export function TasksRow({
           </span>
         )}
         <TaskRecurrenceBadges task={task} />
-        {task.due && (
+        <TaskPlanBadge task={task} />
+        {deadline && (
           <span
+            data-task-due={deadline}
+            title={deadlineApart ? 'Due date' : undefined}
             className={[
-              'rounded px-1.5 py-0.5 font-medium',
+              'inline-flex items-center gap-1 whitespace-nowrap rounded px-1.5 py-0.5 font-medium',
               isOverdue
                 ? 'bg-rose-500/15 text-rose-300'
                 : 'bg-current/10 text-current/70'
             ].join(' ')}
           >
-            {formatDue(task.due)}
+            {/* Flagged when the task sits on its planned day, so the two
+                dates on the row cannot be read as one. */}
+            {deadlineApart && <FlagIcon width={11} height={11} aria-label="Due" />}
+            {shortTaskDay(deadline)}
           </span>
         )}
         {isCursor && (

@@ -20,6 +20,7 @@ import {
 } from './vault-ops'
 import { TASK_LINE_RE as SHARED_TASK_LINE_RE } from '@shared/tasklists'
 import { parseTasksFromBody as parseAppTasks } from '@shared/tasks'
+import { plannedDay } from '@shared/task-planning'
 
 // Every note-shaped MCP result carries `link`, the zennotes:// deep link a
 // model renders as a markdown link so the user can click from chat straight
@@ -137,6 +138,28 @@ describe('mcp task states', () => {
     expect(JSON.parse(JSON.stringify(tasks.find((t) => t.content === 'actually do it')))).not.toHaveProperty('status')
     const app = parseAppTasks(sprint, { path: 'inbox/Sprint.md', title: 'Sprint', folder: 'inbox' })
     expect(tasks.filter((t) => t.sourcePath === 'inbox/Sprint.md').map((t) => t.status)).toEqual(app.map((t) => t.status))
+  })
+
+  // The planned day (#1119): an assistant sees the day a task is planned for
+  // beside its deadline, read with the app's own rule, so the two cannot
+  // disagree about which values count.
+  it('reports each task’s planned day the way the app reads it', async () => {
+    await writeFile(
+      path.join(root, 'inbox', 'Launch.md'),
+      '---\ntags: [task]\ndue: 2026-12-04\nscheduled: 2026-12-02\n---\nShip it.\n'
+    )
+    const plan = '- [ ] report due:2026-12-04 @scheduled:2026-12-02\n- [ ] vague @scheduled:friday\n- [ ] bare\n'
+    await writeFile(path.join(root, 'inbox', 'Plan.md'), plan)
+    const tasks = await scanAllTasks(root)
+    const find = (content: string) => tasks.find((t) => t.content === content)
+    expect(find('Launch')).toMatchObject({ due: '2026-12-04', scheduled: '2026-12-02' })
+    expect(find('report @scheduled:2026-12-02')).toMatchObject({ due: '2026-12-04', scheduled: '2026-12-02' })
+    expect(find('vague @scheduled:friday')?.scheduled).toBeUndefined()
+    expect(JSON.parse(JSON.stringify(find('bare')))).not.toHaveProperty('scheduled')
+    const app = parseAppTasks(plan, { path: 'inbox/Plan.md', title: 'Plan', folder: 'inbox' })
+    expect(tasks.filter((t) => t.sourcePath === 'inbox/Plan.md').map((t) => t.scheduled)).toEqual(
+      app.map((t) => plannedDay(t))
+    )
   })
 
   it('toggles an ordered or quoted task in place', () => {

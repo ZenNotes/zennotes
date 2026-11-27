@@ -1,9 +1,11 @@
 /**
  * Month-grid Calendar view for the Tasks tab.
  *
- * - Each cell shows a date number plus dots for tasks scheduled that
- *   day. Today's cell is ringed; the focused cell is highlighted.
- * - Tasks without a due date land in the "No date" strip below the
+ * - Each cell shows a date number plus dots for the tasks that sit on that
+ *   day: on their planned day when they have one, on their due date
+ *   otherwise (`taskDay`, #1119). Today's cell is ringed; the focused cell is
+ *   highlighted.
+ * - Tasks without a date land in the "No date" strip below the
  *   grid so they stay actionable from the calendar surface.
  * - Vim navigation: h/j/k/l moves between days, [ / ] flips the
  *   month, gt jumps to today, Enter opens the source note for the
@@ -17,7 +19,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useKeyboardCursor } from '../lib/keyboard-cursor'
 import type { VaultTask } from '@shared/tasks'
 import {
-  bucketTasksByDueDate,
+  bucketTasksByDay,
   isOverdue as isTaskOverdue,
   toIsoDateLocal
 } from '@shared/tasks'
@@ -27,7 +29,13 @@ import { InlineMarkdown } from '../lib/inline-markdown'
 import { CloudTaskConflictIndicator } from './CloudTaskConflictIndicator'
 import { resolveWeekStartDay } from '../lib/week-start'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
-import { buildTaskMenuItems, chooseTaskDueDate } from '../lib/task-context-menu'
+import {
+  buildTaskMenuItems,
+  canPlanTask,
+  chooseTaskDueDate,
+  planTaskForToday
+} from '../lib/task-context-menu'
+import { TaskDeadlineFlag, TaskPlanBadge } from './TaskRecurrenceBadges'
 import { chooseTaskRemind, chooseTaskRepeat } from '../lib/task-recurrence-pickers'
 import { isOverlayOrDialogOpen } from '../lib/overlay-open'
 import { TasksKeysButton, TasksViewOptions, tasksToolbarOwnsKey } from './TasksToolbar'
@@ -41,6 +49,9 @@ interface Props {
   onRescheduleTask: (task: VaultTask, dueIso: string) => void
   /** Physically move a task into the daily note for the given date. */
   onMoveTask: (task: VaultTask, dateIso: string) => void
+  /** Plan a task for the given date, its deadline left alone (the drop's
+   *  third choice, #1119). */
+  onPlanTask: (task: VaultTask, dateIso: string) => void
   /** Add a `- [ ] …` task to the daily note for the given date. */
   onAddTask: (dateIso: string, text: string) => void | Promise<void>
   /** Whether daily notes are enabled — gates the quick-add box, which writes
@@ -105,6 +116,7 @@ export function TasksCalendar({
   onToggleTask,
   onRescheduleTask,
   onMoveTask,
+  onPlanTask,
   onAddTask,
   dailyNotesEnabled,
   hiddenEmpty = 0
@@ -181,7 +193,7 @@ export function TasksCalendar({
     [monthAnchor, firstDay]
   )
 
-  const buckets = useMemo(() => bucketTasksByDueDate(tasks), [tasks])
+  const buckets = useMemo(() => bucketTasksByDay(tasks, todayIso), [tasks, todayIso])
   const unscheduled = buckets.get('unscheduled') ?? []
   const selectedIso = toIsoDateLocal(selectedDate)
   const selectedTasks = buckets.get(selectedIso) ?? []
@@ -199,8 +211,8 @@ export function TasksCalendar({
 
   // Keep the latest reschedule/move callbacks in a ref so the window listeners
   // can mount once (the parent passes fresh arrows each render).
-  const dropCbRef = useRef({ onMoveTask, onRescheduleTask })
-  dropCbRef.current = { onMoveTask, onRescheduleTask }
+  const dropCbRef = useRef({ onMoveTask, onRescheduleTask, onPlanTask })
+  dropCbRef.current = { onMoveTask, onRescheduleTask, onPlanTask }
 
   useEffect(() => {
     const dayUnder = (x: number, y: number): string | null => {
@@ -229,11 +241,11 @@ export function TasksCalendar({
       suppressClickRef.current = true
       const iso = dayUnder(e.clientX, e.clientY)
       if (iso) {
-        const { onMoveTask: move, onRescheduleTask: resched } = dropCbRef.current
+        const { onMoveTask: move, onRescheduleTask: resched, onPlanTask: plan } = dropCbRef.current
         setMenu({
           x: e.clientX,
           y: e.clientY,
-          items: dropChoiceItems(drag.task, iso, move, resched)
+          items: dropChoiceItems(drag.task, iso, move, resched, plan)
         })
       }
     }
@@ -309,6 +321,7 @@ export function TasksCalendar({
         key={task.id}
         task={task}
         isOverdue={isTaskOverdue(task, today)}
+        todayIso={todayIso}
         isActive={extra.isActive}
         buttonRef={extra.buttonRef ?? null}
         onToggle={() => onToggleTask(task)}
@@ -406,7 +419,7 @@ export function TasksCalendar({
           setMenu({
             x: rect ? rect.left + rect.width / 2 : window.innerWidth / 2,
             y: rect ? rect.bottom : window.innerHeight / 2,
-            items: dropChoiceItems(grabbedTask, selectedIso, onMoveTask, onRescheduleTask)
+            items: dropChoiceItems(grabbedTask, selectedIso, onMoveTask, onRescheduleTask, onPlanTask)
           })
           setGrabbedTask(null)
           return
@@ -541,6 +554,12 @@ export function TasksCalendar({
             void (e.key === 'r' ? chooseTaskRepeat(active) : chooseTaskRemind(active))
             return
           }
+          // Plan for today (#1119). `<`, `>` and `T` still move the due date.
+          if (vimMode && e.key === 'p') {
+            consume()
+            void planTaskForToday(active, today)
+            return
+          }
           if (e.key === 'e') {
             consume()
             setEditingTaskId(active.id)
@@ -625,8 +644,10 @@ export function TasksCalendar({
     onToggleTask,
     onRescheduleTask,
     onMoveTask,
+    onPlanTask,
     deleteTaskFromList,
-    vimMode
+    vimMode,
+    today
   ])
 
   const focusedTaskRef = useRef<HTMLDivElement | null>(null)
@@ -705,7 +726,6 @@ export function TasksCalendar({
           const isToday = cellIso === todayIso
           const isSelected = cellIso === selectedIso
           const isDragOver = dragOverIso === cellIso
-          const overdueCount = cellTasks.filter((t) => isTaskOverdue(t, today)).length
           return (
             <button
               type="button"
@@ -744,7 +764,7 @@ export function TasksCalendar({
                       key={task.id}
                       className={[
                         'h-1.5 w-1.5 rounded-full',
-                        overdueCount > 0 && task.due && task.due < todayIso
+                        isTaskOverdue(task, today)
                           ? 'bg-rose-400/80'
                           : task.priority === 'high'
                             ? 'bg-rose-300/80'
@@ -844,7 +864,7 @@ export function TasksCalendar({
         {unscheduled.length > 0 && (
           <details className="mt-4">
             <summary className="cursor-pointer text-xs text-current/50 hover:text-current/80">
-              {unscheduled.length} task{unscheduled.length === 1 ? '' : 's'} without a due date
+              {unscheduled.length} task{unscheduled.length === 1 ? '' : 's'} without a date
             </summary>
             <div className="mt-2 space-y-1">
               {unscheduled.map((task) => renderTask(task, {}))}
@@ -869,13 +889,15 @@ export function TasksCalendar({
   )
 }
 
-/** "Move into that day's note" vs "just set the due date" — the menu shown after
- *  dropping a task on a calendar day. */
+/** "Move into that day's note", "just set the due date" or "plan for that
+ *  day" (the deadline left alone, #1119): the menu shown after dropping a task
+ *  on a calendar day. */
 function dropChoiceItems(
   task: VaultTask,
   dateIso: string,
   onMoveTask: (task: VaultTask, dateIso: string) => void,
-  onRescheduleTask: (task: VaultTask, dueIso: string) => void
+  onRescheduleTask: (task: VaultTask, dueIso: string) => void,
+  onPlanTask: (task: VaultTask, dateIso: string) => void
 ): ContextMenuItem[] {
   const label = parseIsoLocal(dateIso).toLocaleDateString(undefined, {
     month: 'short',
@@ -883,13 +905,19 @@ function dropChoiceItems(
   })
   return [
     { label: `Move into ${label}'s note`, onSelect: () => onMoveTask(task, dateIso) },
-    { label: `Just set due: ${label}`, onSelect: () => onRescheduleTask(task, dateIso) }
+    { label: `Just set due: ${label}`, onSelect: () => onRescheduleTask(task, dateIso) },
+    {
+      label: `Plan for ${label}`,
+      disabled: !canPlanTask(task),
+      onSelect: () => onPlanTask(task, dateIso)
+    }
   ]
 }
 
 interface RowProps {
   task: VaultTask
   isOverdue: boolean
+  todayIso: string
   isActive?: boolean
   buttonRef?: React.RefObject<HTMLDivElement> | null
   onToggle: () => void
@@ -901,6 +929,7 @@ interface RowProps {
 function CalendarTaskRow({
   task,
   isOverdue,
+  todayIso,
   isActive,
   buttonRef,
   onToggle,
@@ -974,6 +1003,12 @@ function CalendarTaskRow({
       </span>
       <span className="shrink-0 truncate text-xs text-current/45">{task.noteTitle}</span>
       <CloudTaskConflictIndicator path={task.sourcePath} />
+      {/* The row is already under its day, so the plan is a mark alone and
+          only a deadline on another day spells its date. */}
+      <span className="contents text-xs">
+        <TaskPlanBadge task={task} compact />
+        <TaskDeadlineFlag task={task} todayIso={todayIso} />
+      </span>
       {task.priority && (
         <span
           className={[

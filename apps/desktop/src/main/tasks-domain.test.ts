@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import {
-  bucketTasksByDueDate,
+  bucketTasksByDay,
   inferDailyTaskDueDates,
   parseTasksFromBody,
-  tasksDueOn,
+  tasksOnDay,
   toIsoDateLocal,
   type ParseTasksContext
 } from '@shared/tasks'
+
+// These tasks have no planned day, so the day they sit on does not depend on
+// today; any date serves.
+const TODAY = '2026-01-01'
 
 const ctx: ParseTasksContext = {
   path: 'inbox/test.md',
@@ -24,7 +28,7 @@ describe('toIsoDateLocal', () => {
   })
 })
 
-describe('tasksDueOn', () => {
+describe('tasksOnDay', () => {
   it('returns unchecked tasks — including @waiting — matching the iso, dropping done (#311)', () => {
     const all = tasks(
       [
@@ -34,7 +38,7 @@ describe('tasksDueOn', () => {
         '- [ ] waiting  due:2026-04-30 @waiting'
       ].join('\n')
     )
-    const due = tasksDueOn(all, '2026-04-30')
+    const due = tasksOnDay(all, '2026-04-30', TODAY)
     // #311: a @waiting task with a due date must appear here too (the sidepanel
     // calendar was under-counting them vs the Tasks calendar). Only done
     // (checked) and other-date tasks are excluded.
@@ -43,11 +47,11 @@ describe('tasksDueOn', () => {
 
   it('drops cancelled tasks (#476)', () => {
     const all = tasks(['- [ ] live  due:2026-04-30', '- [-] scrapped  due:2026-04-30'].join('\n'))
-    expect(tasksDueOn(all, '2026-04-30').map((t) => t.content)).toEqual(['live'])
+    expect(tasksOnDay(all, '2026-04-30', TODAY).map((t) => t.content)).toEqual(['live'])
   })
 })
 
-describe('bucketTasksByDueDate', () => {
+describe('bucketTasksByDay', () => {
   it('groups by due date and surfaces unscheduled separately', () => {
     const all = tasks(
       [
@@ -57,7 +61,7 @@ describe('bucketTasksByDueDate', () => {
         '- [ ] d nodate'
       ].join('\n')
     )
-    const buckets = bucketTasksByDueDate(all)
+    const buckets = bucketTasksByDay(all, TODAY)
     expect(buckets.get('2026-04-30')?.length).toBe(2)
     expect(buckets.get('2026-05-01')?.length).toBe(1)
     expect(buckets.get('unscheduled')?.length).toBe(1)
@@ -71,7 +75,7 @@ describe('bucketTasksByDueDate', () => {
         '- [ ] live  due:2026-04-30'
       ].join('\n')
     )
-    const buckets = bucketTasksByDueDate(all)
+    const buckets = bucketTasksByDay(all, TODAY)
     const bucket = buckets.get('2026-04-30') ?? []
     // The done task is dropped; the waiting-with-due task now shows alongside live.
     expect(bucket.length).toBe(2)
@@ -86,7 +90,7 @@ describe('bucketTasksByDueDate', () => {
         '- [-] scrapped undated'
       ].join('\n')
     )
-    const buckets = bucketTasksByDueDate(all)
+    const buckets = bucketTasksByDay(all, TODAY)
     expect(buckets.get('2026-04-30')?.map((t) => t.content)).toEqual(['live'])
     expect(buckets.get('unscheduled')).toBeUndefined()
   })
@@ -100,7 +104,7 @@ describe('bucketTasksByDueDate', () => {
         '- [ ] Other layout due:2026-06-27 @waiting'
       ].join('\n')
     )
-    const buckets = bucketTasksByDueDate(all)
+    const buckets = bucketTasksByDay(all, TODAY)
     // The three due:2026-06-27 tasks all land on the date (two of them waiting);
     // the bare @waiting task with no due date is unscheduled.
     expect(buckets.get('2026-06-27')?.length).toBe(3)
@@ -145,6 +149,6 @@ describe('inferDailyTaskDueDates', () => {
 
   it('makes inferred tasks show up in their day bucket', () => {
     const out = inferDailyTaskDueDates(dailyA, dueByPath)
-    expect(tasksDueOn(out, '2026-06-17').length).toBe(1)
+    expect(tasksOnDay(out, '2026-06-17', TODAY).length).toBe(1)
   })
 })

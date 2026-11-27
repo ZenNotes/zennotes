@@ -4,6 +4,7 @@ import { parseFrontmatterFields, unquote } from './frontmatter'
 import type { NoteFolder } from './ipc'
 import { FENCE_RE, TASK_LINE_RE } from './tasklists'
 import { createTaskNesting, isMarkdownCheckbox } from './task-nesting'
+import { isValidIsoDate, taskDay, taskDeadline } from './task-planning'
 
 /**
  * Virtual path used to identify the vault-wide Tasks view as a tab in the
@@ -81,12 +82,6 @@ function normalizePriority(raw: string | undefined): TaskPriority | undefined {
   if (v === 'med' || v === 'medium' || v === 'normal' || v === 'm') return 'med'
   if (v === 'low' || v === 'l') return 'low'
   return undefined
-}
-
-function isValidIsoDate(s: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false
-  const t = Date.parse(`${s}T00:00:00Z`)
-  return Number.isFinite(t)
 }
 
 function normalizeDueDate(raw: string | undefined): string | undefined {
@@ -478,7 +473,11 @@ export function filterTasksForDisplay(tasks: VaultTask[], showArchived: boolean)
 /** Group using a "today" anchor the caller supplies, so tests are stable and
  *  the user's timezone is respected. Waiting overrides everything except Done.
  *
- *  Tasks without a due date have their own group. They used to land in Today,
+ *  A task is grouped by the day it sits on (`taskDay`): its planned day when
+ *  it has one, its deadline otherwise, and today for a planned day it missed.
+ *  Only a deadline that passed counts as overdue.
+ *
+ *  Tasks without a day have their own group. They used to land in Today,
  *  so a task made with New task (only `dateCreated` in its frontmatter) sat
  *  among today's work and the "No due date" a user went looking for did not
  *  exist (#990). A task in a daily note counts as due on that note's date
@@ -494,6 +493,8 @@ export function groupTasks(tasks: VaultTask[], today: Date): VaultTaskGroups {
   const forwarded: VaultTask[] = []
   const cancelled: VaultTask[] = []
   let overdueCount = 0
+  // The day each live task sits on, kept for the sort below.
+  const days = new Map<VaultTask, string>()
 
   for (const task of tasks) {
     if (task.cancelled) {
@@ -512,16 +513,20 @@ export function groupTasks(tasks: VaultTask[], today: Date): VaultTaskGroups {
       waiting.push(task)
       continue
     }
-    if (!task.due) {
+    const day = taskDay(task, todayIso)
+    if (!day) {
       undated.push(task)
       continue
     }
-    if (task.due < todayIso) {
+    days.set(task, day)
+    // Only a deadline puts a task on a day before today: a missed planned
+    // day sits on today itself.
+    if (day < todayIso) {
       today_.push(task)
       overdueCount += 1
       continue
     }
-    if (task.due === todayIso) {
+    if (day === todayIso) {
       today_.push(task)
       continue
     }
@@ -529,42 +534,41 @@ export function groupTasks(tasks: VaultTask[], today: Date): VaultTaskGroups {
   }
 
   // Sort each bucket for stable, useful ordering.
-  const byDueThenPath = (a: VaultTask, b: VaultTask): number => {
-    const ad = a.due ?? '9999-99-99'
-    const bd = b.due ?? '9999-99-99'
-    if (ad !== bd) return ad < bd ? -1 : 1
+  const byPath = (a: VaultTask, b: VaultTask): number => {
     if (a.sourcePath !== b.sourcePath) return a.sourcePath < b.sourcePath ? -1 : 1
     return a.taskIndex - b.taskIndex
   }
+  const byDayThenPath = (a: VaultTask, b: VaultTask): number => {
+    const ad = days.get(a) ?? a.due ?? '9999-99-99'
+    const bd = days.get(b) ?? b.due ?? '9999-99-99'
+    if (ad !== bd) return ad < bd ? -1 : 1
+    return byPath(a, b)
+  }
   const priorityRank: Record<TaskPriority, number> = { high: 0, med: 1, low: 2 }
-  const byPriorityThenDue = (a: VaultTask, b: VaultTask): number => {
+  const byPriorityThenDay = (a: VaultTask, b: VaultTask): number => {
     const ap = a.priority ? priorityRank[a.priority] : 3
     const bp = b.priority ? priorityRank[b.priority] : 3
     if (ap !== bp) return ap - bp
-    return byDueThenPath(a, b)
+    return byDayThenPath(a, b)
   }
 
-  today_.sort(byPriorityThenDue)
-  upcoming.sort(byDueThenPath)
-  undated.sort(byPriorityThenDue)
-  waiting.sort(byPriorityThenDue)
-  done.sort((a, b) => {
-    if (a.sourcePath !== b.sourcePath) return a.sourcePath < b.sourcePath ? -1 : 1
-    return a.taskIndex - b.taskIndex
-  })
-  forwarded.sort(byDueThenPath)
-  cancelled.sort((a, b) => {
-    if (a.sourcePath !== b.sourcePath) return a.sourcePath < b.sourcePath ? -1 : 1
-    return a.taskIndex - b.taskIndex
-  })
+  today_.sort(byPriorityThenDay)
+  upcoming.sort(byDayThenPath)
+  undated.sort(byPriorityThenDay)
+  waiting.sort(byPriorityThenDay)
+  done.sort(byPath)
+  forwarded.sort(byDayThenPath)
+  cancelled.sort(byPath)
 
   return { today: today_, upcoming, undated, waiting, done, forwarded, cancelled, overdueCount }
 }
 
-/** Helper for UIs that need to know whether a task is overdue relative to now. */
+/** Helper for UIs that need to know whether a task is overdue relative to now.
+ *  Reads the deadline only: a planned day that passed is not lateness. */
 export function isOverdue(task: VaultTask, today: Date): boolean {
-  if (task.checked || task.waiting || !task.due) return false
-  return task.due < toIsoDate(today)
+  const deadline = taskDeadline(task)
+  if (task.checked || task.waiting || !deadline) return false
+  return deadline < toIsoDate(today)
 }
 
 /** Convert a Date to its `YYYY-MM-DD` representation in the user's local
@@ -586,13 +590,14 @@ export function isTaskOpen(task: VaultTask): boolean {
   return !task.checked && !task.cancelled
 }
 
-/** Tasks scheduled for the given local date (ISO YYYY-MM-DD). Excludes done
+/** The open tasks that sit on the given local date (ISO YYYY-MM-DD), placed
+ *  by `taskDay`: a planned day first, the deadline otherwise. Excludes done
  *  (checked) and cancelled tasks but KEEPS `@waiting` tasks, so a waiting task
- *  with a due date still appears on its date — matching `bucketTasksByDueDate`
- *  and the Tasks calendar. Without this the sidepanel calendar under-counted
- *  `@waiting` tasks the Tasks calendar showed. (#311, complementing #236) */
-export function tasksDueOn(tasks: VaultTask[], iso: string): VaultTask[] {
-  return tasks.filter((t) => isTaskOpen(t) && t.due === iso)
+ *  with a date still appears on it, matching `bucketTasksByDay` and the Tasks
+ *  calendar. Without this the sidepanel calendar under-counted `@waiting`
+ *  tasks the Tasks calendar showed. (#311, complementing #236) */
+export function tasksOnDay(tasks: VaultTask[], iso: string, todayIso: string): VaultTask[] {
+  return tasks.filter((t) => isTaskOpen(t) && taskDay(t, todayIso) === iso)
 }
 
 /**
@@ -627,22 +632,23 @@ export function inferDailyTaskDueDates(
   return changed ? out : tasks
 }
 
-/** Bucket tasks by `due` ISO date. Done (checked) and cancelled tasks are
- *  skipped (see `isTaskOpen`); waiting tasks are kept so a `@waiting` task with
- *  a due date still appears on the calendar on its date (#236). Tasks without a
- *  due date land in the special `'unscheduled'` key. A forwarded record only
- *  buckets when it carries an explicit date: dated, it keeps its calendar slot
- *  (the copy is written without the `due:` token, see `isTaskOpen`); undated,
- *  it is a record of a move, not unscheduled work, and listing it beside the
- *  live copy made one task read as two (#610). */
-export function bucketTasksByDueDate(
-  tasks: VaultTask[]
-): Map<string, VaultTask[]> {
+/** Bucket tasks by the day they sit on (`taskDay`): a planned day first, the
+ *  deadline otherwise, today for a planned day that was missed. Done (checked)
+ *  and cancelled tasks are skipped (see `isTaskOpen`); waiting tasks are kept
+ *  so a `@waiting` task with a date still appears on the calendar on its date
+ *  (#236). Tasks without a day land in the special `'unscheduled'` key. A
+ *  forwarded record only buckets when it carries a written date: dated, it
+ *  keeps its calendar slot (the copy is written without the `due:` and
+ *  `@scheduled:` tokens, see `isTaskOpen`); undated, it is a record of a move,
+ *  not unscheduled work, and listing it beside the live copy made one task
+ *  read as two (#610). */
+export function bucketTasksByDay(tasks: VaultTask[], todayIso: string): Map<string, VaultTask[]> {
   const map = new Map<string, VaultTask[]>()
   for (const task of tasks) {
     if (!isTaskOpen(task)) continue
-    if (task.forwarded && !task.due) continue
-    const key = task.due ?? 'unscheduled'
+    const day = taskDay(task, todayIso)
+    if (task.forwarded && !day) continue
+    const key = day ?? 'unscheduled'
     const list = map.get(key)
     if (list) list.push(task)
     else map.set(key, [task])

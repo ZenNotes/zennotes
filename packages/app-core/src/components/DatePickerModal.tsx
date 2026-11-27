@@ -23,6 +23,9 @@ export interface DatePickerOptions {
   /** `YYYY-MM-DD` the picker opens on; today when absent or malformed. */
   initialDate?: string
   okLabel?: string
+  /** Offer to take the date off, under this label: a button in the footer,
+   *  and Enter on the text field emptied. Absent, the picker only picks. */
+  clearLabel?: string
 }
 
 const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
@@ -39,11 +42,14 @@ const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 export function DatePickerModal({
   options,
   onSubmit,
-  onCancel
+  onCancel,
+  onClear
 }: {
   options: DatePickerOptions
   onSubmit: (iso: string) => void
   onCancel: () => void
+  /** Called for `clearLabel`'s button; without it the button is not drawn. */
+  onClear?: () => void
 }): JSX.Element {
   const vimMode = useStore((s) => s.vimMode)
   const weekStart = useStore((s) => s.calendarWeekStart)
@@ -92,7 +98,14 @@ export function DatePickerModal({
     selectedCellRef.current?.focus()
   }, [selectedIso])
 
+  const clearLabel = onClear ? options.clearLabel : undefined
+
   function submitTyped(): void {
+    // An emptied field is the keyboard's way to say "no date".
+    if (clearLabel && typed.trim() === '') {
+      onClear?.()
+      return
+    }
     const parsed = parseISODate(typed.trim())
     if (!parsed) {
       setError('Type a real date as YYYY-MM-DD.')
@@ -254,6 +267,11 @@ export function DatePickerModal({
         </div>
       </div>
       <Modal.Footer>
+        {clearLabel && (
+          <Button variant="ghost" className="mr-auto" data-date-picker-clear onClick={onClear}>
+            {clearLabel}
+          </Button>
+        )}
         <Button variant="secondary" onClick={onCancel}>
           Cancel
         </Button>

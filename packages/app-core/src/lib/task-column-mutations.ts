@@ -1,5 +1,6 @@
 import type { KanbanGroupBy, KanbanLaneBy, TaskMutation } from '../store'
 import { toIsoDateLocal, type VaultTask } from '@shared/tasks'
+import { PLANNED_DAY_FIELD, plannedDay, taskDeadline } from '@shared/task-planning'
 
 /** Map a (groupBy, columnId) drop target to the task-line mutations
  *  that should land. Returns `null` when the drop has no defined
@@ -13,6 +14,15 @@ export function dropMutationsFor(
 ): TaskMutation[] | null {
   if (groupBy === 'status') {
     const todayIso = toIsoDateLocal(today)
+    // A task with a planned day sits where its plan puts it (#1119), so the
+    // date columns move the plan and leave the deadline the date it has. A
+    // task without one is moved by its due date, as it always was.
+    const planned = plannedDay(task)
+    const plan = (day: string | null): TaskMutation => ({
+      kind: 'set-field',
+      key: PLANNED_DAY_FIELD,
+      value: day
+    })
     switch (columnId) {
       case 'today':
         // "Live" columns; make sure neither @waiting, [x] nor [/] keep the
@@ -21,20 +31,30 @@ export function dropMutationsFor(
           { kind: 'set-checked', checked: false },
           { kind: 'set-waiting', waiting: false },
           { kind: 'set-in-progress', inProgress: false },
-          { kind: 'set-due', due: todayIso }
+          planned ? plan(todayIso) : { kind: 'set-due', due: todayIso }
         ]
       case 'upcoming': {
         const tomorrow = new Date(today)
         tomorrow.setDate(tomorrow.getDate() + 1)
-        return [
+        const tomorrowIso = toIsoDateLocal(tomorrow)
+        const live: TaskMutation[] = [
           { kind: 'set-checked', checked: false },
           { kind: 'set-waiting', waiting: false },
-          { kind: 'set-in-progress', inProgress: false },
-          {
-            kind: 'set-due',
-            due: task.due && task.due > todayIso ? task.due : toIsoDateLocal(tomorrow)
-          }
+          { kind: 'set-in-progress', inProgress: false }
         ]
+        if (!planned) {
+          return [
+            ...live,
+            { kind: 'set-due', due: task.due && task.due > todayIso ? task.due : tomorrowIso }
+          ]
+        }
+        // Either date can be what holds a planned task in Today: a deadline
+        // that arrived, or a plan for today (or one it missed). Each moves
+        // only if it is the one in the way.
+        const deadline = taskDeadline(task)
+        if (deadline && deadline <= todayIso) live.push({ kind: 'set-due', due: tomorrowIso })
+        if (planned <= todayIso) live.push(plan(tomorrowIso))
+        return live
       }
       case 'undated':
         // A daily note's date is not on the line, so there is no `due:` to
@@ -46,7 +66,9 @@ export function dropMutationsFor(
           { kind: 'set-checked', checked: false },
           { kind: 'set-waiting', waiting: false },
           { kind: 'set-in-progress', inProgress: false },
-          { kind: 'set-due', due: null }
+          { kind: 'set-due', due: null },
+          // No day at all means no planned day either.
+          ...(planned ? [plan(null)] : [])
         ]
       case 'in-progress':
         // Started work: `[/]`. The due date is left alone, so a card dragged

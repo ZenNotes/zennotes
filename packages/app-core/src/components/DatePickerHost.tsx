@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import {
+  DATE_PROMPT_CLEAR,
   getDatePromptRequest,
   settleDatePromptRequest,
   subscribeDatePromptRequests,
@@ -26,6 +27,7 @@ export function DatePickerHost(): JSX.Element | null {
         options={request.options}
         onSubmit={(iso) => settleDatePromptRequest(request, iso)}
         onCancel={() => settleDatePromptRequest(request, null)}
+        onClear={() => settleDatePromptRequest(request, DATE_PROMPT_CLEAR)}
       />
     </Suspense>
   )

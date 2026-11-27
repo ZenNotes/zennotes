@@ -259,17 +259,36 @@ describe('noteMarkdown: incremental parsing', () => {
     expect(names(after)).not.toContain('HorizontalRule')
     expect(names(after)).not.toContain('SetextHeading2')
     // This one transition reparses the body in full: the Body node moved from
-    // position 0 to the closing fence, and parseMixed (through @lezer/common
-    // 1.5.2) loses track of the old mount when the mounted node is the first
-    // child covering the new start. Keep it that way: blocks reused across a
-    // moved start can keep a meaning the move changed (the header of
-    // cm-markdown-language.ts has the numbers). It costs one parse, the same
-    // as opening the note, and the very next edit is incremental again.
+    // position 0 to the closing fence. Through @lezer/common 1.5.4 parseMixed
+    // lost track of the old mount there by itself; 1.5.5 finds it again, so
+    // the grammar now withholds the older trees (`bodyKeptItsStart`). Keep it
+    // that way: blocks reused across a moved start can keep a meaning the
+    // move changed (the header of cm-markdown-language.ts has the numbers).
+    // It costs one parse, the same as opening the note, and the very next
+    // edit is incremental again.
     expect(blockTreeAt(after, probeAt + 3)).not.toBe(probeTree)
     const settled = blockTreeAt(after, probeAt + 3)
     const editAt = next.doc.toString().indexOf('Paragraph 3 ')
     const again = update(next, editAt, editAt, 'Edited ')
     expect(blockTreeAt(syntaxTree(again), probeAt + 3 + 'Edited '.length)).toBe(settled)
+  })
+
+  it('reparses a note without frontmatter when its first characters are deleted', () => {
+    // The fragment left by a deletion at position 0 starts at the body's
+    // start without being the old start. Lezer's markdown reuse then keeps
+    // blocks whose meaning the cut changed, so nothing older is reused.
+    const { state, tree } = parse(BODY)
+    const probeAt = BODY.indexOf(PROBE)
+    const probeTree = blockTreeAt(tree, probeAt)
+    const next = update(state, 0, 2, '')
+    expect(blockTreeAt(syntaxTree(next), probeAt - 2)).not.toBe(probeTree)
+
+    // The note that showed it: six spaces of indent cut to four.
+    const doc =
+      '      - nested\n    more\n\n    ## Sub heading\n\n---x\nParagraph one with words.\n\n' +
+      'Paragr\naph one with words.\n\n    indente|d code\n\n -   indented code'
+    const cut = update(parse(doc).state, 0, 2, '')
+    expect(nodes(syntaxTree(cut))).toEqual(nodes(parse(doc.slice(2)).tree))
   })
 
   it('drops the block the moment its closing fence is broken', () => {

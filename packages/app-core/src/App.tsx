@@ -76,6 +76,7 @@ import { installIgnoredKeysGuard } from './lib/ignored-keys'
 import { installCommandKeymapDispatcher, isMainAppWindow } from './lib/command-keymap-dispatch'
 import { installSidebarTrashKeys } from './lib/sidebar-note-actions'
 import { applyHeadingStyles } from './lib/heading-styles'
+import { applySectionIndent } from './lib/section-indent-width'
 
 // The ignored-keys guard (#732) has to be on `window` before any component
 // registers a capture listener there, so it is installed at import time,
@@ -408,6 +409,7 @@ function App(): JSX.Element {
   const colorHeadings = useStore((s) => s.colorHeadings)
   const headingStyles = useStore((s) => s.headingStyles)
   const indentSections = useStore((s) => s.indentSections)
+  const sectionIndentWidth = useStore((s) => s.sectionIndentWidth)
   const hasCompletedOnboarding = useStore((s) => s.hasCompletedOnboarding)
   const persistWorkspace = useStore((s) => s.persistWorkspace)
   const flushDirtyNotes = useStore((s) => s.flushDirtyNotes)
@@ -816,8 +818,8 @@ function App(): JSX.Element {
   // Indent sections under headings: the editor and Preview always mark each
   // line's and block's depth; this attribute is what turns the indent on.
   useEffect(() => {
-    document.documentElement.toggleAttribute('data-indent-sections', indentSections)
-  }, [indentSections])
+    applySectionIndent(document.documentElement, indentSections, sectionIndentWidth)
+  }, [indentSections, sectionIndentWidth])
 
   useEffect(() => {
     const handler = (e: KeyboardEvent): void => {

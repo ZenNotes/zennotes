@@ -31,7 +31,11 @@ import { moveLineDown, moveLineUp } from "@codemirror/commands";
 import { unfoldAll } from "@codemirror/language";
 import { foldAllOutline, foldAtCursor, unfoldAtCursor } from "../lib/cm-heading-fold";
 import { isTagsViewActive, isTasksViewActive, useStore } from "../store";
-import { remindTaskAtCursor, repeatTaskAtCursor } from "../lib/editor-task-recurrence";
+import {
+  planTaskAtCursor,
+  remindTaskAtCursor,
+  repeatTaskAtCursor,
+} from "../lib/editor-task-recurrence";
 import { buildCommands, type Command } from "../lib/commands";
 import { rankItems } from "../lib/fuzzy-score";
 import { BUILTIN_TEMPLATES } from "@shared/builtin-templates";
@@ -114,6 +118,10 @@ import { followLinkTarget } from "../lib/follow-link";
 import { openLinkPopoverAtCursor } from "../lib/link-popover-open";
 import { openGalleryFromArgument } from "../lib/folder-gallery-open";
 import { newKanbanFromArgument } from "../lib/kanban-create";
+import {
+  MAX_SECTION_INDENT_WIDTH,
+  MIN_SECTION_INDENT_WIDTH,
+} from "../lib/section-indent-width";
 
 let vimCommandsRegistered = false;
 let syncedVimBindings: Partial<Record<KeymapId, string[]>> = {};
@@ -577,6 +585,17 @@ function registerVimCommands(): void {
       if (view) void remindTaskAtCursor(view, params?.argString ?? "");
     },
   );
+  // `:plan today` / `:plan 2026-12-02` set the day the task under the cursor
+  // is planned for (#1119), its due date left alone; `off` takes the plan
+  // away, and bare it opens the calendar the Tasks views' Plan for… opens.
+  Vim.defineEx(
+    "plan",
+    "plan",
+    (_cm: unknown, params: { argString?: string } | undefined) => {
+      const view = useStore.getState().editorViewRef;
+      if (view) void planTaskAtCursor(view, params?.argString ?? "");
+    },
+  );
   // `:cover` (`:cov`) is the ex twin of Space l c. Bare, it opens the picker;
   // `:cover!` or `:cover remove` takes the cover off; `paste` uses the
   // clipboard image; `reposition` enters reposition mode and `40%` sets the
@@ -857,11 +876,28 @@ function registerVimCommands(): void {
   });
 
   // `:indentsections` flips Indent sections, like the palette's Toggle
-  // Section Indent.
-  Vim.defineEx("indentsections", "indents", () => {
-    const st = useStore.getState();
-    st.setIndentSections(!st.indentSections);
-  });
+  // Section Indent. `:indentsections 2` sets Indent width to 2 spaces and
+  // turns it on, so trying widths does not flip it off between tries.
+  Vim.defineEx(
+    "indentsections",
+    "indents",
+    (_cm: unknown, params: { argString?: string } | undefined) => {
+      const st = useStore.getState();
+      const arg = (params?.argString ?? "").trim();
+      if (arg === "") {
+        st.setIndentSections(!st.indentSections);
+        return;
+      }
+      if (!/^\d+$/.test(arg)) {
+        alertEditorError(
+          `Indent width is a number of spaces, ${MIN_SECTION_INDENT_WIDTH} through ${MAX_SECTION_INDENT_WIDTH}`,
+        );
+        return;
+      }
+      st.setSectionIndentWidth(Number(arg));
+      st.setIndentSections(true);
+    },
+  );
 
   Vim.defineEx("daily", "daily", () => {
     void useStore.getState().openTodayDailyNote();

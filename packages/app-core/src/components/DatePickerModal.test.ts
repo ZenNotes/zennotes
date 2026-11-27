@@ -33,19 +33,21 @@ describe('DatePickerModal', () => {
   let container: HTMLDivElement | null = null
   const onSubmit = vi.fn<(iso: string) => void>()
   const onCancel = vi.fn<() => void>()
+  const onClear = vi.fn<() => void>()
 
   function mount(options: DatePickerOptions): void {
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
     act(() => {
-      root!.render(createElement(DatePickerModal, { options, onSubmit, onCancel }))
+      root!.render(createElement(DatePickerModal, { options, onSubmit, onCancel, onClear }))
     })
   }
 
   beforeEach(() => {
     onSubmit.mockReset()
     onCancel.mockReset()
+    onClear.mockReset()
     useStore.setState({ vimMode: false, calendarWeekStart: 'monday' })
   })
 
@@ -141,6 +143,37 @@ describe('DatePickerModal', () => {
     )!
     act(() => cancel.click())
     expect(onCancel).toHaveBeenCalledTimes(1)
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  // Plan for… (#1119) can take the date off; the pickers that only pick
+  // (a due date, `@date`) show no such button.
+  it('offers to clear only when asked to, from its button or an emptied field', () => {
+    mount({ initialDate: '2026-09-08' })
+    expect(document.querySelector('[data-date-picker-clear]')).toBeNull()
+    const plain = document.querySelector<HTMLInputElement>('input[aria-label="Date"]')!
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    act(() => {
+      setValue.call(plain, '')
+      plain.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    key(plain, 'Enter')
+    expect(onClear).not.toHaveBeenCalled()
+    act(() => root?.unmount())
+
+    mount({ initialDate: '2026-09-08', clearLabel: 'Clear' })
+    const clear = document.querySelector<HTMLButtonElement>('[data-date-picker-clear]')!
+    expect(clear.textContent).toBe('Clear')
+    act(() => clear.click())
+    expect(onClear).toHaveBeenCalledTimes(1)
+
+    const input = document.querySelector<HTMLInputElement>('input[aria-label="Date"]')!
+    act(() => {
+      setValue.call(input, '')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    key(input, 'Enter')
+    expect(onClear).toHaveBeenCalledTimes(2)
     expect(onSubmit).not.toHaveBeenCalled()
   })
 

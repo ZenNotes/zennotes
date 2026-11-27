@@ -2396,12 +2396,24 @@ html[data-completed-task-style="gray-strikethrough"] .cm-editor .cm-task-done * 
  * heading and everything under it sits one step in per level below the note's
  * shallowest heading (lib/cm-section-indent.ts marks editor lines and block
  * widgets, rehypeSectionDepth marks Preview blocks). Margin, not padding:
- * list lines already own their padding and text-indent. The step follows the
- * text size, not the heading's own size, so a heading lines up with the text
- * under it. A full-width block (a Preview table, a wide editor widget) gives
- * back the same width, so it stops at the column's right edge. */
+ * list lines already own their padding and text-indent. The step is Indent
+ * width spaces of the text font (lib/section-indent-width.ts), the columns
+ * Tab size counts in. It is a registered length worked out once on the editor
+ * content and the Preview column and inherited as that length, so a heading
+ * that sets its own size or font still lines up with the text under it. A
+ * full-width block (a Preview table, a wide editor widget) gives back the
+ * same width, so it stops at the column's right edge. */
+@property --z-section-indent-step {
+  syntax: '<length>';
+  inherits: true;
+  initial-value: 0px;
+}
 :root {
-  --z-section-indent-step: calc(var(--z-editor-font-size, 16px) * 1.5);
+  --z-section-indent-width: 3;
+}
+.cm-editor .cm-content,
+.prose-zen {
+  --z-section-indent-step: calc(var(--z-section-indent-width, 3) * 1ch);
 }
 :root[data-indent-sections] .cm-editor .cm-line.cm-section-depth-1,
 :root[data-indent-sections] .cm-editor .cm-content > [data-zn-depth="1"],
@@ -6625,6 +6637,12 @@ html[data-completed-task-style="gray-strikethrough"] .prose-zen li.task-list-ite
 .prose-zen .zen-task-remind {
   color: rgb(var(--z-yellow));
   background-color: rgb(var(--z-yellow) / 0.15);
+}
+/* #1119: the planned day, apart from the blue of the due date beside it. */
+.cm-wysiwyg .cm-editor .cm-task-scheduled,
+.prose-zen .zen-task-scheduled {
+  color: rgb(var(--z-green));
+  background-color: rgb(var(--z-green) / 0.14);
 }
 .cm-wysiwyg .cm-editor .cm-task-meta-invalid,
 .prose-zen .zen-task-meta-invalid {

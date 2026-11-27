@@ -16,14 +16,14 @@ describe('desktop packaging', () => {
   it('uses Electron and electron-builder releases with the current security fixes', () => {
     expect(desktopPackage.devDependencies.electron).toBe('41.10.7')
     expect(desktopPackage.build.electronVersion).toBe('41.10.7')
-    expect(desktopPackage.devDependencies['electron-builder']).toBe('26.15.7')
+    expect(desktopPackage.devDependencies['electron-builder']).toBe('26.18.0')
   })
 
-  it('applies the merged upstream cycle guard to electron-builder dependency collection', () => {
-    // 26.15.7 includes the AppImage security fixes, but its new module
-    // collector can recurse until OOM on cyclic package graphs. This is the
-    // exact guard merged upstream in electron-builder#10070; remove the patch
-    // after the first v26 release containing that change.
+  it('packs with an electron-builder whose dependency collection guards against cycles', () => {
+    // Through 26.15.7 the module collector recursed until OOM on a cyclic
+    // package graph, and ours has cycles, so the repo carried the guard as a
+    // patch. Upstream ships it since 26.16.1 (electron-builder#10070) and the
+    // patch is gone; this keeps a downgrade from bringing the crash back.
     const collector = readFileSync(
       require.resolve('app-builder-lib/out/node-module-collector/nodeModulesCollector.js'),
       'utf8'

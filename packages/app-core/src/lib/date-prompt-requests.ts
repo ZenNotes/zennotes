@@ -32,6 +32,10 @@ export function subscribeDatePromptRequests(
   }
 }
 
+/** What `promptDate` resolves with when the picker's clear button was chosen.
+ *  Only a picker opened with a `clearLabel` offers it. */
+export const DATE_PROMPT_CLEAR = 'clear'
+
 /** Resolves with the picked `YYYY-MM-DD`, or null when the picker is dismissed. */
 export function promptDate(options: DatePickerOptions = {}): Promise<string | null> {
   return new Promise((resolve) => {

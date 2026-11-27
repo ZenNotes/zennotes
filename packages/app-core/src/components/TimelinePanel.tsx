@@ -21,7 +21,12 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useKeyboardCursor } from '../lib/keyboard-cursor'
 import type { NoteMeta } from '@shared/ipc'
-import { filterTasksForDisplay, inferDailyTaskDueDates, type VaultTask } from '@shared/tasks'
+import {
+  filterTasksForDisplay,
+  inferDailyTaskDueDates,
+  toIsoDateLocal,
+  type VaultTask
+} from '@shared/tasks'
 import { useStore } from '../store'
 import { buildDailyNoteDateByPath } from '../lib/vault-layout'
 import { filterTasks, noteTagsByPath } from '../lib/tasks-filter'
@@ -44,6 +49,7 @@ import {
 import { listViewBindingMatches, listViewKey, listViewYieldsKey } from '../lib/list-view-keys'
 import { isOverlayOrDialogOpen } from '../lib/overlay-open'
 import { buildTaskMenuItems } from '../lib/task-context-menu'
+import { TaskDeadlineFlag, TaskPlanBadge } from './TaskRecurrenceBadges'
 import { taskTail } from '../lib/task-tail'
 import { priorityClass, priorityLabel } from '../lib/task-priority'
 import { InlineMarkdown } from '../lib/inline-markdown'
@@ -136,6 +142,7 @@ export function TimelinePanel({
   const setPanelWidth = useStore((s) => s.setPanelWidth)
   const { startResize } = usePanelResize(fitWidth ?? width, (px) => setPanelWidth('timeline', px))
   const today = useToday()
+  const todayIso = useMemo(() => toIsoDateLocal(today), [today])
 
   // The same task list every Tasks surface starts from: archived notes out
   // unless asked for, empty tasks out while Hide empty tasks is on (#1026),
@@ -496,6 +503,10 @@ export function TimelinePanel({
                 · {plural(row.before, 'task', 'tasks')} before it
               </span>
             )}
+            {/* The row is under its day already: the plan is a mark alone,
+                and only a deadline on another day spells its date. */}
+            <TaskPlanBadge task={task} compact />
+            <TaskDeadlineFlag task={task} todayIso={todayIso} />
             <CloudTaskConflictIndicator path={task.sourcePath} />
           </div>
         </div>

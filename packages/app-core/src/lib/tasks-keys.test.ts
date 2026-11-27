@@ -27,6 +27,16 @@ describe('the Tasks keys cheat sheet', () => {
     })
   }
 
+  // #1119: `p` plans the selected task for today. A letter, so Vim only
+  // (the first test above keeps it off the Vim-off sheets).
+  it('names `p` on every view with Vim mode on', () => {
+    for (const view of ['kanban', 'list', 'calendar'] as const) {
+      const sheet = tasksKeySheet(view, { vimMode: true, dndEnabled: true, listOrder: 'note' })
+      const row = sheet.groups.flatMap((group) => group.rows).find((r) => r.keys === 'p')
+      expect(row, view).toEqual({ keys: 'p', label: 'plan today' })
+    }
+  })
+
   it('names the calendar’s `a` only where there is a day to add to (daily notes on)', () => {
     const calendar = (dayAdd: boolean) =>
       keysOf(tasksKeySheet('calendar', { vimMode: true, dndEnabled: true, listOrder: 'note', dayAdd }))

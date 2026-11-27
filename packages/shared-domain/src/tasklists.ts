@@ -3,6 +3,8 @@
 // The index convention here MUST stay in lockstep with any parser that wants
 // to round-trip a toggle — see `src/shared/tasks.ts`.
 
+import { trailingBlockIdRange } from './block-anchors'
+
 export const FENCE_RE = /^(\s*)(```|~~~)/
 // Group 2 is the checkbox state char: space (open), x/X (done), `>` (forwarded
 // to another note, #316), `-` (cancelled — intentionally abandoned, #450), or
@@ -261,10 +263,15 @@ export function setTaskFieldAtIndex(
     const tailWithBracket = match[3]
     if (!tailWithBracket.startsWith(']')) return null
     const tail = tailWithBracket.slice(1)
-    const cleaned = tail.replace(tokenRe, '$1').replace(/\s{2,}/g, ' ')
-    const nextTail = value
-      ? `${cleaned.replace(/\s+$/u, '')} @${key}:${value}`
-      : cleaned.replace(/\s+$/u, '')
+    const cleaned = tail.replace(tokenRe, '$1').replace(/\s{2,}/g, ' ').replace(/\s+$/u, '')
+    if (!value) return `${prefix}${checkChar}]${cleaned}`
+    // A `^id` block marker has to end its line to stay one, so a field the
+    // line gains goes in before it: after it, `[[Note^id]]` stops resolving
+    // and the marker shows up in the task's text.
+    const marker = trailingBlockIdRange(cleaned)
+    const nextTail = marker
+      ? `${cleaned.slice(0, marker.from).replace(/\s+$/u, '')} @${key}:${value} ${cleaned.slice(marker.from)}`
+      : `${cleaned} @${key}:${value}`
     return `${prefix}${checkChar}]${nextTail}`
   })
 }

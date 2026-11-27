@@ -3,24 +3,24 @@
   "release": {
     "repository": "ZenNotes/tui",
     "protocol": 1,
-    "version": "0.18.2",
-    "commit": "6e79be8b5c68bc63e17eddab262ff1a0f4b98d65",
+    "version": "0.19.0",
+    "commit": "c4cf9a0ec6d01ddc746a43057ea34fa1a822f10f",
     "artifacts": {
       "darwin-arm64": {
-        "url": "https://github.com/ZenNotes/tui/releases/download/v0.18.2/zn_0.18.2_darwin_arm64.tar.gz",
-        "sha256": "0905f2bff6bc512aef4a4caa44c56ec6d51e21fe6a434e5c0beeb8f154fcc746"
+        "url": "https://github.com/ZenNotes/tui/releases/download/v0.19.0/zn_0.19.0_darwin_arm64.tar.gz",
+        "sha256": "90ccb43817bec52790de972d0bdbf91e172e594a284084578b9c4716a4f1bace"
       },
       "darwin-x64": {
-        "url": "https://github.com/ZenNotes/tui/releases/download/v0.18.2/zn_0.18.2_darwin_amd64.tar.gz",
-        "sha256": "0982dd2339696e6a59eeccb0b9ba359b510c524ca7671d03725d06b7d65c9085"
+        "url": "https://github.com/ZenNotes/tui/releases/download/v0.19.0/zn_0.19.0_darwin_amd64.tar.gz",
+        "sha256": "0504343bf433d1f142da93cf20d944f5017e489253a0b822fb7243863738a9b0"
       },
       "linux-arm64": {
-        "url": "https://github.com/ZenNotes/tui/releases/download/v0.18.2/zn_0.18.2_linux_arm64.tar.gz",
-        "sha256": "8a285feddc42da7b6f08de0302b1d94b53682604102cbd03ebe1bf64743f5c15"
+        "url": "https://github.com/ZenNotes/tui/releases/download/v0.19.0/zn_0.19.0_linux_arm64.tar.gz",
+        "sha256": "4bfc664b128cfe869006ac28adfd2f3d5b5efba3cb89ea5a4a4b9c72fddf7ceb"
       },
       "linux-x64": {
-        "url": "https://github.com/ZenNotes/tui/releases/download/v0.18.2/zn_0.18.2_linux_amd64.tar.gz",
-        "sha256": "48c9e8f3aecc9244ca983a8524ef265d9c0388fa4946d3e4bc6f733d5946c204"
+        "url": "https://github.com/ZenNotes/tui/releases/download/v0.19.0/zn_0.19.0_linux_amd64.tar.gz",
+        "sha256": "0ab0ba1c381512a4a2379da6e8bdf78712f0d1ad545e677423a0a540311d2453"
       }
     }
   }

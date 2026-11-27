@@ -214,6 +214,10 @@ import {
   headingStyleKey,
   type HeadingLevel,
 } from "../lib/heading-styles";
+import {
+  MAX_SECTION_INDENT_WIDTH,
+  MIN_SECTION_INDENT_WIDTH,
+} from "../lib/section-indent-width";
 
 type SettingsCategoryId =
   | "appearance"
@@ -841,6 +845,8 @@ export function SettingsModal(): JSX.Element {
   const headingStyles = useStore((s) => s.headingStyles);
   const indentSections = useStore((s) => s.indentSections);
   const setIndentSections = useStore((s) => s.setIndentSections);
+  const sectionIndentWidth = useStore((s) => s.sectionIndentWidth);
+  const setSectionIndentWidth = useStore((s) => s.setSectionIndentWidth);
   const setHeadingStyle = useStore((s) => s.setHeadingStyle);
   const resetHeadingStyles = useStore((s) => s.resetHeadingStyles);
   const editorTabSize = useStore((s) => s.editorTabSize);
@@ -4107,6 +4113,12 @@ export function SettingsModal(): JSX.Element {
           keywords: ["indent", "indentation", "outline", "outliner", "heading", "section", "hierarchy", "nest"],
         },
         {
+          id: "section-indent-width",
+          title: "Indent width",
+          description: "How many spaces each Indent sections level moves in.",
+          keywords: ["indent", "indentation", "width", "spaces", "outline", "heading", "section", "nest"],
+        },
+        {
           id: "heading-styles",
           title: "Heading colors and fonts",
           description:
@@ -4230,6 +4242,17 @@ export function SettingsModal(): JSX.Element {
               value={indentSections}
               settingId="indent-sections"
               onChange={setIndentSections}
+            />
+            <SliderRow
+              label="Indent width"
+              description="How many spaces each level moves in while Indent sections is on."
+              value={sectionIndentWidth}
+              min={MIN_SECTION_INDENT_WIDTH}
+              max={MAX_SECTION_INDENT_WIDTH}
+              step={1}
+              unit=" spaces"
+              settingId="section-indent-width"
+              onChange={setSectionIndentWidth}
             />
             {HEADING_LEVELS.map((level) => (
               <HeadingStyleRow
