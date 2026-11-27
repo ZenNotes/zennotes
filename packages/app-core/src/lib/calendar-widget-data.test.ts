@@ -106,6 +106,30 @@ describe('getCalendarWidgetData', () => {
     expect(Object.keys(data.agenda)).not.toContain('2027-03-01')
   })
 
+  // #1119: the widget places a task where the Calendar sheet places it.
+  it('lists a task on its planned day, and a missed plan under today', async () => {
+    const today = dailyPath(NOW)
+    files.set(today, '- [ ] Planned away from today @scheduled:2026-10-29\n')
+    files.set(
+      'inbox/Errands.md',
+      [
+        '- [ ] Report due:2026-11-03 @scheduled:2026-10-29',
+        '- [ ] Missed due:2026-11-03 @scheduled:2026-10-20',
+        '- [ ] Late due:2026-10-26 @scheduled:2026-10-29',
+        ''
+      ].join('\n')
+    )
+    load()
+    const data = await getCalendarWidgetData(NOW)
+    expect(data.agenda['2026-10-29'].tasks.map((t) => t.content)).toEqual([
+      'Planned away from today',
+      'Report'
+    ])
+    expect(data.agenda['2026-10-27'].tasks.map((t) => t.content)).toEqual(['Missed'])
+    expect(data.agenda['2026-10-26'].tasks.map((t) => t.content)).toEqual(['Late'])
+    expect(data.agenda['2026-11-03']).toBeUndefined()
+  })
+
   it("gives each task its line and the line core's toggle would write", async () => {
     files.set('inbox/Errands.md', '# Errands\n\n> - [/] Quoted, started due:2026-10-28\n1. [ ] Numbered due:2026-10-28\n')
     load()

@@ -108,9 +108,15 @@ import {
 } from '../lib/kanban-column-colors'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { columnColorMenuItems } from './ColumnColorMenu'
-import { buildTaskMenuItems, chooseTaskDueDate } from '../lib/task-context-menu'
+import { buildTaskMenuItems, chooseTaskDueDate, planTaskForToday } from '../lib/task-context-menu'
 import { chooseTaskRemind, chooseTaskRepeat } from '../lib/task-recurrence-pickers'
-import { AlertTriangleIcon, ArrowUpRightIcon, ChevronRightIcon, PencilIcon } from './icons'
+import {
+  AlertTriangleIcon,
+  ArrowUpRightIcon,
+  ChevronRightIcon,
+  FlagIcon,
+  PencilIcon
+} from './icons'
 import { TasksKeysButton, TasksViewOptions, tasksToolbarOwnsKey } from './TasksToolbar'
 import { InlineMarkdown } from '../lib/inline-markdown'
 import { CloudTaskConflictIndicator } from './CloudTaskConflictIndicator'
@@ -123,7 +129,13 @@ import {
   sequenceTokenFromEvent,
   type KeymapOverrides
 } from '../lib/keymaps'
-import { SCHEDULING_FIELDS, TaskRecurrenceBadges } from './TaskRecurrenceBadges'
+import {
+  SCHEDULING_FIELDS,
+  TaskPlanBadge,
+  TaskRecurrenceBadges,
+  shortTaskDay
+} from './TaskRecurrenceBadges'
+import { PLANNED_DAY_FIELD, deadlineApartFromDay, taskDeadline } from '@shared/task-planning'
 
 interface Props {
   tasks: VaultTask[]
@@ -726,6 +738,7 @@ function sameBoardPlacement(a: VaultTask, b: VaultTask): boolean {
     a.waiting === b.waiting &&
     a.priority === b.priority &&
     a.due === b.due &&
+    a.scheduled === b.scheduled &&
     sameFields(a.fields, b.fields)
   )
 }
@@ -755,11 +768,17 @@ export function applyTaskMutationsForBoard(task: VaultTask, mutations: TaskMutat
       }
       case 'set-due': {
         const due = m.due ?? undefined
-        if (next.due !== due) next = { ...next, due }
+        // A date written on the line is no longer the daily note's.
+        if (next.due !== due) next = { ...next, due, ...(due ? { dueInferred: false } : {}) }
         break
       }
       case 'set-field': {
         const value = m.value ?? undefined
+        // A task note's planned day is frontmatter, read into `scheduled`.
+        if (m.key === PLANNED_DAY_FIELD && next.kind === 'file') {
+          next = { ...next, scheduled: value }
+          break
+        }
         const fields = { ...next.fields }
         if (value == null) delete fields[m.key]
         else fields[m.key] = value
@@ -1061,6 +1080,7 @@ export function TasksKanban({
   onToggleTask,
   controlRef
 }: Props): JSX.Element {
+  const todayIso = useMemo(() => toIsoDateLocal(today), [today])
   const groupBy = useStore((s) => s.kanbanGroupBy)
   const cardSort = useStore((s) => s.kanbanCardSort)
   const hideEmptyTasks = useStore((s) => s.hideEmptyTasks)
@@ -2891,6 +2911,13 @@ export function TasksKanban({
             void (e.key === 'r' ? chooseTaskRepeat(actionTask) : chooseTaskRemind(actionTask))
           }
           return
+        // Plan for today (#1119).
+        case 'p':
+          if (vimMode && actionTask) {
+            consume()
+            void planTaskForToday(actionTask, today)
+          }
+          return
         default:
           return
       }
@@ -3112,6 +3139,7 @@ export function TasksKanban({
         taskDomId={task.id}
         task={task}
         isOverdue={isTaskOverdue(task, today)}
+        todayIso={todayIso}
         isFocused={keyCursor && isFocused}
         isDragging={draggingId === task.id}
         draggable={dndEnabled}
@@ -3447,6 +3475,7 @@ export function TasksKanban({
             taskDomId={dragPreview.task.id}
             task={dragPreview.task}
             isOverdue={dragPreview.isOverdue}
+            todayIso={todayIso}
             isFocused={false}
             isDragging={false}
             draggable={false}
@@ -3490,6 +3519,8 @@ interface CardProps {
   taskDomId: string
   task: VaultTask
   isOverdue: boolean
+  /** The board's local day: whether the card's deadline is where it sits. */
+  todayIso: string
   isFocused: boolean
   isDragging: boolean
   draggable: boolean
@@ -3680,8 +3711,10 @@ function SubtaskList({
             >
               {subtask.content ? <InlineMarkdown text={subtask.content} /> : '(empty task)'}
             </span>
-            {subtask.due && (
-              <span className="shrink-0 text-2xs text-current/45">{formatDue(subtask.due)}</span>
+            {taskDeadline(subtask) && (
+              <span className="shrink-0 text-2xs text-current/45">
+                {shortTaskDay(taskDeadline(subtask)!)}
+              </span>
             )}
           </li>
         )
@@ -3690,17 +3723,11 @@ function SubtaskList({
   )
 }
 
-function formatDue(iso: string | undefined): string {
-  if (!iso) return ''
-  const d = new Date(`${iso}T00:00:00`)
-  if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-}
-
 function TaskCard({
   taskDomId,
   task,
   isOverdue,
+  todayIso,
   isFocused,
   isDragging,
   draggable,
@@ -3723,6 +3750,9 @@ function TaskCard({
   onOpenSubtask,
   columnColors
 }: CardProps): JSX.Element {
+  // The date a planned day gave way to does not count as this card's own.
+  const deadline = taskDeadline(task)
+  const deadlineApart = deadlineApartFromDay(task, todayIso) != null
   return (
     <div
       ref={cardRef ?? undefined}
@@ -3847,16 +3877,21 @@ function TaskCard({
             !{task.priority}
           </span>
         )}
-        {task.due && (
+        <TaskPlanBadge task={task} />
+        {deadline && (
           <span
+            data-task-due={deadline}
+            title={deadlineApart ? 'Due date' : undefined}
             className={[
-              'shrink-0 rounded px-1.5 py-0.5 font-medium',
+              'inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded px-1.5 py-0.5 font-medium',
               isOverdue
                 ? 'bg-rose-500/15 text-rose-300'
                 : 'bg-paper-300/60 text-current/70'
             ].join(' ')}
           >
-            {formatDue(task.due)}
+            {/* Flagged when the card sits on its planned day (#1119). */}
+            {deadlineApart && <FlagIcon width={11} height={11} aria-label="Due" />}
+            {shortTaskDay(deadline)}
           </span>
         )}
         {task.waiting && (

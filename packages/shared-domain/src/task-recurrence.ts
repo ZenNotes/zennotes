@@ -16,6 +16,9 @@
  * and the list cursor stay on open work. The finished line is a record: it
  * drops `@repeat` and `@remind`, the tokens that only mean something on open
  * work, so unchecking it (or dragging a Done card back) never spawns a copy.
+ * A planned day (`@scheduled:`, #1119) belongs to the occurrence it was made
+ * for: neither line keeps it and neither do their subtasks, or next week's
+ * work would arrive already planned for a day last week.
  * A task's subtree repeats with it, every checkbox reset to open, and the
  * record cancels (`[-]`) the subtasks it left open: they were not done, and
  * left open they would stand beside their fresh copies on every Tasks list.
@@ -197,6 +200,7 @@ const REPEAT_FIELD_RE = new RegExp(`(?:^|\\s)@repeat:(${FIELD_VALUE})`, 'iu')
 const REPEAT_TOKEN_RE = new RegExp(`(^|\\s)@repeat:${FIELD_VALUE}`, 'giu')
 const REMIND_TOKEN_RE = new RegExp(`(^|\\s)@remind:${FIELD_VALUE}`, 'giu')
 const STATUS_TOKEN_RE = new RegExp(`(^|\\s)@status:${FIELD_VALUE}`, 'giu')
+const SCHEDULED_TOKEN_RE = new RegExp(`(^|\\s)@scheduled:${FIELD_VALUE}`, 'giu')
 const WAITING_TOKEN_RE = /(^|\s)@waiting\b/gi
 // The parser's `due:` token, spaced form included (#343).
 const DUE_TOKEN_RE = /(^|\s)due:\s*(\S+)/i
@@ -217,6 +221,14 @@ function tidy(text: string): string {
 
 function bare(line: string): string {
   return line.endsWith('\r') ? line.slice(0, -1) : line
+}
+
+/** A task line without its `@scheduled:` field, indentation untouched. */
+function unplanned(line: string): string {
+  const match = line.match(TASK_LINE_RE)
+  if (!match) return line
+  const rest = match[3].replace(SCHEDULED_TOKEN_RE, '$1')
+  return rest === match[3] ? line : `${match[1]}${match[2]}${tidy(rest)}`
 }
 
 /** `text` cut at a block marker found at `from`, trailing blanks trimmed. */
@@ -277,7 +289,8 @@ export function planRecurringCompletion(
 
   // The occurrence keeps the text, priority, tags and every other field, in
   // their order; `due:` is replaced where it stood. Its per-occurrence state
-  // does not carry: `@waiting` and the board's `@status:` start fresh.
+  // does not carry: `@waiting` and the board's `@status:` start fresh, and a
+  // planned day was for the occurrence just finished.
   // A `^id` block marker has to end its line, so a `due:` the roll adds goes
   // in before it.
   const ownMarker = trailingBlockIdRange(rest)
@@ -286,7 +299,12 @@ export function planRecurringCompletion(
     : ownMarker
       ? `${withoutMarker(rest, ownMarker.from)} due:${nextDue} ${rest.slice(ownMarker.from)}`
       : `${rest.replace(/\s+$/u, '')} due:${nextDue}`
-  nextRest = tidy(nextRest.replace(WAITING_TOKEN_RE, '$1').replace(STATUS_TOKEN_RE, '$1'))
+  nextRest = tidy(
+    nextRest
+      .replace(WAITING_TOKEN_RE, '$1')
+      .replace(STATUS_TOKEN_RE, '$1')
+      .replace(SCHEDULED_TOKEN_RE, '$1')
+  )
   const next = [`${match[1]} ]${nextRest}`]
 
   // Block ids (`^id`) stay with the open occurrence and leave the record
@@ -306,7 +324,12 @@ export function planRecurringCompletion(
   for (let k = 1; k < block.length; k++) {
     let child = block[k]
     const childMatch = child.match(TASK_LINE_RE)
-    next.push(childMatch ? `${childMatch[1]} ${childMatch[3]}` : child)
+    // A subtask's own planned day goes with the occurrence it was made for.
+    // Lines without one copy verbatim, spacing included.
+    const planned = childMatch != null && /@scheduled:/i.test(childMatch[3])
+    if (planned) child = unplanned(child)
+    const copyMatch = planned ? child.match(TASK_LINE_RE) : childMatch
+    next.push(copyMatch ? `${copyMatch[1]} ${copyMatch[3]}` : child)
     const marker = trailingBlockIdRange(child)
     if (marker) {
       // A marker alone on its line names the block above it; the record
@@ -323,7 +346,12 @@ export function planRecurringCompletion(
   }
 
   const recordSource = ownMarker ? withoutMarker(rest, ownMarker.from) : rest
-  const recordRest = tidy(recordSource.replace(REPEAT_TOKEN_RE, '$1').replace(REMIND_TOKEN_RE, '$1'))
+  const recordRest = tidy(
+    recordSource
+      .replace(REPEAT_TOKEN_RE, '$1')
+      .replace(REMIND_TOKEN_RE, '$1')
+      .replace(SCHEDULED_TOKEN_RE, '$1')
+  )
   const record = `${match[1]}${opts.skip ? '-' : 'x'}]${recordRest}`
   return { next, record, recordChildren, replaces: end - at, nextDue, rule }
 }

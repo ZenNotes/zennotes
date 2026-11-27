@@ -30,6 +30,7 @@ import { normalizeNoteComments } from '@shared/note-comments'
 import type { NoteComment, NoteCommentInput } from '@shared/ipc'
 export type { NoteComment, NoteCommentInput }
 import { inlineTaskField, noteTasksMode, toIsoDateLocal, type NoteTasksMode } from '@shared/tasks'
+import { PLANNED_DAY_FIELD, parsePlannedDay } from '@shared/task-planning'
 import { completeRecurringTaskAtIndex } from '@shared/task-recurrence'
 import {
   isPathExcludedFromTasks,
@@ -330,7 +331,11 @@ export interface VaultTask {
    *  `.md` file tagged `task`, metadata in frontmatter); `'inline'` (the default
    *  when absent) is a classic `- [ ]` checkbox line. */
   kind?: 'inline' | 'file'
-  /** ISO YYYY-MM-DD start/scheduled date (frontmatter `scheduled`). File-tasks. */
+  /** The planned day (#1119), ISO YYYY-MM-DD: the day the task is meant to be
+   *  worked on, apart from `due`. A task note's frontmatter `scheduled:`, a
+   *  checkbox line's `@scheduled:` (which stays in `content`, as every field
+   *  does in this grammar). Absent when the task has none, or the value is
+   *  not a date. */
   scheduled?: string
   /** ISO YYYY-MM-DD completion date (frontmatter `completedDate`). File-tasks. */
   completedDate?: string
@@ -2337,6 +2342,14 @@ function parseNoteDefaults(body: string): {
   return out
 }
 
+/** The planned day a checkbox task's text carries as `@scheduled:` (#1119),
+ *  read with the app's own field grammar and date rule. Works on a task's
+ *  tail or its whole line, so a task from the remote backend, which reports
+ *  none for a checkbox line, can be filled in from its `rawText`. */
+export function plannedDayOfTaskText(text: string): string | undefined {
+  return parsePlannedDay(inlineTaskField(text, PLANNED_DAY_FIELD))
+}
+
 interface ParseTasksOptions {
   /** Scan past the note-level `tasks:` opt-out (#458) and the vault's folder
    *  lists (#962): the `list_tasks` includeExcluded /
@@ -2435,6 +2448,7 @@ function parseTasksFromBody(
       priority: priority ?? defaults.priority,
       waiting,
       status: inlineTaskField(tail, 'status') ?? defaults.status,
+      scheduled: plannedDayOfTaskText(tail),
       tags
     })
     taskIndex += 1

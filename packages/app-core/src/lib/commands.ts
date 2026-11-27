@@ -35,7 +35,7 @@ import { resolveQuickNoteTitle } from './quick-note-title'
 import { forwardTaskWithPicker, taskAtEditorCursor } from './forward-task'
 import { canManageWorkflows } from './workflow-workspace'
 import { toggleCheckbox } from './cm-toggle-checkbox'
-import { remindTaskAtCursor, repeatTaskAtCursor } from './editor-task-recurrence'
+import { planTaskAtCursor, remindTaskAtCursor, repeatTaskAtCursor } from './editor-task-recurrence'
 import {
   harperAddWordAtCursor,
   harperApplyFirstSuggestion,
@@ -1380,6 +1380,17 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       run: () => {
         const view = getState().editorViewRef
         if (view) void remindTaskAtCursor(view)
+      }
+    },
+    {
+      id: 'task.plan',
+      title: 'Plan Task…',
+      category: 'Editor',
+      keywords: 'plan planned day scheduled schedule do date today tomorrow when task',
+      when: hasEditorNote,
+      run: () => {
+        const view = getState().editorViewRef
+        if (view) void planTaskAtCursor(view)
       }
     },
     {

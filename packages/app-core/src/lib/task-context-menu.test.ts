@@ -1,13 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { VaultTask } from '@shared/tasks'
 import { useStore } from '../store'
-import { buildTaskMenuItems, chooseTaskDueDate } from './task-context-menu'
+import {
+  buildTaskMenuItems,
+  chooseTaskDueDate,
+  chooseTaskPlannedDay,
+  planTaskForToday
+} from './task-context-menu'
 
 const promptMocks = vi.hoisted(() => ({
   promptDate: vi.fn<(options?: unknown) => Promise<string | null>>()
 }))
 
 vi.mock('./date-prompt-requests', () => ({
+  DATE_PROMPT_CLEAR: 'clear',
   promptDate: promptMocks.promptDate
 }))
 
@@ -95,5 +101,110 @@ describe('Choose a date… in the task menu (#991)', () => {
     await chooseTaskDueDate(daily, today)
 
     expect(applyTaskMutation).toHaveBeenCalledWith(daily, { kind: 'set-due', due: '2026-10-23' })
+  })
+})
+
+describe('Plan for… in the task menu (#1119)', () => {
+  let originalState: ReturnType<typeof useStore.getState>
+  const applyTaskMutation = vi.fn(async () => {})
+  const planned = (day: string, fields: Partial<VaultTask> = {}): VaultTask =>
+    task({ fields: { scheduled: day }, ...fields })
+
+  beforeEach(() => {
+    originalState = useStore.getState()
+    useStore.setState({ applyTaskMutation } as Partial<ReturnType<typeof useStore.getState>>)
+    promptMocks.promptDate.mockReset()
+    applyTaskMutation.mockClear()
+  })
+
+  afterEach(() => {
+    useStore.setState(originalState, true)
+  })
+
+  const entry = (t: VaultTask, hints = true) =>
+    buildTaskMenuItems(t, { today, showKeyHints: hints }).find(
+      (item) => 'label' in item && item.label === 'Plan for…'
+    )
+
+  it('sits under the due dates, shows the day planned, and names no key', () => {
+    const labels = buildTaskMenuItems(task({ due: '2026-10-30' }), { today }).map((item) =>
+      'label' in item ? item.label : '-'
+    )
+    expect(labels.slice(labels.indexOf('Choose a date…'), labels.indexOf('Choose a date…') + 3)).toEqual([
+      'Choose a date…',
+      'Clear due date',
+      'Plan for…'
+    ])
+    // `p` plans for today outright, which this entry does not do.
+    expect(entry(task())).toMatchObject({ mark: undefined, disabled: false })
+    expect(entry(task())).not.toHaveProperty('hint')
+    expect(entry(planned('2026-10-28'))).toMatchObject({ mark: '2026-10-28' })
+  })
+
+  it('is off for work that is done, cancelled or forwarded', () => {
+    for (const closed of [{ checked: true }, { cancelled: true }, { forwarded: true }]) {
+      expect(entry(task(closed))).toMatchObject({ disabled: true })
+    }
+  })
+
+  it('opens on today, offers no Clear without a plan, and writes the picked day as a field', async () => {
+    promptMocks.promptDate.mockResolvedValueOnce('2026-10-28')
+    const open = task({ due: '2026-10-30' })
+
+    await chooseTaskPlannedDay(open, today)
+
+    expect(promptMocks.promptDate).toHaveBeenCalledWith({
+      title: 'Plan for',
+      description: 'Book museum tickets',
+      initialDate: '2026-10-23',
+      okLabel: 'Plan',
+      clearLabel: undefined
+    })
+    expect(applyTaskMutation).toHaveBeenCalledWith(open, {
+      kind: 'set-field',
+      key: 'scheduled',
+      value: '2026-10-28'
+    })
+  })
+
+  it('opens on the planned day, and Clear takes the plan off', async () => {
+    promptMocks.promptDate.mockResolvedValueOnce('clear')
+    const t = planned('2026-10-28')
+
+    await chooseTaskPlannedDay(t, today)
+
+    expect(promptMocks.promptDate).toHaveBeenCalledWith(
+      expect.objectContaining({ initialDate: '2026-10-28', clearLabel: 'Clear' })
+    )
+    expect(applyTaskMutation).toHaveBeenCalledWith(t, { kind: 'set-field', key: 'scheduled', value: null })
+  })
+
+  it('writes nothing when the picker is dismissed or the day is the one planned', async () => {
+    promptMocks.promptDate.mockResolvedValueOnce(null)
+    await chooseTaskPlannedDay(task(), today)
+    promptMocks.promptDate.mockResolvedValueOnce('2026-10-28')
+    await chooseTaskPlannedDay(planned('2026-10-28'), today)
+    expect(applyTaskMutation).not.toHaveBeenCalled()
+  })
+
+  it('reads and writes a task note\'s plan as its frontmatter key', async () => {
+    promptMocks.promptDate.mockResolvedValueOnce('2026-10-29')
+    const note = task({ kind: 'file', scheduled: '2026-10-28' })
+
+    await chooseTaskPlannedDay(note, today)
+
+    expect(promptMocks.promptDate).toHaveBeenCalledWith(expect.objectContaining({ initialDate: '2026-10-28' }))
+    expect(applyTaskMutation).toHaveBeenCalledWith(note, { kind: 'set-field', key: 'scheduled', value: '2026-10-29' })
+  })
+
+  it('`p` plans for today once, and leaves finished work alone', async () => {
+    const open = task({ due: '2026-10-30' })
+    await planTaskForToday(open, today)
+    expect(applyTaskMutation).toHaveBeenCalledWith(open, { kind: 'set-field', key: 'scheduled', value: '2026-10-23' })
+
+    applyTaskMutation.mockClear()
+    await planTaskForToday(planned('2026-10-23'), today)
+    await planTaskForToday(task({ checked: true }), today)
+    expect(applyTaskMutation).not.toHaveBeenCalled()
   })
 })

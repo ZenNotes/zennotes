@@ -69,6 +69,7 @@ import {
 } from '@shared/excalidraw'
 import { TASKS_TAB_PATH, isTasksTabPath, parseTasksFromBody, toIsoDateLocal } from '@shared/tasks'
 import { completeRecurringTaskAtIndex, type RecurringCompletion } from '@shared/task-recurrence'
+import { PLANNED_DAY_FIELD, plannedDay } from '@shared/task-planning'
 import {
   TYPST_PREAMBLE_FOLDER,
   isTypstPreamblePath,
@@ -2610,11 +2611,18 @@ function applyTaskMutationsToTask(task: VaultTask, mutations: TaskMutation[]): V
       }
       case 'set-due': {
         const due = m.due ?? undefined
-        if (next.due !== due) next = { ...next, due }
+        // A date written on the line is no longer the daily note's.
+        if (next.due !== due) next = { ...next, due, ...(due ? { dueInferred: false } : {}) }
         break
       }
       case 'set-field': {
         const value = m.value ?? undefined
+        // A task note keeps its planned day in frontmatter `scheduled:`, read
+        // into `scheduled`, not into the fields a checkbox line carries.
+        if (m.key === PLANNED_DAY_FIELD && next.kind === 'file') {
+          next = { ...next, scheduled: value }
+          break
+        }
         const fields = { ...next.fields }
         if (value == null) delete fields[m.key]
         else fields[m.key] = value
@@ -8340,16 +8348,22 @@ export const useStore = create<Store>((set, get) => {
   moveTaskToDate: trackTaskWrite(async (task, dateIso) => {
     const parsed = parseIsoDateLocal(dateIso)
     if (!parsed) return
+    // Moving a task to a day puts it on that day, so a planned day it had
+    // for another one goes: left on the line it would keep the task where it
+    // was planned, not where it was just moved (#1119).
+    const unplan: TaskMutation[] = plannedDay(task)
+      ? [{ kind: 'set-field', key: PLANNED_DAY_FIELD, value: null }]
+      : []
     // A file-task isn't a line that can move into a daily note; rescheduling it
     // just rewrites its frontmatter `due`.
     if (task.kind === 'file') {
-      await get().applyTaskMutation(task, { kind: 'set-due', due: dateIso })
+      await get().applyTaskMutation(task, [{ kind: 'set-due', due: dateIso }, ...unplan])
       return
     }
     const settings = normalizeVaultSettings(get().vaultSettings)
     // No daily notes to move into — just set the due date instead.
     if (!settings.dailyNotes.enabled) {
-      await get().applyTaskMutation(task, { kind: 'set-due', due: dateIso })
+      await get().applyTaskMutation(task, [{ kind: 'set-due', due: dateIso }, ...unplan])
       return
     }
     const target = await get().ensureDailyNoteForDate(parsed)
@@ -8357,7 +8371,10 @@ export const useStore = create<Store>((set, get) => {
     const inferDue = settings.dailyNotes.tasksDueOnNoteDate
     // Already in that day's note — nothing to relocate; just align its due.
     if (target.path === task.sourcePath) {
-      await get().applyTaskMutation(task, { kind: 'set-due', due: inferDue ? null : dateIso })
+      await get().applyTaskMutation(task, [
+        { kind: 'set-due', due: inferDue ? null : dateIso },
+        ...unplan
+      ])
       return
     }
 
@@ -8377,7 +8394,12 @@ export const useStore = create<Store>((set, get) => {
     // Moving INTO the target day's note: with implicit due on, a bare line
     // already reads as that day, so strip any `due:` token; otherwise write the
     // explicit date.
-    const movedLine = setTaskDueAtIndex(line, 0, inferDue ? null : dateIso)
+    const movedLine = setTaskFieldAtIndex(
+      setTaskDueAtIndex(line, 0, inferDue ? null : dateIso),
+      0,
+      PLANNED_DAY_FIELD,
+      null
+    )
 
     // Insert into the destination note's Tasks section when one exists;
     // otherwise append to the end of the note.

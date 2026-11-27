@@ -31,7 +31,11 @@ import { moveLineDown, moveLineUp } from "@codemirror/commands";
 import { unfoldAll } from "@codemirror/language";
 import { foldAllOutline, foldAtCursor, unfoldAtCursor } from "../lib/cm-heading-fold";
 import { isTagsViewActive, isTasksViewActive, useStore } from "../store";
-import { remindTaskAtCursor, repeatTaskAtCursor } from "../lib/editor-task-recurrence";
+import {
+  planTaskAtCursor,
+  remindTaskAtCursor,
+  repeatTaskAtCursor,
+} from "../lib/editor-task-recurrence";
 import { buildCommands, type Command } from "../lib/commands";
 import { rankItems } from "../lib/fuzzy-score";
 import { BUILTIN_TEMPLATES } from "@shared/builtin-templates";
@@ -579,6 +583,17 @@ function registerVimCommands(): void {
     (_cm: unknown, params: { argString?: string } | undefined) => {
       const view = useStore.getState().editorViewRef;
       if (view) void remindTaskAtCursor(view, params?.argString ?? "");
+    },
+  );
+  // `:plan today` / `:plan 2026-12-02` set the day the task under the cursor
+  // is planned for (#1119), its due date left alone; `off` takes the plan
+  // away, and bare it opens the calendar the Tasks views' Plan for… opens.
+  Vim.defineEx(
+    "plan",
+    "plan",
+    (_cm: unknown, params: { argString?: string } | undefined) => {
+      const view = useStore.getState().editorViewRef;
+      if (view) void planTaskAtCursor(view, params?.argString ?? "");
     },
   );
   // `:cover` (`:cov`) is the ex twin of Space l c. Bare, it opens the picker;

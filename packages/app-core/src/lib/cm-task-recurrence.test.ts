@@ -120,6 +120,24 @@ describe('taskFieldSource', () => {
     expect(complete('- [ ] Rent @remind:')?.options.map((o) => o.label)).toContain('1d')
   })
 
+  // #1119: a planned day is a date, so `@scheduled:` offers the nearest ones.
+  it('offers today and the days after it for @scheduled:', () => {
+    const result = complete('- [ ] Rent @scheduled:')
+    const now = new Date()
+    const iso = (offset: number): string => {
+      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset)
+      const mm = String(d.getMonth() + 1).padStart(2, '0')
+      const dd = String(d.getDate()).padStart(2, '0')
+      return `${d.getFullYear()}-${mm}-${dd}`
+    }
+    expect(result?.options.slice(0, 2).map((o) => [o.label, o.detail])).toEqual([
+      [iso(0), 'today'],
+      [iso(1), 'tomorrow']
+    ])
+    expect(result?.options).toHaveLength(8)
+    expect(complete('- [ ] Rent @scheduled:2026-1')?.from).toBe('- [ ] Rent @scheduled:'.length)
+  })
+
   it('stays out of the way elsewhere', () => {
     expect(complete('Rent @repeat:')).toBeNull()
     expect(complete('- [ ] Rent @status:')).toBeNull()

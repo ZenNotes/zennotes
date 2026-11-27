@@ -209,6 +209,34 @@
       "expected": "- [ ] Win @repeat:daily due:2026-11-02 ^win\r\n  - [ ] sub ^sub\r\n  ^tail\r\n- [x] Win due:2026-11-01\r\n  - [-] sub\r\n- [ ] after\r\n"
     },
     {
+      "name": "a planned day belongs to the occurrence it was made for: neither line keeps it",
+      "body": "- [ ] Report @repeat:weekly due:2026-11-06 @scheduled:2026-11-04",
+      "taskIndex": 0,
+      "today": "2026-11-04",
+      "expected": "- [ ] Report @repeat:weekly due:2026-11-13\n- [x] Report due:2026-11-06"
+    },
+    {
+      "name": "a planned day is not a due date: the roll still counts from today",
+      "body": "- [ ] Stretch @Scheduled:2026-10-30 @repeat:3d",
+      "taskIndex": 0,
+      "today": "2026-11-01",
+      "expected": "- [ ] Stretch @repeat:3d due:2026-11-04\n- [x] Stretch"
+    },
+    {
+      "name": "subtasks drop their planned days too, on the copies and in the record",
+      "body": "- [ ] Review @repeat:weekly due:2026-11-01 @scheduled:2026-10-30\n  - [ ] inbox @scheduled:2026-10-31 !high\n  - [x] notes @scheduled:2026-10-30\n  a line that says @scheduled:2026-10-30 is not a task",
+      "taskIndex": 0,
+      "today": "2026-11-01",
+      "expected": "- [ ] Review @repeat:weekly due:2026-11-08\n  - [ ] inbox !high\n  - [ ] notes\n  a line that says @scheduled:2026-10-30 is not a task\n- [x] Review due:2026-11-01\n  - [-] inbox !high\n  - [x] notes\n  a line that says @scheduled:2026-10-30 is not a task"
+    },
+    {
+      "name": "a planned day goes and the block id still ends the line",
+      "body": "- [ ] Gym @repeat:daily @scheduled:2026-11-01 ^gym",
+      "taskIndex": 0,
+      "today": "2026-11-01",
+      "expected": "- [ ] Gym @repeat:daily due:2026-11-02 ^gym\n- [x] Gym"
+    },
+    {
       "name": "a task without a rule is ordinary",
       "body": "- [ ] Plain due:2026-11-01",
       "taskIndex": 0,

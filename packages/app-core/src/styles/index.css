@@ -6638,6 +6638,12 @@ html[data-completed-task-style="gray-strikethrough"] .prose-zen li.task-list-ite
   color: rgb(var(--z-yellow));
   background-color: rgb(var(--z-yellow) / 0.15);
 }
+/* #1119: the planned day, apart from the blue of the due date beside it. */
+.cm-wysiwyg .cm-editor .cm-task-scheduled,
+.prose-zen .zen-task-scheduled {
+  color: rgb(var(--z-green));
+  background-color: rgb(var(--z-green) / 0.14);
+}
 .cm-wysiwyg .cm-editor .cm-task-meta-invalid,
 .prose-zen .zen-task-meta-invalid {
   opacity: 0.55;

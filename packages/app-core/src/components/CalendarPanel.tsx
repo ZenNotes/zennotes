@@ -18,7 +18,7 @@ import type { NoteContent, NoteMeta } from '@shared/ipc'
 import {
   filterTasksForDisplay,
   inferDailyTaskDueDates,
-  tasksDueOn,
+  tasksOnDay,
   type VaultTask,
 } from '@shared/tasks'
 import { useStore } from '../store'
@@ -51,7 +51,13 @@ import { usePanelResize } from '../lib/use-panel-resize'
 import { PanelResizeHandle } from './PanelResizeHandle'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { LazyNoteHoverPreview as NoteHoverPreview } from './LazyNoteHoverPreview'
-import { buildTaskMenuItems } from '../lib/task-context-menu'
+import {
+  buildTaskMenuItems,
+  canPlanTask,
+  planTask,
+  planTaskForToday
+} from '../lib/task-context-menu'
+import { TaskDeadlineFlag, TaskPlanBadge } from './TaskRecurrenceBadges'
 import { taskTail } from '../lib/task-tail'
 
 const FULL_DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -272,8 +278,8 @@ export function CalendarPanel({
 
   // The selected day's tasks drive the keyboard "active task" cursor.
   const selectedDayTasks = useMemo(
-    () => tasksDueOn(inferredTasks, selectedIso),
-    [inferredTasks, selectedIso]
+    () => tasksOnDay(inferredTasks, selectedIso, todayIso),
+    [inferredTasks, selectedIso, todayIso]
   )
   const activeIdx = Math.min(activeTaskIndex, Math.max(0, selectedDayTasks.length - 1))
   useEffect(() => {
@@ -502,6 +508,12 @@ export function CalendarPanel({
             label: `Just set due: ${dropLabel}`,
             onSelect: () => void applyTaskMutation(task, { kind: 'set-due', due: iso }),
           },
+          {
+            // The deadline stays; only the day to work on it moves (#1119).
+            label: `Plan for ${dropLabel}`,
+            disabled: !canPlanTask(task),
+            onSelect: () => void planTask(task, iso),
+          },
         ],
       })
     },
@@ -684,6 +696,12 @@ export function CalendarPanel({
           if (e.key === 'T') {
             consume()
             void applyTaskMutation(cur, { kind: 'set-due', due: todayIso })
+            return
+          }
+          // Plan for today (#1119), as on the big calendar.
+          if (e.key === 'p') {
+            consume()
+            void planTaskForToday(cur, today)
             return
           }
           if (e.key === 'x' || e.key === ' ') {
@@ -887,6 +905,10 @@ export function CalendarPanel({
         {task.sourcePath !== (dailyByDate.get(dayIso)?.path ?? '') && (
           <span className="shrink-0 truncate text-2xs text-ink-400">{task.noteTitle}</span>
         )}
+        <span className="contents text-2xs text-ink-500">
+          <TaskPlanBadge task={task} compact />
+          <TaskDeadlineFlag task={task} todayIso={todayIso} />
+        </span>
         <CloudTaskConflictIndicator path={task.sourcePath} />
       </div>
     )
@@ -1176,7 +1198,7 @@ export function CalendarPanel({
           <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
             {weekDays.map((day) => {
               const iso = isoDateStr(day)
-              const dayTasks = tasksDueOn(inferredTasks, iso)
+              const dayTasks = tasksOnDay(inferredTasks, iso, todayIso)
               const isSel = iso === selectedIso
               const isDragOver = dragOverIso === iso
               return (

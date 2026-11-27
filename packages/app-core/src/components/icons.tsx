@@ -40,6 +40,23 @@ export const BellIcon = (p: IconProps): JSX.Element => (
   </I>
 )
 
+/** A calendar page with a tick: a task planned for a day (#1119). */
+export const PlannedIcon = (p: IconProps): JSX.Element => (
+  <I {...p}>
+    <rect x="3" y="4.5" width="18" height="16.5" rx="2.5" />
+    <path d="M8 2.5v4M16 2.5v4M3 9.5h18" />
+    <path d="m9 15.5 2.2 2.2 4-4.2" />
+  </I>
+)
+
+/** A flag: the deadline of a task that sits on another day (#1119). */
+export const FlagIcon = (p: IconProps): JSX.Element => (
+  <I {...p}>
+    <path d="M5 21V4" />
+    <path d="M5 4.5c5-2.5 8 2.5 14 0v9c-6 2.5-9-2.5-14 0" />
+  </I>
+)
+
 export const SearchIcon = (p: IconProps): JSX.Element => (
   <I {...p}>
     <circle cx="11" cy="11" r="7" />

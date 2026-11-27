@@ -347,6 +347,92 @@ describe('dropMutationsFor on the Status board (#677)', () => {
   })
 })
 
+// #1119: a task with a planned day sits where its plan puts it, so the date
+// columns move the plan and leave the deadline the date it has.
+describe('the Status board and a planned day (#1119)', () => {
+  // TODAY is 25 August 2026.
+  const plannedCard = (content: string, scheduled: string, over: Partial<VaultTask> = {}): VaultTask =>
+    card({ content, fields: { scheduled }, tags: [], ...over })
+  const drop = (columnId: string, task: VaultTask) =>
+    dropMutationsFor('status', columnId, task, TODAY)!.filter(
+      (m) => m.kind === 'set-due' || m.kind === 'set-field'
+    )
+  const landsIn = (columnId: string, task: VaultTask): string => {
+    const moved = applyTaskMutationsForBoard(task, dropMutationsFor('status', columnId, task, TODAY)!)
+    return statusColumns([moved], TODAY).find((c) => c.tasks.length > 0)!.id
+  }
+
+  it('places a card by its planned day, and counts only a passed deadline as overdue', () => {
+    const columns = statusColumns(
+      [
+        plannedCard('planned today', '2026-08-25', { taskIndex: 0, due: '2026-09-10' }),
+        plannedCard('planned later', '2026-08-28', { taskIndex: 1, due: '2026-09-10' }),
+        plannedCard('missed plan', '2026-08-20', { taskIndex: 2, due: '2026-09-10' }),
+        plannedCard('late', '2026-08-28', { taskIndex: 3, due: '2026-08-20' }),
+        plannedCard('planned only', '2026-08-27', { taskIndex: 4 })
+      ],
+      TODAY
+    )
+    expect(columnIds(columns, 'today').sort()).toEqual(['late', 'missed plan', 'planned today'])
+    expect(columnIds(columns, 'upcoming').sort()).toEqual(['planned later', 'planned only'])
+    expect(columnIds(columns, 'undated')).toEqual([])
+    expect(columns.find((c) => c.id === 'today')!.badge).toEqual({ kind: 'overdue', value: 1 })
+  })
+
+  it('a drop on Today plans the card for today and keeps its due date', () => {
+    const task = plannedCard('x', '2026-08-28', { due: '2026-09-10' })
+    expect(drop('today', task)).toEqual([{ kind: 'set-field', key: 'scheduled', value: '2026-08-25' }])
+    expect(landsIn('today', task)).toBe('today')
+    // Without a planned day the drop writes the due date, as it always did.
+    expect(drop('today', card({ content: 'x', due: '2026-09-10' }))).toEqual([{ kind: 'set-due', due: '2026-08-25' }])
+  })
+
+  it('a drop on Upcoming moves whichever date held the card in Today', () => {
+    const missed = plannedCard('x', '2026-08-20', { due: '2026-09-10' })
+    expect(drop('upcoming', missed)).toEqual([{ kind: 'set-field', key: 'scheduled', value: '2026-08-26' }])
+    expect(landsIn('upcoming', missed)).toBe('upcoming')
+
+    const late = plannedCard('x', '2026-08-28', { due: '2026-08-20' })
+    expect(drop('upcoming', late)).toEqual([{ kind: 'set-due', due: '2026-08-26' }])
+    expect(landsIn('upcoming', late)).toBe('upcoming')
+
+    const both = plannedCard('x', '2026-08-25', { due: '2026-08-25' })
+    expect(drop('upcoming', both)).toEqual([
+      { kind: 'set-due', due: '2026-08-26' },
+      { kind: 'set-field', key: 'scheduled', value: '2026-08-26' }
+    ])
+    expect(landsIn('upcoming', both)).toBe('upcoming')
+
+    // Already planned ahead: nothing about its dates changes.
+    expect(drop('upcoming', plannedCard('x', '2026-08-28', { due: '2026-09-10' }))).toEqual([])
+  })
+
+  it('a drop on No due date takes the planned day off with the due date', () => {
+    const task = plannedCard('x', '2026-08-28', { due: '2026-09-10' })
+    expect(drop('undated', task)).toEqual([
+      { kind: 'set-due', due: null },
+      { kind: 'set-field', key: 'scheduled', value: null }
+    ])
+    expect(landsIn('undated', task)).toBe('undated')
+  })
+
+  it('refuses No due date for a planned task in a daily note, which would land back on its note\'s day', () => {
+    const daily = plannedCard('x', '2026-08-28', { due: '2026-08-25', dueInferred: true })
+    expect(dropMutationsFor('status', 'undated', daily, TODAY)).toBeNull()
+    // Its note's date gives way to the plan, so it is Upcoming, not Today.
+    expect(statusColumns([daily], TODAY).find((c) => c.tasks.length > 0)!.id).toBe('upcoming')
+  })
+
+  it('moves a task note by its frontmatter plan', () => {
+    const note = card({ content: 'x', kind: 'file', scheduled: '2026-08-28', fields: {}, tags: [] })
+    expect(drop('today', note)).toEqual([{ kind: 'set-field', key: 'scheduled', value: '2026-08-25' }])
+    const moved = applyTaskMutationsForBoard(note, dropMutationsFor('status', 'today', note, TODAY)!)
+    expect(moved.scheduled).toBe('2026-08-25')
+    expect(moved.fields).toEqual({})
+    expect(statusColumns([moved], TODAY).find((c) => c.tasks.length > 0)!.id).toBe('today')
+  })
+})
+
 describe('completeStatusOrder (#677)', () => {
   const built = ['today', 'upcoming', IN_PROGRESS_COLUMN_ID, 'waiting', 'done']
 

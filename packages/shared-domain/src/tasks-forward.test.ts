@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { forwardTaskSubtreeAtIndex, setTaskForwardedAtIndex, TASK_LINE_RE } from './tasklists'
 import {
-  bucketTasksByDueDate,
+  bucketTasksByDay,
   groupTasks,
   inferDailyTaskDueDates,
   parseTasksFromBody,
@@ -9,6 +9,9 @@ import {
 } from './tasks'
 
 const ctx: ParseTasksContext = { path: 'inbox/t.md', title: 't', folder: 'inbox' }
+// These tasks have no planned day, so the day they sit on does not depend on
+// today; any date serves.
+const TODAY = '2026-01-01'
 
 describe('task forwarding primitives (#316)', () => {
   it('recognizes [>] as a task state', () => {
@@ -174,12 +177,12 @@ describe('forwarded records on dated surfaces (#610)', () => {
     const tasks = parseTasksFromBody('- [>] pay due:2026-08-20 [[X]]', dayCtx('2026-08-15'))
     const out = inferDailyTaskDueDates(tasks, new Map([[tasks[0].sourcePath, '2026-08-15']]))
     expect(out[0].due).toBe('2026-08-20')
-    expect(bucketTasksByDueDate(out).get('2026-08-20')?.length).toBe(1)
+    expect(bucketTasksByDay(out, TODAY).get('2026-08-20')?.length).toBe(1)
   })
 
   it('keeps an undated forwarded record off the calendar entirely, including unscheduled', () => {
     const tasks = parseTasksFromBody('- [>] gone [[X]]\n- [ ] still here', dayCtx('2026-08-15'))
-    const buckets = bucketTasksByDueDate(tasks)
+    const buckets = bucketTasksByDay(tasks, TODAY)
     expect(buckets.get('unscheduled')?.map((t) => t.content)).toEqual(['still here'])
   })
 })

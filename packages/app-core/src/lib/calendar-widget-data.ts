@@ -19,6 +19,7 @@ import {
   type VaultTask,
 } from '@shared/tasks'
 import { toggleTaskAtIndex } from '@shared/tasklists'
+import { taskDay } from '@shared/task-planning'
 import { useStore } from '../store'
 import {
   buildDailyNoteDateByPath,
@@ -169,7 +170,7 @@ export async function getCalendarWidgetData(
     if (weekly && !weeks[week]) weeks[week] = markFor(await noteStats(weekly), state.hideEmptyTasks)
   }
 
-  // The agenda is the panel's: open tasks by due date, with daily-note tasks
+  // The agenda is the panel's: open tasks by day, with daily-note tasks
   // inheriting the note's date, and empty ones out on the same switch
   // (#1026). Tasks of a note that left the index (trashed, deleted from the
   // drawer) can linger until the next full scan; skip them.
@@ -181,12 +182,16 @@ export async function getCalendarWidgetData(
     state.hideEmptyTasks ? withoutEmptyTasks(listed).shown : listed,
     buildDailyNoteDateByPath(state.notes, state.vaultSettings)
   )
+  // On the day each task sits on, as the panel places it: a planned day
+  // first, the due date otherwise (#1119).
+  const todayIso = isoDateStr(today)
   const byDay = new Map<string, VaultTask[]>()
   for (const task of inferred) {
-    if (!task.due || task.due < from || task.due > to || !isTaskOpen(task)) continue
-    const list = byDay.get(task.due)
+    const day = taskDay(task, todayIso)
+    if (!day || day < from || day > to || !isTaskOpen(task)) continue
+    const list = byDay.get(day)
     if (list) list.push(task)
-    else byDay.set(task.due, [task])
+    else byDay.set(day, [task])
   }
   const agenda: Record<string, CalendarWidgetDay> = {}
   for (const iso of dayIsos) {

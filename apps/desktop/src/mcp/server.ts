@@ -27,7 +27,7 @@ import {
   type VaultTarget
 } from '../cli/vault-target.js'
 import { RemoteRequestError } from '../main/remote/connection.js'
-import { treatRecordPagesAsNotes, type NoteFolder } from './vault-ops.js'
+import { plannedDayOfTaskText, treatRecordPagesAsNotes, type NoteFolder } from './vault-ops.js'
 import { addComment, listCommentThreads, replyToComment, resolveComment } from './comment-ops.js'
 import {
   isMcpScopeActive,
@@ -662,7 +662,7 @@ const TOOLS: ToolDef[] = [
     schema: {
       name: 'list_tasks',
       description:
-        'Return every task (markdown checkbox) in live notes with parsed metadata: due date, priority, @waiting, tags, and status, the column a Kanban board grouped by status shows it in (a task note’s `status:`, a line’s `@status:`, or the frontmatter `status:` of its note). Filter by state, priority, date range, tag, or folder.',
+        'Return every task (markdown checkbox) in live notes with parsed metadata: due date, priority, @waiting, tags, status, the column a Kanban board grouped by status shows it in (a task note’s `status:`, a line’s `@status:`, or the frontmatter `status:` of its note), and scheduled, the day the task is planned for (a line’s `@scheduled:`, a task note’s `scheduled:`). The app shows a task on its scheduled day when it has one and on its due date otherwise; due stays the deadline. Filter by state, priority, due date range, tag, or folder.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -713,7 +713,14 @@ const TOOLS: ToolDef[] = [
       const folder = args.folder
         ? (requireFolder(args, 'folder') as 'inbox' | 'quick' | 'archive')
         : null
-      const all = await backend.scanAllTasks(includeExcluded ? { includeExcluded: true } : undefined)
+      const scanned = await backend.scanAllTasks(includeExcluded ? { includeExcluded: true } : undefined)
+      // The local scanner reports a checkbox line's planned day; a remote
+      // vault's server may not yet, so it is read from the line here.
+      const all = scanned.map((t) => {
+        if (t.kind === 'file' || t.scheduled) return t
+        const scheduled = plannedDayOfTaskText(t.rawText ?? '')
+        return scheduled ? { ...t, scheduled } : t
+      })
       return all.filter((t) => {
         if (folder && t.noteFolder !== folder) return false
         // A `[>]` record's live copy sits in the destination note; listing the

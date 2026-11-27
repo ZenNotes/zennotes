@@ -263,3 +263,71 @@ describe('timeline ranges and labels', () => {
     expect(timelineDayLabel('2027-01-04', TODAY)).toBe(`${weekday(jan4)} 4 ${month(jan4)} 2027`)
   })
 })
+
+// #1119: the rail draws a task on the day it sits on, its planned day first.
+describe('buildTimelineRail and a planned day (#1119)', () => {
+  const planned = (id: string, scheduled: string, overrides?: Partial<VaultTask>): VaultTask =>
+    task(id, { fields: { scheduled }, ...overrides })
+
+  it('draws a task on its planned day, not its deadline', () => {
+    const rail = buildTimelineRail(
+      [
+        planned('report', '2026-10-30', { due: '2026-11-04' }),
+        task('plain', { due: '2026-11-04' }),
+        planned('only-planned', '2026-10-29')
+      ],
+      { today: TODAY, range: 'two-weeks' }
+    )
+    expect(shape(rail.entries)).toEqual([
+      'today 2026-10-28',
+      '2026-10-29 only-planned',
+      '2026-10-30 report',
+      'quiet 4',
+      '2026-11-04 plain'
+    ])
+    expect(rail.rows.find((r) => r.task.id === 'report')).toMatchObject({ day: '2026-10-30', lateDays: 0 })
+    expect(rail.undatedCount).toBe(0)
+  })
+
+  it('keeps a missed planned day under today, not late, and a passed deadline overdue', () => {
+    const rail = buildTimelineRail(
+      [
+        planned('missed', '2026-10-20', { due: '2026-11-04' }),
+        planned('late', '2026-10-30', { due: '2026-10-26' })
+      ],
+      { today: TODAY, range: 'two-weeks' }
+    )
+    expect(shape(rail.entries)).toEqual(['overdue late', 'today 2026-10-28 missed'])
+    expect(rail.overdueCount).toBe(1)
+    expect(rail.rows.find((r) => r.task.id === 'late')).toMatchObject({ day: '2026-10-26', lateDays: 2 })
+    expect(rail.rows.find((r) => r.task.id === 'missed')).toMatchObject({ day: '2026-10-28', lateDays: 0 })
+  })
+
+  it('counts the range and a milestone\'s tasks by the days they are drawn on', () => {
+    const rail = buildTimelineRail(
+      [
+        // Due inside the range, planned past it: later, not on the rail.
+        planned('far', '2026-12-20', { due: '2026-12-24' }),
+        // Due after the milestone, planned before it: stands above it.
+        planned('before', '2026-10-29', { due: '2026-11-20' }),
+        task('ship', { due: '2026-11-02', tags: ['milestone'] }),
+        // Due before the milestone, planned after it: no longer in its way.
+        planned('after', '2026-11-05', { due: '2026-11-06' })
+      ],
+      { today: TODAY, range: 'two-weeks' }
+    )
+    expect(rail.laterCount).toBe(1)
+    expect(rail.rows.map((r) => r.task.id)).toEqual(['before', 'ship', 'after'])
+    expect(rail.rows.find((r) => r.task.id === 'ship')?.before).toBe(1)
+  })
+
+  it('lets a planned day replace a daily note\'s date', () => {
+    const tasks = inferDailyTaskDueDates(
+      [planned('in-note', '2026-10-30', { sourcePath: 'Daily/2026-10-26.md' })],
+      new Map([['Daily/2026-10-26.md', '2026-10-26']])
+    )
+    const rail = buildTimelineRail(tasks, { today: TODAY, range: 'two-weeks' })
+    expect(shape(rail.entries)).toEqual(['today 2026-10-28', 'quiet 1', '2026-10-30 in-note'])
+    expect(rail.overdueCount).toBe(0)
+  })
+})

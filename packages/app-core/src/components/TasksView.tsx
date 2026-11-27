@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { isTasksViewActive, useStore, type KanbanCardSort, type TasksListOrder, type TasksViewMode } from '../store'
-import { filterTasksForDisplay, inferDailyTaskDueDates, type VaultTask } from '@shared/tasks'
+import {
+  filterTasksForDisplay,
+  inferDailyTaskDueDates,
+  toIsoDateLocal,
+  type VaultTask
+} from '@shared/tasks'
 import { buildDailyNoteDateByPath } from '../lib/vault-layout'
 import { computeTasksRender, filterTasks, isOverdue, noteTagsByPath } from '../lib/tasks-filter'
 import { forwardTaskWithPicker } from '../lib/forward-task'
@@ -20,7 +25,7 @@ import {
   listViewYieldsKey
 } from '../lib/list-view-keys'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
-import { buildTaskMenuItems, chooseTaskDueDate } from '../lib/task-context-menu'
+import { buildTaskMenuItems, chooseTaskDueDate, planTask, planTaskForToday } from '../lib/task-context-menu'
 import { chooseTaskRemind, chooseTaskRepeat } from '../lib/task-recurrence-pickers'
 import { repeatRuleOfLine } from '@shared/task-recurrence'
 import { isImeComposing } from '../lib/ime'
@@ -193,6 +198,7 @@ export function TasksView(): JSX.Element {
   // single view session. If the user leaves the view past midnight and comes
   // back, reopening the view is sufficient to refresh the anchor.
   const today = useMemo(() => new Date(), [])
+  const todayIso = useMemo(() => toIsoDateLocal(today), [today])
 
   const render = useMemo(() => {
     const linger = lingerRef.current
@@ -963,6 +969,13 @@ export function TasksView(): JSX.Element {
         void (key === 'r' ? chooseTaskRepeat(currentTask) : chooseTaskRemind(currentTask))
         return
       }
+      // Plan the selected task for today (#1119). Vim-gated single key; the
+      // task menu's Plan for… picks any day, and is the way in with Vim off.
+      if (vimMode && key === 'p' && currentTask) {
+        consume()
+        void planTaskForToday(currentTask, today)
+        return
+      }
     }
     window.addEventListener('keydown', handler, true)
     return () => window.removeEventListener('keydown', handler, true)
@@ -990,7 +1003,8 @@ export function TasksView(): JSX.Element {
     listOrder,
     setTasksListOrder,
     setHideEmptyTasks,
-    toast
+    toast,
+    today
   ])
 
   return (
@@ -1220,6 +1234,7 @@ export function TasksView(): JSX.Element {
                 key={task.id}
                 task={task}
                 isOverdue={overdue}
+                todayIso={todayIso}
                 isCursor={keyCursor && idx === currentRowIdx}
                 onToggle={() => lingerToggle(task)}
                 onOpen={() => void openTaskAt(task)}
@@ -1247,6 +1262,7 @@ export function TasksView(): JSX.Element {
             void applyTaskMutation(task, { kind: 'set-due', due: dueIso })
           }
           onMoveTask={(task, dateIso) => void moveTaskToDate(task, dateIso)}
+          onPlanTask={(task, dateIso) => void planTask(task, dateIso)}
           onAddTask={(dateIso, text) => addTaskForDate(dateIso, text)}
           dailyNotesEnabled={vaultSettings.dailyNotes.enabled}
           hiddenEmpty={hiddenEmpty}

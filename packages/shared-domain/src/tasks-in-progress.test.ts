@@ -1,17 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import { extractOpenTaskBlocks, setTaskInProgressAtIndex, TASK_LINE_RE } from './tasklists'
 import {
-  bucketTasksByDueDate,
+  bucketTasksByDay,
   groupTasks,
   isTaskOpen,
   parseTaskFile,
   parseTasksFromBody,
-  tasksDueOn,
+  tasksOnDay,
   type ParseTasksContext
 } from './tasks'
 import { setTaskFileInProgress } from './frontmatter'
 
 const ctx: ParseTasksContext = { path: 'inbox/t.md', title: 't', folder: 'inbox' }
+// These tasks have no planned day, so the day they sit on does not depend on
+// today; any date serves.
+const TODAY = '2026-01-01'
 
 describe('task in-progress primitives (#512)', () => {
   it('recognizes [/] as a task state', () => {
@@ -78,8 +81,8 @@ describe('task in-progress primitives (#512)', () => {
       ),
       ctx
     )
-    expect(tasksDueOn(tasks, '2026-07-27').map((t) => t.content)).toEqual(['open', 'started'])
-    const buckets = bucketTasksByDueDate(tasks)
+    expect(tasksOnDay(tasks, '2026-07-27', TODAY).map((t) => t.content)).toEqual(['open', 'started'])
+    const buckets = bucketTasksByDay(tasks, TODAY)
     expect(buckets.get('2026-07-27')?.map((t) => t.content)).toEqual(['open', 'started'])
     expect(buckets.get('unscheduled')?.map((t) => t.content)).toEqual(['started undated'])
   })
