@@ -365,6 +365,11 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
     tomlKey: 'indent_sections',
     comment: 'indent each heading and everything under it by its level, like the outline'
   },
+  sectionIndentWidth: {
+    section: 'typography',
+    tomlKey: 'section_indent_width',
+    comment: 'spaces each indent_sections level moves in, from 1 through 8'
+  },
   // view
   atlasEnabled: {
     section: 'view',

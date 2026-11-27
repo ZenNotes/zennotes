@@ -114,6 +114,10 @@ import { followLinkTarget } from "../lib/follow-link";
 import { openLinkPopoverAtCursor } from "../lib/link-popover-open";
 import { openGalleryFromArgument } from "../lib/folder-gallery-open";
 import { newKanbanFromArgument } from "../lib/kanban-create";
+import {
+  MAX_SECTION_INDENT_WIDTH,
+  MIN_SECTION_INDENT_WIDTH,
+} from "../lib/section-indent-width";
 
 let vimCommandsRegistered = false;
 let syncedVimBindings: Partial<Record<KeymapId, string[]>> = {};
@@ -857,11 +861,28 @@ function registerVimCommands(): void {
   });
 
   // `:indentsections` flips Indent sections, like the palette's Toggle
-  // Section Indent.
-  Vim.defineEx("indentsections", "indents", () => {
-    const st = useStore.getState();
-    st.setIndentSections(!st.indentSections);
-  });
+  // Section Indent. `:indentsections 2` sets Indent width to 2 spaces and
+  // turns it on, so trying widths does not flip it off between tries.
+  Vim.defineEx(
+    "indentsections",
+    "indents",
+    (_cm: unknown, params: { argString?: string } | undefined) => {
+      const st = useStore.getState();
+      const arg = (params?.argString ?? "").trim();
+      if (arg === "") {
+        st.setIndentSections(!st.indentSections);
+        return;
+      }
+      if (!/^\d+$/.test(arg)) {
+        alertEditorError(
+          `Indent width is a number of spaces, ${MIN_SECTION_INDENT_WIDTH} through ${MAX_SECTION_INDENT_WIDTH}`,
+        );
+        return;
+      }
+      st.setSectionIndentWidth(Number(arg));
+      st.setIndentSections(true);
+    },
+  );
 
   Vim.defineEx("daily", "daily", () => {
     void useStore.getState().openTodayDailyNote();

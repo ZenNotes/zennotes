@@ -304,6 +304,10 @@ import {
 } from './lib/folder-gallery'
 import { normalizeApplicationSchemes } from '@shared/application-links'
 import { normalizeEditorTabSize } from './lib/editor-tab-size'
+import {
+  DEFAULT_SECTION_INDENT_WIDTH,
+  normalizeSectionIndentWidth
+} from './lib/section-indent-width'
 import { recentNoteToggleTarget } from './lib/recent-note-toggle'
 import { whatsNewAtLaunch, whatsNewOnDemand, type WhatsNewView } from './lib/whats-new'
 
@@ -676,6 +680,8 @@ interface Prefs {
   colorHeadings: boolean
   /** Indent every heading and what is under it by its level, like the outline. */
   indentSections: boolean
+  /** Spaces each Indent sections level moves in (lib/section-indent-width.ts). */
+  sectionIndentWidth: number
   /** A color and font per heading level from Settings → Typography → Headings,
    *  keyed `h1.color` … `h6.font` (lib/heading-styles.ts). */
   headingStyles: Record<string, string>
@@ -1385,6 +1391,7 @@ export const DEFAULT_PREFS: Prefs = {
   showHeadingLevelLabels: false,
   colorHeadings: false,
   indentSections: false,
+  sectionIndentWidth: DEFAULT_SECTION_INDENT_WIDTH,
   headingStyles: {},
   listIndentGuides: true,
   linkPopoverOnHover: true,
@@ -1586,6 +1593,7 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
     headingStyles: normalizeHeadingStyles(p.headingStyles),
     indentSections:
       typeof p.indentSections === 'boolean' ? p.indentSections : DEFAULT_PREFS.indentSections,
+    sectionIndentWidth: normalizeSectionIndentWidth(p.sectionIndentWidth),
     listIndentGuides:
       typeof p.listIndentGuides === 'boolean'
         ? p.listIndentGuides
@@ -2899,6 +2907,7 @@ function collectPrefs(s: {
   showHeadingLevelLabels: boolean
   colorHeadings: boolean
   indentSections: boolean
+  sectionIndentWidth: number
   headingStyles: Record<string, string>
   listIndentGuides: boolean
   linkPopoverOnHover: boolean
@@ -3034,6 +3043,7 @@ function collectPrefs(s: {
     showHeadingLevelLabels: s.showHeadingLevelLabels,
     colorHeadings: s.colorHeadings,
     indentSections: s.indentSections,
+    sectionIndentWidth: s.sectionIndentWidth,
     headingStyles: s.headingStyles,
     listIndentGuides: s.listIndentGuides,
     linkPopoverOnHover: s.linkPopoverOnHover,
@@ -3654,6 +3664,7 @@ interface Store {
   showHeadingLevelLabels: boolean
   colorHeadings: boolean
   indentSections: boolean
+  sectionIndentWidth: number
   headingStyles: Record<string, string>
   listIndentGuides: boolean
   linkPopoverOnHover: boolean
@@ -4376,6 +4387,7 @@ interface Store {
   setShowHeadingLevelLabels: (on: boolean) => void
   setColorHeadings: (on: boolean) => void
   setIndentSections: (on: boolean) => void
+  setSectionIndentWidth: (width: number) => void
   setHeadingStyle: (level: HeadingLevel, prop: HeadingStyleProp, value: string | null) => void
   resetHeadingStyles: () => void
   setListIndentGuides: (on: boolean) => void
@@ -6817,6 +6829,7 @@ export const useStore = create<Store>((set, get) => {
   showHeadingLevelLabels: loadPrefs().showHeadingLevelLabels,
   colorHeadings: loadPrefs().colorHeadings,
   indentSections: loadPrefs().indentSections,
+  sectionIndentWidth: loadPrefs().sectionIndentWidth,
   headingStyles: loadPrefs().headingStyles,
   listIndentGuides: loadPrefs().listIndentGuides,
   linkPopoverOnHover: loadPrefs().linkPopoverOnHover,
@@ -10488,6 +10501,10 @@ export const useStore = create<Store>((set, get) => {
   },
   setIndentSections: (on) => {
     set({ indentSections: on })
+    savePrefs(collectPrefs(get()))
+  },
+  setSectionIndentWidth: (width) => {
+    set({ sectionIndentWidth: normalizeSectionIndentWidth(width) })
     savePrefs(collectPrefs(get()))
   },
   setHeadingStyle: (level, prop, value) => {

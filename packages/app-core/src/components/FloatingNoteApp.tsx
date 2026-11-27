@@ -63,6 +63,7 @@ import { editorTabSize, normalizeEditorTabSize } from '../lib/editor-tab-size'
 import { storedCursorDrawSelection } from '../lib/cm-cursor-blink'
 import { useCloseWindowShortcut } from '../lib/close-shortcut'
 import { applyHeadingStyles } from '../lib/heading-styles'
+import { applySectionIndent } from '../lib/section-indent-width'
 
 const PREFS_KEY = 'zen:prefs:v2'
 const SAVE_DEBOUNCE_MS = 350
@@ -118,6 +119,7 @@ export interface FloatingPrefs {
   showHeadingLevelLabels: boolean
   colorHeadings: boolean
   indentSections: boolean
+  sectionIndentWidth?: number
   headingStyles: Record<string, string>
   lineNumberMode: LineNumberMode
   wordWrap: boolean
@@ -230,7 +232,7 @@ export function applyTheme(prefs: FloatingPrefs): void {
   )
   html.toggleAttribute('data-color-headings', prefs.colorHeadings === true)
   applyHeadingStyles(html, prefs.headingStyles)
-  html.toggleAttribute('data-indent-sections', prefs.indentSections === true)
+  applySectionIndent(html, prefs.indentSections === true, prefs.sectionIndentWidth)
   html.setAttribute('data-opaque', '')
 }
 

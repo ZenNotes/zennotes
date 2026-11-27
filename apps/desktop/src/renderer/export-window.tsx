@@ -16,6 +16,11 @@ import {
 import { withExportTitle } from '@shared/export-title'
 import { pdfExportFontSizePx } from '@shared/app-config'
 import { applyHeadingStyles, normalizeHeadingStyles } from '@renderer/lib/heading-styles'
+import {
+  DEFAULT_SECTION_INDENT_WIDTH,
+  applySectionIndent,
+  normalizeSectionIndentWidth
+} from '@renderer/lib/section-indent-width'
 import { fitExportImageBoxes, settleExportImages } from '@renderer/lib/export-images'
 import { fitExportImagesToPages } from '@renderer/lib/export-pagination'
 import '@renderer/styles/index.css'
@@ -50,6 +55,7 @@ type ExportPrefs = {
   /** Settings → Typography → Headings: the preset and the per-level picks. */
   colorHeadings: boolean
   indentSections: boolean
+  sectionIndentWidth: number
   headingStyles: Record<string, string>
 }
 
@@ -71,6 +77,7 @@ const DEFAULT_EXPORT_PREFS: ExportPrefs = {
   themeTweaks: {},
   colorHeadings: false,
   indentSections: false,
+  sectionIndentWidth: DEFAULT_SECTION_INDENT_WIDTH,
   headingStyles: {}
 }
 
@@ -131,6 +138,7 @@ function loadExportPrefs(): ExportPrefs {
       themeTweaks: safeStringRecord(parsed.themeTweaks),
       colorHeadings: parsed.colorHeadings === true,
       indentSections: parsed.indentSections === true,
+      sectionIndentWidth: normalizeSectionIndentWidth(parsed.sectionIndentWidth),
       headingStyles: normalizeHeadingStyles(parsed.headingStyles)
     }
   } catch {
@@ -235,7 +243,7 @@ function applyExportPrefs(prefs: ExportPrefs): void {
   // hue then takes the print theme's shade), the way the text fonts do.
   html.toggleAttribute('data-color-headings', prefs.colorHeadings)
   applyHeadingStyles(html, prefs.headingStyles)
-  html.toggleAttribute('data-indent-sections', prefs.indentSections)
+  applySectionIndent(html, prefs.indentSections, prefs.sectionIndentWidth)
   html.style.setProperty(
     '--z-preview-max-width',
     `min(${prefs.previewMaxWidth}px, ${PDF_PRINTABLE_WIDTH})`
